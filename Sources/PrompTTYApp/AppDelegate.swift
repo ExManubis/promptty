@@ -7,7 +7,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static func main() {
         let delegate = AppDelegate()
         NSApplication.shared.delegate = delegate
-        NSApplication.shared.run()
+        withExtendedLifetime(delegate) {
+            NSApplication.shared.run()
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
