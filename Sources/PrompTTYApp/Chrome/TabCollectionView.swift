@@ -25,6 +25,8 @@ final class TabCollectionView: NSView, NSCollectionViewDataSource, NSCollectionV
     private let scroll = NSScrollView()
     private var tabs: [Tab] = []
     private var selected: TabID?
+    /// Model updates that arrived during an inline rename; applied when the rename ends.
+    private var pendingUpdate: (tabs: [Tab], selected: TabID?)?
 
     init(layout: TabLayout) {
         layoutMode = layout
@@ -63,6 +65,12 @@ final class TabCollectionView: NSView, NSCollectionViewDataSource, NSCollectionV
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
     func update(tabs: [Tab], selected: TabID?) {
+        // Reloading mid-rename would reuse the editing row; defer until the rename ends.
+        if collection.visibleItems().contains(where: { ($0 as? TabItem)?.isRenaming == true }) {
+            pendingUpdate = (tabs, selected)
+            return
+        }
+        pendingUpdate = nil
         self.tabs = tabs
         self.selected = selected
         collection.reloadData()
@@ -159,12 +167,14 @@ final class TabCollectionView: NSView, NSCollectionViewDataSource, NSCollectionV
         delegate?.tabList(self, didRequestClose: id)
     }
 
-    func tabItem(_ item: TabItem, didRename title: String) {
-        guard let id = item.tabID else { return }
+    func tabItem(_ item: TabItem, didRename id: TabID, to title: String) {
         delegate?.tabList(self, didRename: id, to: title)
     }
 
     func tabItemDidEndRenaming(_ item: TabItem) {
+        if let pending = pendingUpdate {
+            update(tabs: pending.tabs, selected: pending.selected)
+        }
         delegate?.tabListDidEndRenaming(self)
     }
 }

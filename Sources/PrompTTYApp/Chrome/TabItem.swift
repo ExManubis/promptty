@@ -4,7 +4,7 @@ import WorkspaceModel
 @MainActor
 protocol TabItemDelegate: AnyObject {
     func tabItemDidRequestClose(_ item: TabItem)
-    func tabItem(_ item: TabItem, didRename title: String)
+    func tabItem(_ item: TabItem, didRename id: TabID, to title: String)
     /// Rename finished (committed or cancelled); the field has given up focus.
     func tabItemDidEndRenaming(_ item: TabItem)
 }
@@ -22,6 +22,11 @@ final class TabItem: NSCollectionViewItem, NSTextFieldDelegate {
     private var compact = false
     /// True between a double-click and Enter/Escape; guards against end-editing after a cancel.
     private var renaming = false
+    /// The tab and title captured when the rename began; the item may be reconfigured mid-edit.
+    private var renameTabID: TabID?
+    private var renameOriginalTitle = ""
+
+    var isRenaming: Bool { renaming }
 
     override func loadView() {
         let root = HoverView()
@@ -70,6 +75,17 @@ final class TabItem: NSCollectionViewItem, NSTextFieldDelegate {
         view.addGestureRecognizer(doubleClick)
     }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        if renaming { titleField.abortEditing() }
+        renaming = false
+        renameTabID = nil
+        renameOriginalTitle = ""
+        endRenameAppearance()
+        closeButton.isHidden = true
+        tabID = nil
+    }
+
     func configure(tab: Tab, compact: Bool, selected: Bool) {
         tabID = tab.id
         self.compact = compact
@@ -93,7 +109,10 @@ final class TabItem: NSCollectionViewItem, NSTextFieldDelegate {
     @objc private func closeTapped() { delegate?.tabItemDidRequestClose(self) }
 
     @objc private func beginRename() {
+        guard let tabID else { return }
         renaming = true
+        renameTabID = tabID
+        renameOriginalTitle = titleField.stringValue
         titleField.isEditable = true
         titleField.isBordered = true
         titleField.drawsBackground = true
@@ -108,16 +127,22 @@ final class TabItem: NSCollectionViewItem, NSTextFieldDelegate {
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
-        guard renaming else { return }
+        guard renaming, let id = renameTabID else { return }
         renaming = false
+        renameTabID = nil
         endRenameAppearance()
-        delegate?.tabItem(self, didRename: titleField.stringValue)
+        let delegate = delegate
+        // Committing the title shown when editing began is a no-op, not a pin of the shell title.
+        if titleField.stringValue != renameOriginalTitle {
+            delegate?.tabItem(self, didRename: id, to: titleField.stringValue)
+        }
         delegate?.tabItemDidEndRenaming(self)
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
             renaming = false
+            renameTabID = nil
             titleField.abortEditing()
             endRenameAppearance()
             delegate?.tabItemDidEndRenaming(self)
