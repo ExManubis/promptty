@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-[ -d PrompTTY.xcodeproj ] || xcodegen generate
+xcodegen generate
 xcodebuild -project PrompTTY.xcodeproj -scheme PrompTTYApp -configuration Debug \
-  -derivedDataPath .build/DerivedData build | tail -5
+  -derivedDataPath .build/DerivedData build | tail -20
 open .build/DerivedData/Build/Products/Debug/PrompTTY.app

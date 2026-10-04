@@ -4,6 +4,12 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
 
+    static func main() {
+        let delegate = AppDelegate()
+        NSApplication.shared.delegate = delegate
+        NSApplication.shared.run()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let menu = NSMenu()
         let appItem = NSMenuItem()
