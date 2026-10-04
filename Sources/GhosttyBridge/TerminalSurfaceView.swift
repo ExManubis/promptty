@@ -220,10 +220,3 @@ func withOptionalCString<R>(_ s: String?, _ body: (UnsafePointer<CChar>?) -> R) 
     guard let s else { return body(nil) }
     return s.withCString { body($0) }
 }
-
-extension TerminalSurfaceView {
-    public func apply(mouseShape: MouseShape) {
-        currentMouseShape = mouseShape
-        window?.invalidateCursorRects(for: self)
-    }
-}
