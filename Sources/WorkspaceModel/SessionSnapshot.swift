@@ -43,15 +43,19 @@ extension Workspace {
         )
     }
 
-    /// Rebuilds a workspace. Directories that no longer exist fall back to `fallbackDirectory`.
-    /// An empty snapshot yields one window with one tab so the app never launches with no terminal.
+    /// Rebuilds a workspace. Working directories that are no longer directories fall back to
+    /// `fallbackDirectory`. Windows without tabs are skipped; if none remain, the result is one
+    /// window with one tab so the app never launches without a terminal.
     public static func restore(
         from snapshot: SessionSnapshot,
-        directoryExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
+        directoryExists: (String) -> Bool = { path in
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+        },
         fallbackDirectory: String = NSHomeDirectory()
     ) -> Workspace {
         let ws = Workspace(tabLayout: snapshot.tabLayout)
-        for windowSnap in snapshot.windows {
+        for windowSnap in snapshot.windows where !windowSnap.tabs.isEmpty {
             let w = ws.addWindow(frame: windowSnap.frame)
             for t in windowSnap.tabs {
                 let dir = directoryExists(t.workingDirectory) ? t.workingDirectory : fallbackDirectory
@@ -63,9 +67,8 @@ extension Workspace {
                 w.select(id: first.id)
             }
         }
-        if ws.windows.isEmpty || ws.windows.allSatisfy(\.isEmpty) {
-            let w = ws.windows.first ?? ws.addWindow()
-            w.addTab(title: "", workingDirectory: fallbackDirectory)
+        if ws.windows.isEmpty {
+            ws.addWindow().addTab(title: "", workingDirectory: fallbackDirectory)
         }
         return ws
     }

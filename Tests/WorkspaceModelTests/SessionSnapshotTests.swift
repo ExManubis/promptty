@@ -80,4 +80,29 @@ final class SessionSnapshotTests: XCTestCase {
         let ws = Workspace.restore(from: snap, directoryExists: { _ in true })
         XCTAssertEqual(ws.windows[0].selectedTab?.title, "x")
     }
+
+    func testRestoreSkipsWindowsWithoutTabs() {
+        let snap = SessionSnapshot(
+            version: 1, tabLayout: .sidebar,
+            windows: [WindowSnapshot(frame: nil, tabs: [], selectedIndex: nil),
+                      WindowSnapshot(frame: nil,
+                                     tabs: [TabSnapshot(title: "a", customTitle: nil, workingDirectory: "/a")],
+                                     selectedIndex: 0)]
+        )
+        let ws = Workspace.restore(from: snap, directoryExists: { _ in true })
+        XCTAssertEqual(ws.windows.count, 1)
+        XCTAssertEqual(ws.windows[0].tabs.map(\.title), ["a"])
+    }
+
+    func testRestoreWithOnlyTablessWindowsYieldsOneWindowWithOneTab() {
+        let snap = SessionSnapshot(
+            version: 1, tabLayout: .sidebar,
+            windows: [WindowSnapshot(frame: nil, tabs: [], selectedIndex: nil),
+                      WindowSnapshot(frame: nil, tabs: [], selectedIndex: nil)]
+        )
+        let ws = Workspace.restore(from: snap, directoryExists: { _ in true }, fallbackDirectory: "/Users/me")
+        XCTAssertEqual(ws.windows.count, 1)
+        XCTAssertEqual(ws.windows[0].tabs.count, 1)
+        XCTAssertEqual(ws.windows[0].tabs[0].workingDirectory, "/Users/me")
+    }
 }

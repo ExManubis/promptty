@@ -14,11 +14,11 @@ final class DebouncedSaverTests: XCTestCase {
 
     func testFlushRunsPendingActionImmediatelyAndCancelsTimer() async throws {
         var count = 0
-        let saver = DebouncedSaver(delay: .seconds(10)) { count += 1 }
+        let saver = DebouncedSaver(delay: .milliseconds(20)) { count += 1 }
         saver.schedule()
         saver.flush()
         XCTAssertEqual(count, 1)
-        try await Task.sleep(for: .milliseconds(50))
+        try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(count, 1)
     }
 
