@@ -11,5 +11,3 @@ public enum GhosttyActionTarget {
 public protocol GhosttyActionSink: AnyObject {
     func handle(_ action: GhosttyAction, target: GhosttyActionTarget) -> Bool
 }
-
-@MainActor public final class TerminalSurfaceView {}
