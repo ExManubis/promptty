@@ -196,8 +196,10 @@ private func ghosttyReadClipboard(_ userdata: UnsafeMutableRawPointer?, _ locati
 }
 
 /// MVP policy (no prompt UI yet): OSC 52 *reads* are denied, matching Ghostty's
-/// `clipboard-read = ask` default by refusing in the absence of a prompt. Pastes and OSC 52
-/// writes that need confirmation are approved.
+/// `clipboard-read = ask` default by refusing in the absence of a prompt. The denial is an empty
+/// reply with `confirmed: true`; replying `confirmed: false` makes libghostty re-ask
+/// synchronously, which recurses forever. Pastes and OSC 52 writes that need confirmation are
+/// approved.
 private func ghosttyConfirmReadClipboard(_ userdata: UnsafeMutableRawPointer?, _ string: UnsafePointer<CChar>?, _ state: UnsafeMutableRawPointer?, _ request: ghostty_clipboard_request_e) {
     // Copy the C string before hopping; libghostty only guarantees it for the callback's duration.
     let text = string.map { String(cString: $0) } ?? ""
@@ -207,7 +209,9 @@ private func ghosttyConfirmReadClipboard(_ userdata: UnsafeMutableRawPointer?, _
         guard let userdata else { return }
         let view = Unmanaged<TerminalSurfaceView>.fromOpaque(userdata).takeUnretainedValue()
         if request == GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ {
-            view.completeClipboardRequest("", state: state, confirmed: false)
+            // Deny without a prompt: an empty confirmed reply makes libghostty answer the
+            // program with an empty OSC 52 payload and destroys the request state.
+            view.completeClipboardRequest("", state: state, confirmed: true)
             return
         }
         view.completeClipboardRequest(text, state: state, confirmed: true)
