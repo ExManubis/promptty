@@ -99,6 +99,14 @@ final class WindowStateTests: XCTestCase {
         XCTAssertEqual(w.selectedTab?.title, "t0")
     }
 
+    func testMoveSelectedTabByHugeAmountDoesNotOverflow() {
+        let w = window(tabCount: 3)
+        w.select(id: w.tabs[1].id)
+        XCTAssertFalse(w.moveSelectedTab(by: Int.max))
+        XCTAssertFalse(w.moveSelectedTab(by: Int.min))
+        XCTAssertEqual(w.tabs.map(\.title), ["t0", "t1", "t2"])
+    }
+
     func testMoveTabToIndexReorders() {
         let w = window(tabCount: 3)
         w.moveTab(id: w.tabs[2].id, to: 0)

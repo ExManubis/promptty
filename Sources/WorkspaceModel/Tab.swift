@@ -28,27 +28,41 @@ public final class Tab {
     }
 
     public var displayTitle: String {
-        let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let raw = custom.isEmpty ? title : custom
-        let cleaned = Tab.sanitize(raw)
-        return cleaned.isEmpty ? Tab.fallbackTitle : cleaned
+        let custom = Tab.sanitize(customTitle ?? "")
+        if !custom.isEmpty { return custom }
+        let shell = Tab.sanitize(title)
+        return shell.isEmpty ? Tab.fallbackTitle : shell
     }
 
     public var abbreviatedDirectory: String {
         Tab.abbreviate(workingDirectory)
     }
 
-    /// Removes C0/C1 controls and newlines, collapses whitespace, truncates.
+    /// Makes a terminal- or user-supplied title safe to show on one line:
+    /// drops line/paragraph separators, control and format scalars (escapes,
+    /// bidi overrides, zero-width characters); maps any other whitespace
+    /// (tabs, newlines, Unicode spaces) to a single ASCII space, collapsing runs
+    /// and trimming both ends; then truncates to `maxDisplayTitleLength` characters.
     static func sanitize(_ s: String) -> String {
         var out = ""
-        out.reserveCapacity(min(s.count, maxDisplayTitleLength))
+        var pendingSpace = false
         for scalar in s.unicodeScalars {
-            if scalar.properties.generalCategory == .control { continue }
-            if scalar == "\n" || scalar == "\r" || scalar == "\t" { continue }
+            let category = scalar.properties.generalCategory
+            if category == .lineSeparator || category == .paragraphSeparator { continue }
+            if scalar.properties.isWhitespace || category == .spaceSeparator {
+                pendingSpace = !out.isEmpty
+                continue
+            }
+            if category == .control || category == .format { continue }
+            if pendingSpace {
+                out.append(" ")
+                pendingSpace = false
+            }
             out.unicodeScalars.append(scalar)
-            if out.count >= maxDisplayTitleLength { break }
         }
-        return out.trimmingCharacters(in: .whitespaces)
+        guard out.count > maxDisplayTitleLength else { return out }
+        return String(out.prefix(maxDisplayTitleLength))
+            .trimmingCharacters(in: .whitespaces)
     }
 
     static func abbreviate(_ path: String) -> String {

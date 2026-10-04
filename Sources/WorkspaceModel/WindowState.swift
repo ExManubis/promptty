@@ -109,8 +109,8 @@ public final class WindowState {
     @discardableResult
     public func moveSelectedTab(by amount: Int) -> Bool {
         guard let selectedTabID, let from = index(of: selectedTabID) else { return false }
-        let to = from + amount
-        guard to >= 0, to < tabs.count, to != from else { return false }
+        let (to, overflow) = from.addingReportingOverflow(amount)
+        guard !overflow, to >= 0, to < tabs.count, to != from else { return false }
         moveTab(id: selectedTabID, to: to)
         return true
     }

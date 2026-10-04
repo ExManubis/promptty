@@ -24,12 +24,36 @@ final class TabTests: XCTestCase {
         XCTAssertFalse(shown.contains("\n"))
         XCTAssertFalse(shown.contains("\u{07}"))
         XCTAssertLessThanOrEqual(shown.count, Tab.maxDisplayTitleLength)
-        XCTAssertTrue(shown.hasPrefix("a[31mbc"))
+        XCTAssertTrue(shown.hasPrefix("a[31mb c"))
     }
 
     func testBlankTitleFallsBackToShellPlaceholder() {
         let tab = Tab(title: "", workingDirectory: "/tmp")
         XCTAssertEqual(tab.displayTitle, "Terminal")
+    }
+
+    func testLineSeparatorDoesNotSplitTitle() {
+        let tab = Tab(title: "one\u{2028}two\u{2029}three", workingDirectory: "/tmp")
+        let shown = tab.displayTitle
+        XCTAssertFalse(shown.unicodeScalars.contains("\u{2028}"))
+        XCTAssertFalse(shown.unicodeScalars.contains("\u{2029}"))
+        XCTAssertFalse(shown.contains("\n"))
+    }
+
+    func testTabMapsToSingleSpace() {
+        let tab = Tab(title: "a\tb", workingDirectory: "/tmp")
+        XCTAssertEqual(tab.displayTitle, "a b")
+    }
+
+    func testLeadingWhitespaceDoesNotCountTowardLength() {
+        let tab = Tab(title: String(repeating: " ", count: 100) + "x", workingDirectory: "/tmp")
+        XCTAssertEqual(tab.displayTitle, "x")
+    }
+
+    func testControlOnlyCustomTitleFallsBackToShellTitle() {
+        let tab = Tab(title: "zsh", workingDirectory: "/tmp")
+        tab.customTitle = "\u{1B}"
+        XCTAssertEqual(tab.displayTitle, "zsh")
     }
 
     func testAbbreviatedDirectoryReplacesHome() {
