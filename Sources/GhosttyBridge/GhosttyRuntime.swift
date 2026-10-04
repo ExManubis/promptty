@@ -73,9 +73,15 @@ public final class GhosttyRuntime {
 
     public func reloadConfig() {
         let (cfg, diags) = Self.loadConfig()
-        ghostty_app_update_config(app, cfg)
+        // Order matters. Store `cfg` *before* updating: `ghostty_app_update_config` ends by
+        // emitting an app-level CONFIG_CHANGE carrying the conditional-state-applied config
+        // (e.g. the light/dark `theme` variant), and `dispatch` replaces `config` with a clone of
+        // it, freeing `cfg`. Storing afterwards would discard that clone and keep the raw `cfg`.
+        // `cfg` must not be touched after the update call (it may already be freed); if the
+        // update fails before the app-level action, `config` stays `cfg` and we still own it.
         ghostty_config_free(config)
         config = cfg
+        ghostty_app_update_config(app, cfg)
         configDiagnostics = diags
         onConfigDiagnostics?(diags)
     }
@@ -106,8 +112,13 @@ public final class GhosttyRuntime {
 
     /// Entry point from `action_cb`. Returns whether the action was performed.
     func dispatch(target cTarget: ghostty_target_s, action cAction: ghostty_action_s) -> Bool {
-        if cAction.tag == GHOSTTY_ACTION_CONFIG_CHANGE, let newConfig = cAction.action.config_change.config {
+        if cAction.tag == GHOSTTY_ACTION_CONFIG_CHANGE, cTarget.tag == GHOSTTY_TARGET_APP,
+           let newConfig = cAction.action.config_change.config {
             // libghostty keeps ownership of the passed config; clone to keep our own copy current.
+            // App target only: surface-level CONFIG_CHANGE fires while `ghostty_app_update_config`
+            // is still iterating surfaces with the caller's config (which `config` may be, see
+            // `reloadConfig`), so freeing `config` there would be a use-after-free; it also
+            // carries per-surface conditional state, not the app's.
             if let clone = ghostty_config_clone(newConfig) {
                 ghostty_config_free(config)
                 config = clone

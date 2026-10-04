@@ -173,7 +173,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             return true
         case .closeWindow:
             guard let state else { return false }
-            controllers[state.id]?.window?.close()
+            controllers[state.id]?.window?.performClose(nil)
             return true
         case .quit:
             NSApp.terminate(nil)
