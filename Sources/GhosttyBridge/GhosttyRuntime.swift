@@ -90,6 +90,14 @@ public final class GhosttyRuntime {
         ghostty_app_set_color_scheme(app, dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
     }
 
+    /// The `background` color of the current config, or nil if libghostty cannot report it.
+    public var configuredBackground: (red: UInt8, green: UInt8, blue: UInt8)? {
+        var color = ghostty_config_color_s()
+        let key = "background"
+        guard ghostty_config_get(config, &color, key, UInt(key.utf8.count)) else { return nil }
+        return (color.r, color.g, color.b)
+    }
+
     // MARK: Internal
 
     func surfaceCreationFailed(_ view: TerminalSurfaceView) {

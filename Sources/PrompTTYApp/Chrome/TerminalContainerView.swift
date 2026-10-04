@@ -9,6 +9,8 @@ final class TerminalContainerView: NSView {
     static let cornerRadius: CGFloat = 10
 
     private var overlays: [ObjectIdentifier: NSView] = [:]
+    /// The surface currently shown; focus moves only when this changes.
+    private weak var current: TerminalSurfaceView?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -36,10 +38,14 @@ final class TerminalContainerView: NSView {
         }
         overlays.values.forEach { $0.isHidden = true }
         overlays[ObjectIdentifier(view)]?.isHidden = false
+        // Re-showing the same surface (title/pwd reloads) must not steal focus from elsewhere.
+        guard current !== view else { return }
+        current = view
         window?.makeFirstResponder(view)
     }
 
     func remove(_ view: TerminalSurfaceView) {
+        if current === view { current = nil }
         overlays.removeValue(forKey: ObjectIdentifier(view))?.removeFromSuperview()
         view.removeFromSuperview()
     }
@@ -84,6 +90,7 @@ private final class ExitedOverlayView: NSView {
         ])
     }
     private var handler: ClosureTarget?
+    override var mouseDownCanMoveWindow: Bool { false }
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 }
 

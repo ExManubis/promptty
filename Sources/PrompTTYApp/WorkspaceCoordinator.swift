@@ -33,6 +33,21 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     func modelDidChange() { onModelChanged?() }
 
+    /// Tints a window's chrome from the configured terminal background.
+    func applyConfiguredTint(to controller: TerminalWindowController) {
+        guard let bg = runtime.configuredBackground else {
+            controller.chrome.tint = ChromeTint.fallback
+            return
+        }
+        let color = NSColor(srgbRed: CGFloat(bg.red) / 255, green: CGFloat(bg.green) / 255, blue: CGFloat(bg.blue) / 255, alpha: 1)
+        controller.chrome.tint = ChromeTint.tint(forTerminalBackground: color)
+    }
+
+    /// Called after every config reload.
+    func configDidReload() {
+        for c in controllers.values { applyConfiguredTint(to: c) }
+    }
+
     // MARK: Mutations
 
     func newWindow(workingDirectory: String? = nil) {
@@ -110,6 +125,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         let controller = TerminalWindowController(state: state, coordinator: self, runtime: runtime)
         controllers[state.id] = controller
         controller.setTabLayout(workspace.tabLayout, hidden: tabListHidden)
+        applyConfiguredTint(to: controller)
         controller.reload()
         controller.showWindow(nil)
     }
@@ -197,10 +213,10 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         case .cellSize, .render, .configChange:
             return true
         case .colorChange(let kind, let r, let g, let b):
-            guard kind == .background else { return true }
+            // Only the selected tab's background (OSC 11) tints its own window.
+            guard kind == .background, let located, located.0.selectedTabID == located.1.id else { return false }
             let color = NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
-            let tint = ChromeTint.tint(forTerminalBackground: color)
-            for c in controllers.values { c.chrome.tint = tint }
+            located.2.chrome.tint = ChromeTint.tint(forTerminalBackground: color)
             return true
         case .showChildExited(let code, _):
             guard let located, case .surface(let view) = target else { return false }
@@ -209,9 +225,16 @@ final class WorkspaceCoordinator: GhosttyActionSink {
                 self?.closeTab(tabID)
             }
             return true
-        case .closeSurface:
+        case .closeSurface(let processAlive):
             guard let located else { return false }
-            closeTab(located.1.id)
+            let tabID = located.1.id
+            if processAlive {
+                located.2.confirmClose(message: "Close this tab?", informativeText: "A process is still running in it.") { [weak self] in
+                    self?.closeTab(tabID)
+                }
+            } else {
+                closeTab(tabID)
+            }
             return true
         case .desktopNotification, .ringBell, .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .unhandled:
             // Notifications and bell are wired in Task 9; config actions are handled by the runtime.

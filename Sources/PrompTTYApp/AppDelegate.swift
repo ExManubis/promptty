@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspace = Workspace()
         coordinator = WorkspaceCoordinator(runtime: runtime, workspace: workspace)
         runtime.sink = coordinator
+        runtime.onConfigDiagnostics = { [weak self] _ in self?.coordinator.configDidReload() }
         syncColorScheme()
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.syncColorScheme() }

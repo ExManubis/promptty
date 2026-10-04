@@ -56,6 +56,8 @@ public final class TerminalSurfaceView: NSView {
 
     public override var acceptsFirstResponder: Bool { true }
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    /// Windows use `isMovableByWindowBackground`; a drag in the terminal selects text instead.
+    public override var mouseDownCanMoveWindow: Bool { false }
 
     public override func makeBackingLayer() -> CALayer {
         let layer = CAMetalLayer()

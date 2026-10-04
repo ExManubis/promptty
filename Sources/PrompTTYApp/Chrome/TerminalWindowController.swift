@@ -10,6 +10,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
     let chrome = ChromeView()
     private var surfaces: [TabID: TerminalSurfaceView] = [:]
     private var appliedInitialSize = false
+    /// Last `setTabLayout(_:hidden:)` argument, so initial sizing knows the chrome's footprint.
+    private var tabListHidden = false
+    /// The tab shown by the last `reload()`; a change resets any OSC 11 tint to the configured one.
+    private var shownTabID: TabID?
 
     init(state: WindowState, coordinator: WorkspaceCoordinator, runtime: GhosttyRuntime) {
         self.state = state
@@ -44,6 +48,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
     func reload() {
         guard let tab = state.selectedTab else { return }
         let view = surfaceView(for: tab)
+        if shownTabID != tab.id {
+            shownTabID = tab.id
+            coordinator.applyConfiguredTint(to: self)
+        }
         chrome.container.show(view)
         window?.title = tab.displayTitle
     }
@@ -68,24 +76,56 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
     func allSurfaces() -> [TerminalSurfaceView] { Array(surfaces.values) }
 
     /// Sizes a fresh window so the terminal grid matches Ghostty's configured default size.
+    /// `size` is in points: libghostty already divides by the content scale.
     func applyInitialTerminalSize(_ size: CGSize) {
         guard !appliedInitialSize, let window else { return }
         appliedInitialSize = true
         let inset = TerminalContainerView.inset
-        let chromeW = coordinator.workspace.tabLayout == .sidebar ? ChromeView.sidebarWidth + inset : inset * 2
-        let chromeH = coordinator.workspace.tabLayout == .sidebar ? inset * 2 : ChromeView.stripHeight + 6 + inset * 2
-        let scale = window.backingScaleFactor
-        let content = NSSize(width: size.width / scale + chromeW, height: size.height / scale + chromeH)
+        let chromeW: CGFloat
+        let chromeH: CGFloat
+        if tabListHidden {
+            chromeW = inset * 2
+            chromeH = inset * 2
+        } else if coordinator.workspace.tabLayout == .sidebar {
+            chromeW = ChromeView.sidebarWidth + inset
+            chromeH = inset * 2
+        } else {
+            chromeW = inset * 2
+            chromeH = ChromeView.stripHeight + 6 + inset * 2
+        }
+        let content = NSSize(width: size.width + chromeW, height: size.height + chromeH)
         window.setContentSize(content)
         window.center()
     }
 
     func setTabLayout(_ layout: TabLayout, hidden: Bool) {
+        tabListHidden = hidden
         // Task 8 installs the real tab list here. For now, a placeholder spacer keeps the chrome layout honest.
         chrome.install(tabList: hidden ? nil : NSView(), layout: layout)
     }
 
     // MARK: NSWindowDelegate
+
+    /// Presents a Close/Cancel confirmation sheet on this window; `onConfirm` runs on Close.
+    func confirmClose(message: String, informativeText: String, onConfirm: @escaping () -> Void) {
+        guard let window, window.attachedSheet == nil else { return }
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = informativeText
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertFirstButtonReturn { onConfirm() }
+        }
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard allSurfaces().contains(where: { $0.needsConfirmQuit }) else { return true }
+        confirmClose(message: "Close this window?", informativeText: "A process is still running in one of its tabs.") { [weak self] in
+            self?.window?.close()
+        }
+        return false
+    }
 
     func windowDidResize(_ notification: Notification) { persistFrame() }
     func windowDidMove(_ notification: Notification) { persistFrame() }
