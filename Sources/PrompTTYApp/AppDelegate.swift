@@ -1,9 +1,17 @@
 import AppKit
+import GhosttyBridge
+import WorkspaceModel
 
 @main
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var window: NSWindow?
+    private var runtime: GhosttyRuntime!
+    private var workspace: Workspace!
+    private var coordinator: WorkspaceCoordinator!
+    private var appearanceObservation: NSKeyValueObservation?
 
+    /// With no nib, `@main` alone never instantiates the delegate; install it explicitly and keep
+    /// it alive for the lifetime of the run loop (`NSApplication.delegate` is weak).
     static func main() {
         let delegate = AppDelegate()
         NSApplication.shared.delegate = delegate
@@ -13,25 +21,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let menu = NSMenu()
-        let appItem = NSMenuItem()
-        appItem.submenu = NSMenu()
-        appItem.submenu?.addItem(withTitle: "Quit PrompTTY", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        menu.addItem(appItem)
-        NSApp.mainMenu = menu
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "PrompTTY"
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        self.window = window
+        NSApp.mainMenu = MainMenu.build()
+        do {
+            runtime = try GhosttyRuntime()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "PrompTTY could not start the terminal engine"
+            alert.informativeText = "\(error)"
+            alert.runModal()
+            NSApp.terminate(nil)
+            return
+        }
+        workspace = Workspace()
+        coordinator = WorkspaceCoordinator(runtime: runtime, workspace: workspace)
+        runtime.sink = coordinator
+        syncColorScheme()
+        appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.syncColorScheme() }
+        }
+        coordinator.start()
         NSApp.activate()
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationDidBecomeActive(_ notification: Notification) { runtime?.setFocus(true) }
+    func applicationDidResignActive(_ notification: Notification) { runtime?.setFocus(false) }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    private func syncColorScheme() {
+        let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        runtime.setColorScheme(dark: dark)
+    }
 }
