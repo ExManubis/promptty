@@ -14,6 +14,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
     private var tabListHidden = false
     /// The tab shown by the last `reload()`; a change resets any OSC 11 tint to the configured one.
     private var shownTabID: TabID?
+    private var tabList: TabCollectionView?
 
     init(state: WindowState, coordinator: WorkspaceCoordinator, runtime: GhosttyRuntime) {
         self.state = state
@@ -47,6 +48,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
     /// Re-syncs the visible surface with the model. Called by the coordinator after every mutation.
     func reload() {
         guard let tab = state.selectedTab else { return }
+        tabList?.update(tabs: state.tabs, selected: state.selectedTabID)
         let view = surfaceView(for: tab)
         if shownTabID != tab.id {
             shownTabID = tab.id
@@ -85,7 +87,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         let chromeH: CGFloat
         if tabListHidden {
             chromeW = inset * 2
-            chromeH = inset * 2
+            chromeH = ChromeView.trafficLightsHeight + inset
         } else if coordinator.workspace.tabLayout == .sidebar {
             chromeW = ChromeView.sidebarWidth + inset
             chromeH = inset * 2
@@ -100,8 +102,25 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
 
     func setTabLayout(_ layout: TabLayout, hidden: Bool) {
         tabListHidden = hidden
-        // Task 8 installs the real tab list here. For now, a placeholder spacer keeps the chrome layout honest.
-        chrome.install(tabList: hidden ? nil : NSView(), layout: layout)
+        guard !hidden else {
+            tabList = nil
+            chrome.install(tabList: nil, layout: layout)
+            return
+        }
+        let list = TabCollectionView(layout: layout)
+        list.delegate = self
+        tabList = list
+        chrome.install(tabList: list, layout: layout)
+        reload()
+    }
+
+    /// Gives keyboard focus back to the visible terminal (after an inline tab rename).
+    /// Deferred a turn so the field editor finishes resigning before focus moves.
+    func focusShownSurface() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let id = self.shownTabID, let view = self.surfaces[id] else { return }
+            self.window?.makeFirstResponder(view)
+        }
     }
 
     // MARK: NSWindowDelegate
@@ -139,4 +158,13 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         state.frame = WindowFrame(x: f.origin.x, y: f.origin.y, width: f.width, height: f.height)
         coordinator.modelDidChange()
     }
+}
+
+extension TerminalWindowController: TabCollectionViewDelegate {
+    func tabList(_ list: TabCollectionView, didSelect id: TabID) { coordinator.select(id) }
+    func tabList(_ list: TabCollectionView, didRequestClose id: TabID) { coordinator.closeTab(id) }
+    func tabList(_ list: TabCollectionView, didRename id: TabID, to title: String) { coordinator.rename(id, to: title) }
+    func tabList(_ list: TabCollectionView, didMove id: TabID, to index: Int) { coordinator.move(id, to: index) }
+    func tabListDidRequestNewTab(_ list: TabCollectionView) { coordinator.newTab(in: state) }
+    func tabListDidEndRenaming(_ list: TabCollectionView) { focusShownSurface() }
 }

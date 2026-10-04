@@ -57,6 +57,8 @@ final class ChromeView: NSView {
         layoutConstraints.removeAll()
         let inset = TerminalContainerView.inset
         var c: [NSLayoutConstraint] = []
+        // With the tab list hidden (and no banner above it) the card starts below the traffic lights, not under them.
+        let cardTop = tabList == nil && banner == nil ? Self.trafficLightsHeight : inset
 
         // The vertical stack on the terminal side: [banner?] then container.
         let topAnchorForContent: NSLayoutYAxisAnchor
@@ -90,7 +92,7 @@ final class ChromeView: NSView {
             c += [
                 container.leadingAnchor.constraint(equalTo: leading, constant: tabList == nil ? inset : 0),
                 container.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
-                container.topAnchor.constraint(equalTo: topAnchorForContent, constant: inset),
+                container.topAnchor.constraint(equalTo: topAnchorForContent, constant: cardTop),
                 container.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -inset),
             ]
         case .strip:
@@ -113,7 +115,10 @@ final class ChromeView: NSView {
             c += [
                 container.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
                 container.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
-                container.topAnchor.constraint(equalTo: banner == nil ? top : topAnchorForContent, constant: inset),
+                container.topAnchor.constraint(
+                    equalTo: banner == nil ? top : topAnchorForContent,
+                    constant: cardTop
+                ),
                 container.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -inset),
             ]
         }
