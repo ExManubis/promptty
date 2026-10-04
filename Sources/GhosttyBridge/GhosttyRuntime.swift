@@ -27,9 +27,15 @@ public final class GhosttyRuntime {
     public var onSurfaceCreationFailed: ((TerminalSurfaceView) -> Void)?
 
     public init() throws {
-        let resources = GhosttyKitResources.directoryURL
-        guard FileManager.default.fileExists(atPath: resources.appendingPathComponent("terminfo").path) else {
-            throw GhosttyRuntimeError(message: "libghostty resources missing at \(resources.path); this is a packaging bug")
+        // libghostty expects GHOSTTY_RESOURCES_DIR to be the `share/ghostty` equivalent: it reads
+        // `{dir}/shell-integration` and themes from there and sets TERMINFO to `dirname(dir)/terminfo`.
+        let root = GhosttyKitResources.directoryURL
+        let resources = root.appendingPathComponent("ghostty")
+        let terminfoEntry = root.appendingPathComponent("terminfo/78/xterm-ghostty")
+        let shellIntegration = resources.appendingPathComponent("shell-integration")
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: terminfoEntry.path), fm.fileExists(atPath: shellIntegration.path) else {
+            throw GhosttyRuntimeError(message: "libghostty resources missing (checked \(terminfoEntry.path) and \(shellIntegration.path)); this is a packaging bug")
         }
         setenv("GHOSTTY_RESOURCES_DIR", resources.path, 1)
         guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0 else {
@@ -50,7 +56,7 @@ public final class GhosttyRuntime {
         rc.close_surface_cb = ghosttyCloseSurface
 
         guard let created = ghostty_app_new(&rc, cfg) else {
-            ghostty_config_free(cfg)
+            // All stored properties are initialized, so deinit runs and frees `config`.
             throw GhosttyRuntimeError(message: "ghostty_app_new failed")
         }
         appHandle = created
@@ -153,17 +159,14 @@ public final class GhosttyRuntime {
 // MARK: - C callbacks
 // These must be plain functions (no captures) so they convert to @convention(c) pointers.
 
-private struct SendablePointer: @unchecked Sendable {
-    let raw: UnsafeMutableRawPointer
-}
-
-/// Called from any thread. Only schedules a tick.
+/// Called from any thread. Only schedules a tick. The runtime is resolved strongly here and held
+/// through the hop so the queued block never dereferences a raw pointer.
 private func ghosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
     guard let userdata else { return }
-    let box = SendablePointer(raw: userdata)
+    let runtime = Unmanaged<GhosttyRuntime>.fromOpaque(userdata).takeUnretainedValue()
     DispatchQueue.main.async {
         MainActor.assumeIsolated {
-            Unmanaged<GhosttyRuntime>.fromOpaque(box.raw).takeUnretainedValue().tick()
+            runtime.tick()
         }
     }
 }
@@ -192,7 +195,9 @@ private func ghosttyReadClipboard(_ userdata: UnsafeMutableRawPointer?, _ locati
     }
 }
 
-/// MVP policy: approve every paste/OSC 52 request without prompting.
+/// MVP policy (no prompt UI yet): OSC 52 *reads* are denied, matching Ghostty's
+/// `clipboard-read = ask` default by refusing in the absence of a prompt. Pastes and OSC 52
+/// writes that need confirmation are approved.
 private func ghosttyConfirmReadClipboard(_ userdata: UnsafeMutableRawPointer?, _ string: UnsafePointer<CChar>?, _ state: UnsafeMutableRawPointer?, _ request: ghostty_clipboard_request_e) {
     // Copy the C string before hopping; libghostty only guarantees it for the callback's duration.
     let text = string.map { String(cString: $0) } ?? ""
@@ -201,12 +206,19 @@ private func ghosttyConfirmReadClipboard(_ userdata: UnsafeMutableRawPointer?, _
     MainActor.assumeIsolated {
         guard let userdata else { return }
         let view = Unmanaged<TerminalSurfaceView>.fromOpaque(userdata).takeUnretainedValue()
+        if request == GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ {
+            view.completeClipboardRequest("", state: state, confirmed: false)
+            return
+        }
         view.completeClipboardRequest(text, state: state, confirmed: true)
     }
 }
 
 private func ghosttyWriteClipboard(_ userdata: UnsafeMutableRawPointer?, _ location: ghostty_clipboard_e, _ contents: UnsafePointer<ghostty_clipboard_content_s>?, _ count: Int, _ confirm: Bool) {
     guard location == GHOSTTY_CLIPBOARD_STANDARD, let contents, count > 0 else { return }
+    // The user's config asked for confirmation and there is no prompt UI yet: refuse rather than
+    // write silently.
+    guard !confirm else { return }
     // Copy the text out of the C buffer first; only the resulting String crosses into the main actor.
     var text: String?
     for i in 0..<count {
@@ -225,15 +237,21 @@ private func ghosttyWriteClipboard(_ userdata: UnsafeMutableRawPointer?, _ locat
     }
 }
 
-/// May be invoked synchronously from inside our own teardown, so hop to the next run-loop turn
-/// before touching the model.
+/// Always invoked on the main thread (and never from inside `ghostty_surface_free`). The view is
+/// resolved into a strong reference immediately, then the model is touched on the next run-loop
+/// turn so a synchronous call from inside our own close path cannot re-enter it. The strong
+/// capture keeps the view alive even if the tab-close path releases it in the current turn.
 private func ghosttyCloseSurface(_ userdata: UnsafeMutableRawPointer?, _ processAlive: Bool) {
     guard let userdata else { return }
-    let box = SendablePointer(raw: userdata)
-    DispatchQueue.main.async {
-        MainActor.assumeIsolated {
-            let view = Unmanaged<TerminalSurfaceView>.fromOpaque(box.raw).takeUnretainedValue()
-            _ = view.runtime.sink?.handle(.closeSurface(processAlive: processAlive), target: .surface(view))
+    nonisolated(unsafe) let ud = userdata
+    MainActor.assumeIsolated {
+        // TerminalSurfaceView is @MainActor, hence Sendable: the block can hold it strongly.
+        let view = Unmanaged<TerminalSurfaceView>.fromOpaque(ud).takeUnretainedValue()
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                guard !view.isTornDown else { return }
+                _ = view.runtime.sink?.handle(.closeSurface(processAlive: processAlive), target: .surface(view))
+            }
         }
     }
 }

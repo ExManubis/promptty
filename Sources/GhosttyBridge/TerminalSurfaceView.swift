@@ -105,17 +105,23 @@ public final class TerminalSurfaceView: NSView {
         }
         surface = created
         if created == nil {
+            // Do not retry on later window moves (and re-fire the failure callback).
+            isFreed = true
             runtime.surfaceCreationFailed(self)
         }
     }
 
     /// Frees the surface exactly once. Safe to call from both the tab-close path and `close_surface_cb`.
     public func teardown() {
-        guard let surface, !isFreed else { return }
+        guard let handle = surface, !isFreed else { return }
+        // Clear state first so nothing re-entering during the free sees a live handle.
+        surface = nil
         isFreed = true
-        ghostty_surface_free(surface)
-        self.surface = nil
+        ghostty_surface_free(handle)
     }
+
+    /// True once the surface has been freed (or failed to be created).
+    var isTornDown: Bool { isFreed }
 
     public func requestClose() {
         guard let surface else { return }
@@ -154,18 +160,25 @@ public final class TerminalSurfaceView: NSView {
 
     // MARK: Focus and visibility
 
+    // AppKit has not updated `window.firstResponder` yet inside these overrides, so pass the
+    // new focus state explicitly instead of deriving it.
     public override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
-        focusDidChange()
+        if let surface {
+            ghostty_surface_set_focus(surface, ok && (window?.isKeyWindow ?? false))
+        }
         return ok
     }
 
     public override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
-        focusDidChange()
+        if ok, let surface {
+            ghostty_surface_set_focus(surface, false)
+        }
         return ok
     }
 
+    /// For window key/resign notifications, where `firstResponder` is already settled.
     private func focusDidChange() {
         guard let surface else { return }
         let focused = (window?.isKeyWindow ?? false) && window?.firstResponder === self
