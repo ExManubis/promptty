@@ -39,6 +39,11 @@ final class ActivityTracker {
     @ObservationIgnored private var timer: Timer?
     /// The last screen seen per agent pane, as a hash.
     @ObservationIgnored private var screens: [PaneID: Int] = [:]
+    /// The folder each agent works in, read from its process.
+    @ObservationIgnored private var agentDirectories: [PaneID: String] = [:]
+
+    /// The folder an agent's process works in (it may differ from the shell's: `cd x && claude`).
+    func agentDirectory(for pane: PaneID) -> String? { agentDirectories[pane] }
 
     func start() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
@@ -85,6 +90,7 @@ final class ActivityTracker {
             shellPIDs[gone] = nil
             identified[gone] = nil
             screens[gone] = nil
+            agentDirectories[gone] = nil
         }
     }
 
@@ -120,6 +126,7 @@ final class ActivityTracker {
         if let shell = watched.shellPID ?? shellPIDs[watched.pane], shell == pid {
             // Pids are reused: what ran before is forgotten once the shell is back.
             identified[watched.pane] = nil
+            agentDirectories[watched.pane] = nil
             return .shell
         }
         if let known = identified[watched.pane], known.pid == pid { return known.foreground }
@@ -136,6 +143,11 @@ final class ActivityTracker {
             .flatMap { ProgramCatalog.identify(executable: $0.executable, arguments: $0.arguments) }
             .map { .program($0) } ?? .command
         identified[watched.pane] = (pid, foreground)
+        if case .program(let program) = foreground, program.isAgent {
+            agentDirectories[watched.pane] = ProcessArguments.workingDirectory(pid: Int32(pid))
+        } else {
+            agentDirectories[watched.pane] = nil
+        }
         return foreground
     }
 }

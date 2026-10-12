@@ -41,5 +41,7 @@ struct AgentEntry: Identifiable {
     let program: Program
     let title: String
     let activity: PaneActivity
+    /// The repository (or folder) the agent works in.
+    let project: Project
     var id: PaneID { pane }
 }

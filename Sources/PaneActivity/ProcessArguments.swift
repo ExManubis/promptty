@@ -26,6 +26,18 @@ public struct ProcessArguments: Equatable, Sendable {
         return parse(Array(buffer[0..<size]))
     }
 
+    /// The folder a process works in (an agent started with `cd x && claude` is in `x`, which the
+    /// shell never reported). Nil when the process is gone or not ours.
+    public static func workingDirectory(pid: Int32) -> String? {
+        var info = proc_vnodepathinfo()
+        let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, size) == size else { return nil }
+        return withUnsafeBytes(of: &info.pvi_cdir.vip_path) { raw in
+            let bytes = raw.prefix { $0 != 0 }
+            return bytes.isEmpty ? nil : String(decoding: bytes, as: UTF8.self)
+        }
+    }
+
     /// `KERN_PROCARGS2`'s layout: argc, the executable path, NUL padding, then argc arguments,
     /// each ending in one NUL (the environment follows). A program that rewrote its argv (node's
     /// `process.title`) leaves NULs where arguments were: those read as empty.

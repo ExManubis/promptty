@@ -101,10 +101,20 @@ final class WorkspaceCoordinator: GhosttyActionSink {
                     guard let program = state.program, program.isAgent else { return nil }
                     let own = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
                     let title = own.isEmpty || own == pane.workingDirectory ? program.name : own
-                    return AgentEntry(pane: pane.id, program: program, title: title, activity: state)
+                    return AgentEntry(pane: pane.id, program: program, title: title, activity: state, project: project(for: activity.agentDirectory(for: pane.id) ?? pane.workingDirectory))
                 }
             }
         }
+    }
+
+    /// Projects by folder, looked up again after a few seconds (an agent may switch branches).
+    private var projects: [String: (project: Project, at: Date)] = [:]
+
+    private func project(for directory: String) -> Project {
+        if let cached = projects[directory], Date().timeIntervalSince(cached.at) < 5 { return cached.project }
+        let project = Project.find(for: directory, in: DiskFiles())
+        projects[directory] = (project, Date())
+        return project
     }
 
     /// A notification was clicked: its pane comes forward, focused.

@@ -14,6 +14,17 @@ final class ProcessArgumentsTests: XCTestCase {
         XCTAssertEqual(info.arguments, ["/bin/sleep", "5"])
     }
 
+    func testReadsAProcesssWorkingDirectory() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["5"]
+        process.currentDirectoryURL = URL(fileURLWithPath: "/usr/bin")
+        try process.run()
+        defer { process.terminate() }
+        XCTAssertEqual(ProcessArguments.workingDirectory(pid: process.processIdentifier), "/usr/bin")
+        XCTAssertNil(ProcessArguments.workingDirectory(pid: 999_999))
+    }
+
     func testAProcessThatIsGoneReadsNil() {
         XCTAssertNil(ProcessArguments.read(pid: 999_999))
     }
