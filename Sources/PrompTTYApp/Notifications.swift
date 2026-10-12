@@ -13,10 +13,18 @@ enum Notifications {
             content.body = body
             content.sound = .default
             if let pane { content.userInfo = ["pane": pane.rawValue.uuidString] }
-            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+            // One notification per pane: a newer one replaces it.
+            let request = UNNotificationRequest(identifier: pane.map(identifier) ?? UUID().uuidString, content: content, trigger: nil)
             center.add(request)
         }
     }
+
+    /// The user looked at the pane: its notification is no longer news.
+    static func remove(for pane: PaneID) {
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier(pane)])
+    }
+
+    private static func identifier(_ pane: PaneID) -> String { "pane-\(pane.rawValue.uuidString)" }
 }
 
 /// Shows PrompTTY's notifications also while it is in front (they are about panes not in view),

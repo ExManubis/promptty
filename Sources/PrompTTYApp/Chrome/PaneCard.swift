@@ -95,6 +95,8 @@ struct PaneHeader: View {
         HStack(spacing: 6) {
             PaneDragHandle(pane: pane)
             ProgramIcon(program: activity.program, size: 13)
+                // The title names the program already.
+                .accessibilityHidden(true)
             Text(title)
                 .font(.system(size: 11, weight: .semibold))
                 .lineLimit(1)

@@ -22,6 +22,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         self.preferences = preferences
         activity.panes = { [weak self] in self?.watchedPanes() ?? [] }
         activity.onNotice = { [weak self] pane, notice in self?.post(notice, for: pane) }
+        activity.onSeen = { Notifications.remove(for: $0) }
     }
 
     /// Opens a controller for every window in the model; creates a default window if none.
@@ -47,7 +48,9 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         var watched: [ActivityTracker.Watched] = []
         for controller in controllers.values {
             let window = controller.window
-            let windowSeen = active && window?.isKeyWindow == true && window?.occlusionState.contains(.visible) == true
+            // Main, not key: a sheet, a picker's popover or the Settings window can have the keys
+            // while the user looks at this window.
+            let windowSeen = active && window?.isMainWindow == true && window?.occlusionState.contains(.visible) == true
             for tab in controller.state.tabs {
                 let tabSeen = windowSeen && controller.state.selectedTabID == tab.id
                 for pane in tab.orderedPanes {
@@ -66,8 +69,15 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     private func post(_ notice: Notice, for pane: PaneID) {
         guard let (state, tab) = workspace.tab(containing: pane) else { return }
-        let fromBar = controllers[state.id]?.shell(for: pane)?.lastCommand
-        let command = fromBar ?? tab.pane(pane)?.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A finished command is the bar's last one; an attention is about whatever runs now.
+        // The pane's own title, or its folder as the tab shows it.
+        var command = tab.pane(pane).map { pane -> String in
+            let title = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return title.isEmpty || title == pane.workingDirectory ? Tab.abbreviate(pane.workingDirectory) : title
+        }
+        if case .attention = notice.kind {} else if let fromBar = controllers[state.id]?.shell(for: pane)?.lastCommand {
+            command = fromBar
+        }
         Notifications.post(title: notice.title(command: command), body: notice.body, pane: pane)
         #if DEBUG
         postedNotices.append("\(notice.title(command: command)) — \(notice.body)")
@@ -442,7 +452,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
                 Notifications.post(title: title.isEmpty ? "PrompTTY" : title, body: body, pane: nil)
                 return true
             }
-            activity.attention(located.2.id, message: body.isEmpty ? title : body)
+            activity.attention(located.2.id, message: [title, body].filter { !$0.isEmpty }.joined(separator: ": "))
             return true
         case .ringBell:
             if let located, activity.attention(located.2.id, message: nil) { return true }

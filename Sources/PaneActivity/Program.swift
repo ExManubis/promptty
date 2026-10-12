@@ -30,20 +30,23 @@ public enum ProgramCatalog {
         var interpreter = false
         /// Text in a script's path that names this program.
         var scriptMarkers: [String] = []
+        /// Distributed as a script (an npm package's bin): recognised from a script's name too.
+        var scriptable = false
     }
 
     private static func entry(_ id: String, _ name: String, logo: String?, _ color: UInt32?, _ executables: [String],
-                              interpreter: Bool = false, markers: [String] = [], shell: Bool = false) -> Entry {
+                              interpreter: Bool = false, markers: [String] = [], scriptable: Bool = false,
+                              shell: Bool = false) -> Entry {
         Entry(program: Program(id: id, name: name, logo: logo, color: color, isShell: shell),
-              executables: executables, interpreter: interpreter, scriptMarkers: markers)
+              executables: executables, interpreter: interpreter, scriptMarkers: markers, scriptable: scriptable)
     }
 
     private static let entries: [Entry] = [
         // Agents
-        entry("claude", "Claude Code", logo: "claude", 0xD97757, ["claude"], markers: ["claude-code"]),
-        entry("codex", "Codex", logo: "codex", 0x000000, ["codex"], markers: ["@openai/codex"]),
-        entry("gemini", "Gemini CLI", logo: "googlegemini", 0x8E75B2, ["gemini"], markers: ["gemini-cli"]),
-        entry("copilot", "Copilot", logo: "githubcopilot", 0x000000, ["copilot"], markers: ["@github/copilot"]),
+        entry("claude", "Claude Code", logo: "claude", 0xD97757, ["claude"], markers: ["@anthropic-ai/claude-code/"], scriptable: true),
+        entry("codex", "Codex", logo: "codex", 0x000000, ["codex"], markers: ["@openai/codex/"], scriptable: true),
+        entry("gemini", "Gemini CLI", logo: "googlegemini", 0x8E75B2, ["gemini"], markers: ["@google/gemini-cli/"], scriptable: true),
+        entry("copilot", "Copilot", logo: "githubcopilot", 0x000000, ["copilot"], markers: ["@github/copilot/"], scriptable: true),
         entry("ollama", "Ollama", logo: "ollama", 0x000000, ["ollama"]),
         // Languages and runtimes
         entry("node", "Node.js", logo: "nodedotjs", 0x5FA04E, ["node", "nodejs"], interpreter: true),
@@ -76,11 +79,11 @@ public enum ProgramCatalog {
         entry("redis", "Redis", logo: "redis", 0xFF4438, ["redis-cli", "redis-server"]),
         entry("sqlite", "SQLite", logo: "sqlite", 0x003B57, ["sqlite3"]),
         entry("terraform", "Terraform", logo: "terraform", 0x844FBA, ["terraform"]),
-        entry("ansible", "Ansible", logo: "ansible", 0xEE0000, ["ansible", "ansible-playbook"]),
+        entry("ansible", "Ansible", logo: "ansible", 0xEE0000, ["ansible", "ansible-playbook"], scriptable: true),
         entry("homebrew", "Homebrew", logo: "homebrew", 0xFBB040, ["brew"]),
-        entry("npm", "npm", logo: "npm", 0xCB3837, ["npm", "npx"], markers: ["npm-cli"]),
-        entry("pnpm", "pnpm", logo: "pnpm", 0xF69220, ["pnpm"]),
-        entry("yarn", "Yarn", logo: "yarn", 0x2C8EBB, ["yarn"]),
+        entry("npm", "npm", logo: "npm", 0xCB3837, ["npm", "npx"], markers: ["/npm/bin/npm-cli"], scriptable: true),
+        entry("pnpm", "pnpm", logo: "pnpm", 0xF69220, ["pnpm"], scriptable: true),
+        entry("yarn", "Yarn", logo: "yarn", 0x2C8EBB, ["yarn"], scriptable: true),
         entry("ssh", "SSH", logo: nil, nil, ["ssh", "mosh"]),
         // Shells: the plain terminal symbol, like a pane at its prompt.
         entry("zsh", "zsh", logo: nil, nil, ["zsh"], shell: true),
@@ -93,9 +96,10 @@ public enum ProgramCatalog {
     /// `arguments` is the full argv, the program's own name first.
     public static func identify(executable: String, arguments: [String]) -> Program? {
         guard let found = entry(forExecutable: executable) else { return nil }
-        if found.interpreter, let script = script(in: arguments.dropFirst()), let ran = entry(forScript: script) {
-            return ran.program
-        }
+        guard found.interpreter else { return found.program }
+        // A node CLI that set `process.title` shows its own name as argv[0].
+        if let first = arguments.first, let retitled = scriptable(named: name(first)) { return retitled.program }
+        if let script = script(in: arguments.dropFirst()), let ran = entry(forScript: script) { return ran.program }
         return found.program
     }
 
@@ -134,7 +138,11 @@ public enum ProgramCatalog {
         if let marked = entries.first(where: { entry in entry.scriptMarkers.contains { lower.contains($0) } }) {
             return marked
         }
-        let base = ((lower as NSString).lastPathComponent as NSString).deletingPathExtension
-        return entries.first { !$0.interpreter && !$0.program.isShell && $0.executables.contains(base) }
+        return scriptable(named: ((lower as NSString).lastPathComponent as NSString).deletingPathExtension)
+    }
+
+    /// Only programs distributed as scripts: a project's own `git.js` is just Node.
+    private static func scriptable(named name: String) -> Entry? {
+        entries.first { $0.scriptable && $0.executables.contains(name) }
     }
 }

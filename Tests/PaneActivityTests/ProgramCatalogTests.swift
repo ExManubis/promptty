@@ -42,6 +42,21 @@ final class ProgramCatalogTests: XCTestCase {
         XCTAssertEqual(id("/opt/homebrew/bin/python3", "/opt/homebrew/bin/ansible-playbook", "site.yml"), "ansible")
     }
 
+    /// A node CLI that sets `process.title` overwrites its whole argv with that title.
+    func testAnInterpreterRetitledAsTheProgramIsThatProgram() {
+        XCTAssertEqual(ProgramCatalog.identify(executable: "/opt/homebrew/bin/node", arguments: ["claude", ""])?.id, "claude")
+        XCTAssertEqual(ProgramCatalog.identify(executable: "/opt/homebrew/bin/node", arguments: ["codex"])?.id, "codex")
+    }
+
+    /// Only programs distributed as scripts are recognised from a script's name: a project's
+    /// own `git.js` or `docker.py` is just Node or Python.
+    func testAScriptNamedLikeACompiledProgramIsItsInterpreter() {
+        XCTAssertEqual(id("node", "git.js"), "node")
+        XCTAssertEqual(id("python3", "docker.py"), "python")
+        XCTAssertEqual(id("python3", "./go"), "python")
+        XCTAssertEqual(id("node", "/Users/me/src/claude-code-router/index.js"), "node")
+    }
+
     func testShellsAreShellsAndLoginShellsToo() {
         for shell in ["/bin/zsh", "-zsh", "zsh", "/bin/bash", "-bash", "/opt/homebrew/bin/fish"] {
             let program = ProgramCatalog.identify(executable: shell, arguments: [shell])

@@ -43,11 +43,18 @@ public struct PaneActivity: Equatable, Sendable {
     public private(set) var isRunning = false
     private var startedAt: Date?
     private var unseen: Unseen?
-    /// The shell reported the command's exit status before the shell was seen back in front.
-    private var pendingExit: Int?
+    /// The shell says how each command ends (OSC 133;D at the prompt): that report, not the shell
+    /// coming back to the front, ends a command.
+    private var reportsExits = false
+    /// While running: when the shell was first seen back in front, and how often since.
+    private var shellSince: Date?
+    private var shellObservations = 0
 
     /// Commands that take at least this long notify when they finish unseen.
     public static let notifyAfter: TimeInterval = 10
+    /// With exit reports: how long the shell may be in front without one before the command is
+    /// taken to have ended anyway.
+    static let reportGrace: TimeInterval = 3
 
     public init() {}
 
@@ -60,6 +67,9 @@ public struct PaneActivity: Equatable, Sendable {
         }
     }
 
+    /// Whether something happened here the user has not seen.
+    public var hasUnseen: Bool { unseen != nil }
+
     /// The foreground process, polled. Returns the notice to post when a long command finished
     /// where the user was not looking.
     @discardableResult
@@ -67,42 +77,58 @@ public struct PaneActivity: Equatable, Sendable {
         switch foreground {
         case .shell:
             guard isRunning else { return nil }
-            let ran = program
-            let duration = startedAt.map { now.timeIntervalSince($0) } ?? 0
-            let code = pendingExit ?? 0
-            isRunning = false
-            program = nil
-            startedAt = nil
-            pendingExit = nil
-            guard !seen else { return nil }
-            if unseen != .attention { unseen = code == 0 ? .finished : .failed(code) }
-            guard duration >= Self.notifyAfter else { return nil }
-            return Notice(kind: code == 0 ? .finished : .failed(code), program: ran, duration: duration)
+            let since = shellSince ?? now
+            shellSince = since
+            shellObservations += 1
+            // Between the jobs of a loop or `a && b` the shell is in front for a moment; while
+            // the prompt's hooks run it is in front before the exit report arrives.
+            if reportsExits {
+                guard now.timeIntervalSince(since) >= Self.reportGrace else { return nil }
+            } else {
+                guard shellObservations >= 2 else { return nil }
+            }
+            return finish(code: 0, at: since, seen: seen)
         case .command, .program:
             if case .program(let p) = foreground { program = p } else { program = nil }
+            shellSince = nil
+            shellObservations = 0
             if !isRunning {
                 isRunning = true
                 startedAt = now
-                pendingExit = nil
             }
             return nil
         }
     }
 
-    /// The shell reported how the last command ended (it can arrive just before or just after the
-    /// shell is seen back in front).
-    public mutating func exitReported(code: Int) {
-        if isRunning {
-            pendingExit = code
-        } else if unseen == .finished, code != 0 {
-            unseen = .failed(code)
-        }
+    /// The shell reported how the last command ended: the command is over.
+    @discardableResult
+    public mutating func exitReported(code: Int, at now: Date, seen: Bool) -> Notice? {
+        reportsExits = true
+        if isRunning { return finish(code: code, at: now, seen: seen) }
+        // Ended already (the shell was seen in front twice before the report).
+        if unseen == .finished, code != 0 { unseen = .failed(code) }
+        return nil
     }
 
-    /// A bell, or a program's notification (an agent waiting for the user).
+    private mutating func finish(code: Int, at end: Date, seen: Bool) -> Notice? {
+        let ran = program
+        let duration = startedAt.map { end.timeIntervalSince($0) } ?? 0
+        isRunning = false
+        program = nil
+        startedAt = nil
+        shellSince = nil
+        shellObservations = 0
+        guard !seen else { return nil }
+        if unseen != .attention { unseen = code == 0 ? .finished : .failed(code) }
+        guard duration >= Self.notifyAfter else { return nil }
+        return Notice(kind: code == 0 ? .finished : .failed(code), program: ran, duration: duration)
+    }
+
+    /// A bell, or a program's notification (an agent waiting for the user). Notifies once until
+    /// the user has looked: a program that rings in a loop is one notification.
     @discardableResult
     public mutating func attention(seen: Bool, message: String?) -> Notice? {
-        guard !seen else { return nil }
+        guard !seen, unseen != .attention else { return nil }
         unseen = .attention
         return Notice(kind: .attention(message), program: program, duration: nil)
     }
@@ -133,9 +159,10 @@ public struct Notice: Equatable, Sendable {
 
     /// The program's name, or the command that ran, or a plain word.
     public func title(command: String?) -> String {
-        if let program { return program.name }
+        // A shell running a script or nested says less than the command that started it.
+        if let program, !program.isShell { return program.name }
         if let command, !command.isEmpty { return command }
-        return "Command"
+        return program?.name ?? "Command"
     }
 
     public var body: String {

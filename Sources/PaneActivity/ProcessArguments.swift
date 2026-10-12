@@ -7,27 +7,45 @@ public struct ProcessArguments: Equatable, Sendable {
     /// The full argv, the program's own name first.
     public let arguments: [String]
 
-    /// Nil when the process is gone or not ours to read.
+    public init(executable: String, arguments: [String]) {
+        self.executable = executable
+        self.arguments = arguments
+    }
+
+    /// Nil when the process is gone or not ours to read (one run by another user, as with sudo).
     public static func read(pid: Int32) -> ProcessArguments? {
-        var size = 0
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
-        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return nil }
+        // Most argument lists fit in 64 KB; the kernel's maximum is a megabyte.
+        var size = 64 * 1024
         var buffer = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
-        // argc, then the executable path, NUL padding, then argc NUL-terminated arguments.
-        let argc = buffer.withUnsafeBytes { $0.load(as: Int32.self) }
-        var index = MemoryLayout<Int32>.size
+        if sysctl(&mib, 3, &buffer, &size, nil, 0) != 0 {
+            guard errno == ENOMEM, sysctl(&mib, 3, nil, &size, nil, 0) == 0 else { return nil }
+            buffer = [UInt8](repeating: 0, count: size)
+            guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
+        }
+        return parse(Array(buffer[0..<size]))
+    }
+
+    /// `KERN_PROCARGS2`'s layout: argc, the executable path, NUL padding, then argc arguments,
+    /// each ending in one NUL (the environment follows). A program that rewrote its argv (node's
+    /// `process.title`) leaves NULs where arguments were: those read as empty.
+    public static func parse(_ bytes: [UInt8]) -> ProcessArguments? {
+        let header = MemoryLayout<Int32>.size
+        guard bytes.count > header else { return nil }
+        let argc = bytes.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
+        var index = header
         func string() -> String? {
-            guard index < size else { return nil }
+            guard index < bytes.count else { return nil }
             let start = index
-            while index < size, buffer[index] != 0 { index += 1 }
-            let value = String(decoding: buffer[start..<index], as: UTF8.self)
-            while index < size, buffer[index] == 0 { index += 1 }
+            while index < bytes.count, bytes[index] != 0 { index += 1 }
+            let value = String(decoding: bytes[start..<index], as: UTF8.self)
+            index += 1
             return value
         }
-        guard let executable = string() else { return nil }
+        guard let executable = string(), !executable.isEmpty else { return nil }
+        while index < bytes.count, bytes[index] == 0 { index += 1 }
         var arguments: [String] = []
-        for _ in 0..<max(argc, 0) {
+        for _ in 0..<max(0, min(Int(argc), 4096)) {
             guard let argument = string() else { break }
             arguments.append(argument)
         }

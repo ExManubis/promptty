@@ -22,6 +22,8 @@ final class ActivityTracker {
     @ObservationIgnored var panes: () -> [Watched] = { [] }
     /// A long command finished, a bell rang or a program asked for the user, unseen.
     @ObservationIgnored var onNotice: (PaneID, Notice) -> Void = { _, _ in }
+    /// The user looked at a pane that had something unseen: its notification is out of date.
+    @ObservationIgnored var onSeen: (PaneID) -> Void = { _ in }
 
     /// The first shell seen in a pane's foreground, for panes without PrompTTY's integration.
     @ObservationIgnored private var shellPIDs: [PaneID: Int] = [:]
@@ -51,7 +53,10 @@ final class ActivityTracker {
                     onNotice(watched.pane, notice)
                 }
             }
-            if watched.seen { activity.seen() }
+            if watched.seen, activity.hasUnseen {
+                activity.seen()
+                onSeen(watched.pane)
+            }
             if activities[watched.pane] != activity { activities[watched.pane] = activity }
         }
         for gone in Set(activities.keys).subtracting(live) {
@@ -63,37 +68,46 @@ final class ActivityTracker {
 
     /// The shell reported how a command ended.
     func exitReported(_ pane: PaneID, code: Int) {
-        activities[pane, default: PaneActivity()].exitReported(code: code)
+        var activity = activities[pane] ?? PaneActivity()
+        if let notice = activity.exitReported(code: code, at: Date(), seen: isSeen(pane)) { onNotice(pane, notice) }
+        if activities[pane] != activity { activities[pane] = activity }
     }
 
     /// A bell or a program's notification. Returns false when the user sees the pane (nothing is
     /// marked).
     @discardableResult
     func attention(_ pane: PaneID, message: String?) -> Bool {
-        let seen = panes().first { $0.pane == pane }?.seen ?? false
-        guard !seen else { return false }
+        guard !isSeen(pane) else { return false }
         var activity = activities[pane] ?? PaneActivity()
         if let notice = activity.attention(seen: false, message: message) { onNotice(pane, notice) }
-        activities[pane] = activity
+        if activities[pane] != activity { activities[pane] = activity }
         return true
+    }
+
+    private func isSeen(_ pane: PaneID) -> Bool {
+        panes().first { $0.pane == pane }?.seen ?? false
     }
 
     private func foreground(of watched: Watched) -> PaneActivity.Foreground? {
         guard let pid = watched.foregroundPID, pid > 0 else { return nil }
-        if let shell = watched.shellPID ?? shellPIDs[watched.pane], shell == pid { return .shell }
-        if let known = identified[watched.pane], known.pid == pid { return known.foreground }
-        guard let process = ProcessArguments.read(pid: Int32(pid)) else { return nil }
-        let program = ProgramCatalog.identify(executable: process.executable, arguments: process.arguments)
-        // Before the integration reports the shell's pid (or without it): the first shell in front
-        // is the pane's own.
-        if program?.isShell == true, watched.shellPID == nil, shellPIDs[watched.pane] == nil {
-            shellPIDs[watched.pane] = pid
-            identified[watched.pane] = (pid, .shell)
+        if let shell = watched.shellPID ?? shellPIDs[watched.pane], shell == pid {
+            // Pids are reused: what ran before is forgotten once the shell is back.
+            identified[watched.pane] = nil
             return .shell
         }
-        // Until the pane's shell is known, its foreground is the shell starting (`login`).
-        guard watched.shellPID != nil || shellPIDs[watched.pane] != nil else { return nil }
-        let foreground: PaneActivity.Foreground = program.map { .program($0) } ?? .command
+        if let known = identified[watched.pane], known.pid == pid { return known.foreground }
+        let process = ProcessArguments.read(pid: Int32(pid))
+        // Without the integration: the first process in front that is not `login` starting the
+        // shell is the pane's shell, whichever shell that is.
+        if watched.shellPID == nil, shellPIDs[watched.pane] == nil {
+            guard let process, (process.executable as NSString).lastPathComponent != "login" else { return nil }
+            shellPIDs[watched.pane] = pid
+            return .shell
+        }
+        // Unreadable (run as another user, as with sudo): something runs, unrecognised.
+        let foreground: PaneActivity.Foreground = process
+            .flatMap { ProgramCatalog.identify(executable: $0.executable, arguments: $0.arguments) }
+            .map { .program($0) } ?? .command
         identified[watched.pane] = (pid, foreground)
         return foreground
     }

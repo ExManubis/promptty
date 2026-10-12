@@ -29,19 +29,22 @@ struct ProgramIcon: View {
         }
     }
 
-    /// The brand color, unless it would vanish on this background (a black logo on a dark pane).
+    /// The brand color, unless it would be hard to see on this background (a black logo on a
+    /// dark pane): below a 2.5:1 contrast ratio the text color is used instead.
     private func color(for program: Program) -> Color {
         guard let hex = program.color else { return .primary }
         let r = Double((hex >> 16) & 0xFF) / 255, g = Double((hex >> 8) & 0xFF) / 255, b = Double(hex & 0xFF) / 255
-        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-        if colorScheme == .dark, luminance < 0.18 { return .primary }
-        if colorScheme == .light, luminance > 0.85 { return .primary }
-        return Color(red: r, green: g, blue: b)
+        func linear(_ c: Double) -> Double { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        let luminance = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+        // Typical dark and light pane backgrounds.
+        let background = colorScheme == .dark ? 0.012 : 0.87
+        let ratio = (max(luminance, background) + 0.05) / (min(luminance, background) + 0.05)
+        return ratio < 2.5 ? .primary : Color(red: r, green: g, blue: b)
     }
 }
 
-/// Rex-style activity mark: a green bar while something runs, a dot for what finished or failed
-/// unseen, an orange pulse when a program wants the user.
+/// Rex-style activity mark: a green bar while something runs, a blue dot for what finished
+/// unseen, a red diamond for what failed, an orange pulse when a program wants the user.
 struct ActivityIndicator: View {
     let display: PaneActivity.Display
 
@@ -54,15 +57,16 @@ struct ActivityIndicator: View {
             case .idle:
                 Color.clear
             case .running:
+                // Still: agents and editors run all day, and a pulse would never rest.
                 Capsule().fill(Color.green).frame(width: 3, height: 12)
-                    .opacity(pulse ? 0.45 : 1)
             case .finished:
                 Circle().fill(Color.blue).frame(width: 6, height: 6)
             case .failed:
-                Circle().fill(Color.red).frame(width: 6, height: 6)
+                // Not only red: a different shape for those who cannot tell the colors apart.
+                Rectangle().fill(Color.red).frame(width: 5.5, height: 5.5).rotationEffect(.degrees(45))
             case .attention:
-                Circle().fill(Color.orange).frame(width: 7, height: 7)
-                    .scaleEffect(pulse ? 1.25 : 1)
+                Circle().fill(Color.orange).frame(width: 6, height: 6)
+                    .scaleEffect(pulse ? 1.2 : 0.9)
             }
         }
         .frame(width: 7, height: 12)
@@ -75,7 +79,7 @@ struct ActivityIndicator: View {
 
     private func startPulse() {
         pulse = false
-        guard !reduceMotion, display == .running || display == .attention else { return }
+        guard !reduceMotion, display == .attention else { return }
         withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true }
     }
 
