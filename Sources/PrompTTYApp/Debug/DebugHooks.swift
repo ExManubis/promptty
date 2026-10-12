@@ -135,6 +135,20 @@ enum DebugHooks {
             window.orderFront(nil)
             return ""
         }
+        // eval sheet [buttonIndex] — describe the attached alert sheet, optionally pressing a button.
+        driver.hooks["sheet"] = { args in
+            for c in coordinator.allControllers {
+                guard let sheet = c.window?.attachedSheet else { continue }
+                let texts = sheet.contentView.map(Self.texts(in:)) ?? []
+                if let i = args.first.flatMap(Int.init) {
+                    let buttons = sheet.contentView.map(Self.buttons(in:)) ?? []
+                    guard i < buttons.count else { return "error: no button \(i)" }
+                    buttons[i].performClick(nil)
+                }
+                return "sheet: " + texts.joined(separator: " | ")
+            }
+            return "no sheet"
+        }
         driver.hooks["banner"] = { args in
             coordinator.showTransientBanner(args.joined(separator: " "))
             return ""
@@ -151,6 +165,21 @@ enum DebugHooks {
             }
             return ""
         }
+    }
+
+    private static func texts(in view: NSView) -> [String] {
+        var out: [String] = []
+        if let field = view as? NSTextField, !field.stringValue.isEmpty { out.append(field.stringValue) }
+        if let button = view as? NSButton, !button.title.isEmpty { out.append("[\(button.title)]") }
+        for sub in view.subviews { out += texts(in: sub) }
+        return out
+    }
+
+    private static func buttons(in view: NSView) -> [NSButton] {
+        var out: [NSButton] = []
+        if let b = view as? NSButton, !b.title.isEmpty { out.append(b) }
+        for sub in view.subviews { out += buttons(in: sub) }
+        return out
     }
 
     private static func keyState(_ coordinator: WorkspaceCoordinator) -> WindowState? {
