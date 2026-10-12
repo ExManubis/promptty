@@ -132,7 +132,7 @@ final class DebugDriver {
                 let upType: NSEvent.EventType = command == "rclick" ? .rightMouseUp : .leftMouseUp
                 for type in [downType, upType] {
                     if let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: n, pressure: 1) {
+                                                  windowNumber: window.windowNumber, context: nil, eventNumber: Self.nextEventNumber(), clickCount: n, pressure: 1) {
                         window.sendEvent(e)
                     }
                 }
@@ -225,6 +225,13 @@ final class DebugDriver {
         if NSApp.responds(to: action) { return NSApp }
         if let d = NSApp.delegate as? NSObject, d.responds(to: action) { return d }
         return nil
+    }
+
+    /// Real mouse events carry increasing event numbers; repeats of one number look like one event.
+    private static var eventCounter = 1000
+    static func nextEventNumber() -> Int {
+        eventCounter += 1
+        return eventCounter
     }
 
     func focusedSurface() -> TerminalSurfaceView? {

@@ -14,6 +14,7 @@ struct TabRow: View {
 
     @State private var hovering = false
     @State private var draft = ""
+    @State private var lastTap: Date?
     @FocusState private var fieldFocused: Bool
 
     private var renaming: Bool { chrome.renamingTab == tab.id }
@@ -63,8 +64,20 @@ struct TabRow: View {
         .contentShape(Rectangle())
         .help(tab.listSubtitle.map { "\(tab.listTitle) — \($0)" } ?? tab.listTitle)
         .onHover { hovering = $0 }
-        .simultaneousGesture(TapGesture().onEnded { if !renaming { actions.selectTab(tab.id) } })
-        .onTapGesture(count: 2) { beginRename() }
+        // One tap recognizer that tells a double click from a single one itself. A separate
+        // count-2 recognizer makes SwiftUI hold every single click until the double-click
+        // interval has passed (0.5s by default) before the tab is selected.
+        .onTapGesture {
+            guard !renaming else { return }
+            let now = Date()
+            if let last = lastTap, now.timeIntervalSince(last) < NSEvent.doubleClickInterval {
+                lastTap = nil
+                beginRename()
+            } else {
+                lastTap = now
+                actions.selectTab(tab.id)
+            }
+        }
         .onDrag { DragPayload.provider(DragPayload.tab, id: tab.id.rawValue) }
         .onDrop(of: [DragPayload.tab, DragPayload.pane], delegate: RowDropDelegate(tab: tab, index: index, chrome: chrome, actions: actions))
         .contextMenu {
