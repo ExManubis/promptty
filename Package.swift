@@ -7,12 +7,15 @@ let package = Package(
     products: [
         .library(name: "WorkspaceModel", targets: ["WorkspaceModel"]),
         .library(name: "GhosttyBridge", targets: ["GhosttyBridge"]),
+        .library(name: "Preferences", targets: ["Preferences"]),
     ],
     dependencies: [
         .package(url: "https://github.com/sethdeckard/libghostty-spm", exact: "0.2.0"),
     ],
     targets: [
         .target(name: "WorkspaceModel"),
+        .target(name: "Preferences"),
+        .testTarget(name: "PreferencesTests", dependencies: ["Preferences"]),
         .target(
             name: "GhosttyBridge",
             dependencies: [
