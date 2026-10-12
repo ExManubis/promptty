@@ -116,13 +116,8 @@ public struct FolderBrowser: Sendable {
             selection = nil
             return
         }
-        var prefix: [String] = []
-        var other: [String] = []
-        for name in folders where query.hasPrefix(".") || !name.hasPrefix(".") {
-            guard let range = name.range(of: query, options: .caseInsensitive) else { continue }
-            if range.lowerBound == name.startIndex { prefix.append(name) } else { other.append(name) }
-        }
-        rows = (prefix + other).map(Row.folder)
+        let candidates = query.hasPrefix(".") ? folders : folders.filter { !$0.hasPrefix(".") }
+        rows = PickerFilter.filter(candidates, query: query).map(Row.folder)
         selection = rows.isEmpty ? nil : 0
     }
 }
