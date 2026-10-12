@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import SwiftUI
 import WorkspaceModel
 
 /// Named hooks for `eval` in the debug driver: things a test needs that no menu item offers.
@@ -114,6 +115,24 @@ enum DebugHooks {
             if args.first == "off" { c.chrome.dropTarget = nil; return "" }
             guard args.count == 2, let i = Int(args[0]), i < tab.root.leaves.count, let e = edge(args[1]) else { return "error: droptarget pane edge" }
             c.chrome.dropTarget = (tab.root.leaves[i], e)
+            return ""
+        }
+        // eval themelist <Theme_Name> [dark|light] — render the theme list in a plain window (popovers
+        // close at once in an inactive app, so the real one cannot be captured).
+        driver.hooks["themelist"] = { args in
+            final class Box { var value: String; init(_ v: String) { value = v } }
+            let box = Box(args.first?.replacingOccurrences(of: "_", with: " ") ?? "Flexoki Dark")
+            let list = ThemeList(
+                selection: Binding(get: { box.value }, set: { box.value = $0 }),
+                swatches: ThemeSwatches(catalog: coordinator.preferences.themes),
+                prefersDark: args.count > 1 ? args[1] == "dark" : nil,
+                onPick: {}
+            )
+            let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 320, height: 420), styleMask: [.titled], backing: .buffered, defer: false)
+            window.title = "ThemeList"
+            window.contentView = NSHostingView(rootView: list)
+            window.isReleasedWhenClosed = false
+            window.orderFront(nil)
             return ""
         }
         driver.hooks["banner"] = { args in

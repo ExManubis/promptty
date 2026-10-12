@@ -81,6 +81,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         DebugDriver.shared.stateProvider = { [weak self] in self?.coordinator.debugState() ?? "" }
         DebugHooks.install(on: DebugDriver.shared, coordinator: coordinator)
+        DebugDriver.shared.hooks["settings-open"] = { [weak self] args in
+            self?.showSettings(nil)
+            if let name = args.first, let pane = SettingsPane(rawValue: name) { self?.settingsWindow?.show(pane) }
+            return ""
+        }
         DebugDriver.shared.install()
         #endif
         coordinator.showConfigDiagnostics(runtime.configDiagnostics)
@@ -134,7 +139,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func newWindow(_ sender: Any?) { coordinator.newWindow() }
     @objc func toggleTabLayout(_ sender: Any?) { coordinator.toggleTabLayout() }
     @objc func toggleTabListHidden(_ sender: Any?) { coordinator.toggleTabListHidden() }
-    @objc func showSettings(_ sender: Any?) {}
+    private var settingsWindow: SettingsWindowController?
+
+    @objc func showSettings(_ sender: Any?) {
+        if settingsWindow == nil {
+            let controller = SettingsWindowController(preferences: preferences)
+            // Closing Settings hands the keyboard back to the terminal underneath.
+            controller.onClose = { [weak self] in
+                self?.coordinator.allControllers.first { $0.window?.isMainWindow == true }?.focusSelectedPane()
+            }
+            settingsWindow = controller
+        }
+        settingsWindow?.show()
+    }
 
     @objc func biggerFont(_ sender: Any?) { preferences.update { $0.fontSize += 1 } }
     @objc func smallerFont(_ sender: Any?) { preferences.update { $0.fontSize -= 1 } }
