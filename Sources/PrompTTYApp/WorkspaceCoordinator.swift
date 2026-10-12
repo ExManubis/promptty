@@ -48,6 +48,45 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         for c in controllers.values { applyConfiguredTint(to: c) }
     }
 
+    // MARK: Banner
+
+    private var configBannerMessage: String?
+    /// Bumped per transient banner so an older one's timer does not cut a newer one short.
+    private var transientBannerGeneration = 0
+    private var transientBannerActive = false
+
+    func showConfigDiagnostics(_ diagnostics: [String]) {
+        configBannerMessage = diagnostics.isEmpty ? nil : "Ghostty config: \(diagnostics[0])" + (diagnostics.count > 1 ? " (+\(diagnostics.count - 1) more)" : "")
+        guard !transientBannerActive else { return }
+        for c in controllers.values { applyBanner(to: c) }
+    }
+
+    private func applyBanner(to controller: TerminalWindowController) {
+        guard let message = configBannerMessage else {
+            controller.chrome.setBanner(nil)
+            return
+        }
+        controller.chrome.setBanner(BannerView(message: message, actionTitle: "Open config") { [weak self] in
+            self?.runtime.openConfig()
+        })
+    }
+
+    /// Shows `message` in every window for a few seconds, then restores the config banner (if any).
+    func showTransientBanner(_ message: String) {
+        transientBannerGeneration += 1
+        transientBannerActive = true
+        let generation = transientBannerGeneration
+        for c in controllers.values {
+            c.chrome.setBanner(BannerView(message: message, actionTitle: nil, action: nil))
+        }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(6))
+            guard let self, self.transientBannerGeneration == generation else { return }
+            self.transientBannerActive = false
+            for c in self.controllers.values { self.applyBanner(to: c) }
+        }
+    }
+
     // MARK: Mutations
 
     func newWindow(workingDirectory: String? = nil) {
@@ -125,6 +164,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         let controller = TerminalWindowController(state: state, coordinator: self, runtime: runtime)
         controllers[state.id] = controller
         controller.setTabLayout(workspace.tabLayout, hidden: tabListHidden)
+        applyBanner(to: controller)
         applyConfiguredTint(to: controller)
         controller.reload()
         controller.showWindow(nil)
@@ -236,8 +276,14 @@ final class WorkspaceCoordinator: GhosttyActionSink {
                 closeTab(tabID)
             }
             return true
-        case .desktopNotification, .ringBell, .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .unhandled:
-            // Notifications and bell are wired in Task 9; config actions are handled by the runtime.
+        case .desktopNotification(let title, let body):
+            Notifications.post(title: title.isEmpty ? "PrompTTY" : title, body: body)
+            return true
+        case .ringBell:
+            NSSound.beep()
+            return true
+        case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .unhandled:
+            // Config, mouse-shape and mouse-visibility actions are handled by the runtime.
             return false
         }
     }

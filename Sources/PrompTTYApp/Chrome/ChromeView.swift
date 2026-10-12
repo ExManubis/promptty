@@ -84,9 +84,10 @@ final class ChromeView: NSView {
             let leading = tabList?.trailingAnchor ?? leadingAnchor
             if let banner {
                 c += [
-                    banner.leadingAnchor.constraint(equalTo: leading, constant: inset),
+                    banner.leadingAnchor.constraint(equalTo: leading, constant: tabList == nil ? inset : 0),
                     banner.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
-                    banner.topAnchor.constraint(equalTo: topAnchor, constant: inset),
+                    // With the tab list hidden, keep the banner clear of the traffic lights.
+                    banner.topAnchor.constraint(equalTo: topAnchor, constant: tabList == nil ? Self.trafficLightsHeight : inset),
                 ]
             }
             c += [

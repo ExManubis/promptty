@@ -123,6 +123,29 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    // MARK: Menu actions (responder chain)
+
+    @objc func newTab(_ sender: Any?) { coordinator.newTab(in: state) }
+
+    /// Asks libghostty to close the selected tab's surface; it answers through `close_surface_cb`,
+    /// whose handler confirms first when a process is still running.
+    @objc func closeTab(_ sender: Any?) {
+        guard let id = state.selectedTabID else { return }
+        if let view = surfaces[id] {
+            view.requestClose()
+        } else {
+            coordinator.closeTab(id)
+        }
+    }
+
+    @objc func previousTab(_ sender: Any?) {
+        if state.gotoTab(.previous) { reload(); coordinator.modelDidChange() }
+    }
+
+    @objc func nextTab(_ sender: Any?) {
+        if state.gotoTab(.next) { reload(); coordinator.modelDidChange() }
+    }
+
     // MARK: NSWindowDelegate
 
     /// Presents a Close/Cancel confirmation sheet on this window; `onConfirm` runs on Close.

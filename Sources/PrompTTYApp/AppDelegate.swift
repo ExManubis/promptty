@@ -35,19 +35,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspace = Workspace()
         coordinator = WorkspaceCoordinator(runtime: runtime, workspace: workspace)
         runtime.sink = coordinator
-        runtime.onConfigDiagnostics = { [weak self] _ in self?.coordinator.configDidReload() }
+        runtime.onConfigDiagnostics = { [weak self] diags in
+            self?.coordinator.configDidReload()
+            self?.coordinator.showConfigDiagnostics(diags)
+        }
+        runtime.onSurfaceCreationFailed = { [weak self] view in
+            guard let id = view.token?.base as? TabID else { return }
+            // Fires synchronously inside the controller's `reload()` (surface creation happens when
+            // the view joins the window); defer so closing the tab does not re-enter that reload.
+            Task { @MainActor [weak self] in
+                self?.coordinator.closeTab(id)
+                self?.coordinator.showTransientBanner("Could not start a terminal for that tab.")
+            }
+        }
         syncColorScheme()
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.syncColorScheme() }
         }
         coordinator.start()
+        coordinator.showConfigDiagnostics(runtime.configDiagnostics)
         NSApp.activate()
+    }
+
+    /// Dock-icon click with no windows open (the app outlives its last window). A minimized
+    /// window also counts as not visible; returning true lets AppKit restore it instead.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows, !sender.windows.contains(where: \.isMiniaturized) {
+            coordinator?.newWindow()
+        }
+        return true
     }
 
     func applicationDidBecomeActive(_ notification: Notification) { runtime?.setFocus(true) }
     func applicationDidResignActive(_ notification: Notification) { runtime?.setFocus(false) }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    // MARK: Menu actions (responder chain)
+
+    @objc func newWindow(_ sender: Any?) { coordinator.newWindow() }
+    @objc func toggleTabLayout(_ sender: Any?) { coordinator.toggleTabLayout() }
+    @objc func toggleTabListHidden(_ sender: Any?) { coordinator.toggleTabListHidden() }
+    @objc func reloadConfig(_ sender: Any?) { runtime.reloadConfig() }
+    @objc func openConfig(_ sender: Any?) { runtime.openConfig() }
 
     private func syncColorScheme() {
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
