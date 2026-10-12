@@ -4,7 +4,7 @@ import WorkspaceModel
 /// What the SwiftUI chrome can ask its window to do. Implemented by `TerminalWindowController`.
 @MainActor
 protocol ChromeActions: AnyObject {
-    func surfaceView(for pane: Pane) -> TerminalSurfaceView
+    func surfaceView(for pane: Pane) -> TerminalSurfaceView?
     func selectTab(_ id: TabID)
     func requestCloseTab(_ id: TabID)
     func newTab()

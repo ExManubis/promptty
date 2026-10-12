@@ -220,8 +220,8 @@ public final class TerminalSurfaceView: NSView {
     private func sizeDidChange(force: Bool = false) {
         guard let surface else { return }
         let scale = window?.backingScaleFactor ?? 2.0
-        let w = UInt32(max(1, bounds.width * scale))
-        let h = UInt32(max(1, bounds.height * scale))
+        let w = UInt32(max(1, (bounds.width * scale).rounded()))
+        let h = UInt32(max(1, (bounds.height * scale).rounded()))
         if !force, let sent = sentSize, sent.width == w, sent.height == h { return }
         sentSize = (w, h)
         #if DEBUG

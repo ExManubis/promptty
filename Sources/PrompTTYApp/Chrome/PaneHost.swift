@@ -72,7 +72,21 @@ final class PaneHostView: NSView {
 
     override func layout() {
         super.layout()
-        for sub in subviews { sub.frame = bounds }
+        placeSurface()
+    }
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        placeSurface()
+    }
+
+    /// The surface gets whole points. While a card is drawn through a scale effect SwiftUI hands
+    /// this host fractional, slightly-off sizes (152.51 for 153); passed on, each would reach the
+    /// shell as a resize.
+    private func placeSurface() {
+        let size = CGSize(width: bounds.width.rounded(), height: bounds.height.rounded())
+        for sub in subviews where sub.frame.size != size || sub.frame.origin != .zero {
+            sub.frame = CGRect(origin: .zero, size: size)
+        }
     }
 
     // MARK: Registry
@@ -101,8 +115,8 @@ final class PaneHostView: NSView {
 
     private func adopt() {
         guard let surface, surface.superview !== self else { return }
-        surface.frame = bounds
-        surface.autoresizingMask = [.width, .height]
+        surface.autoresizingMask = []
         addSubview(surface)
+        placeSurface()
     }
 }

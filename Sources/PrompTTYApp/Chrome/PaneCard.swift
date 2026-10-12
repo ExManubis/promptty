@@ -24,7 +24,9 @@ struct PaneCard: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            PaneHost(surface: actions.surfaceView(for: pane), visible: visible)
+            if let surface = actions.surfaceView(for: pane) {
+                PaneHost(surface: surface, visible: visible)
+            }
 
             // Dia-style focus: the other panes fade slightly toward the panel color, in the
             // card's own shape so the dimming stays inside its rounded corners.

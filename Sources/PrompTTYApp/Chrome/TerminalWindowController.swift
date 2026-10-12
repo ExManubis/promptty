@@ -110,8 +110,12 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     // MARK: Surfaces
 
-    func surfaceView(for pane: Pane) -> TerminalSurfaceView {
+    /// The pane's surface, created on first use. Nil for a pane that is no longer in this window:
+    /// SwiftUI can evaluate a removed pane's card once more, and a surface made then would start a
+    /// shell nothing ever frees.
+    func surfaceView(for pane: Pane) -> TerminalSurfaceView? {
         if let existing = surfaces[pane.id] { return existing }
+        guard state.tab(containing: pane.id) != nil else { return nil }
         let view = TerminalSurfaceView(
             runtime: runtime,
             configuration: TerminalSurfaceConfiguration(
