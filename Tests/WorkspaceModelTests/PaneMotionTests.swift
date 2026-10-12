@@ -61,19 +61,19 @@ final class PaneMotionTests: XCTestCase {
     }
 }
 
-final class TabSlideTests: XCTestCase {
-    func testNextTabComesInFromAfterAndOldTabLeavesBefore() {
-        XCTAssertEqual(PaneMotion.tabSlideFraction(selected: true, outgoing: false, direction: 1, progress: 0), 1)
-        XCTAssertEqual(PaneMotion.tabSlideFraction(selected: false, outgoing: true, direction: 1, progress: 1), -1)
+final class TabFadeTests: XCTestCase {
+    func testNewTabFadesInOverTheOldOne() {
+        XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: true, outgoing: false, progress: 0), 0)
+        XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: true, outgoing: false, progress: 0.5), 0.5)
+        XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: true, outgoing: false, progress: 1), 1)
     }
 
-    func testPreviousTabComesInFromBeforeAndOldTabLeavesAfter() {
-        XCTAssertEqual(PaneMotion.tabSlideFraction(selected: true, outgoing: false, direction: -1, progress: 0), -1)
-        XCTAssertEqual(PaneMotion.tabSlideFraction(selected: false, outgoing: true, direction: -1, progress: 1), 1)
+    func testOldTabStaysOpaqueUnderneathUntilTheFadeEnds() {
+        XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: false, outgoing: true, progress: 0.9), 1)
+        XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: false, outgoing: true, progress: 1), 0)
     }
 
-    func testAtRestTheSelectedTabSitsInPlace() {
-        XCTAssertEqual(PaneMotion.tabSlideFraction(selected: true, outgoing: false, direction: -1, progress: 1), 0)
-        XCTAssertEqual(PaneMotion.tabSlideFraction(selected: false, outgoing: false, direction: 1, progress: 0.5), 0)
+    func testOtherTabsAreHidden() {
+        XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: false, outgoing: false, progress: 0.5), 0)
     }
 }

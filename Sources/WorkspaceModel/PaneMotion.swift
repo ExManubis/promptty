@@ -68,12 +68,12 @@ public enum PaneMotion {
         }
     }
 
-    /// How far a tab is shifted, in pane-area lengths, while the selection slides: the new tab
-    /// comes in from the side the old one is not (`direction` +1 when the new tab is later in the
-    /// list) and the old one leaves the other way. Other tabs, and every tab at rest, sit at 0.
-    public static func tabSlideFraction(selected: Bool, outgoing: Bool, direction: CGFloat, progress: CGFloat) -> CGFloat {
-        if selected { return direction * (1 - progress) }
-        if outgoing { return -direction * progress }
+    /// A tab's opacity while the selection cross-fades: the new tab fades in on top of the old
+    /// one, which stays opaque underneath (so the window behind never shows through) until the fade
+    /// ends. Other tabs are hidden.
+    public static func tabFadeOpacity(selected: Bool, outgoing: Bool, progress: CGFloat) -> CGFloat {
+        if selected { return min(1, max(0, progress)) }
+        if outgoing { return progress < 1 ? 1 : 0 }
         return 0
     }
 }
