@@ -4,5 +4,5 @@ cd "$(dirname "$0")/.."
 swift test
 xcodegen generate >/dev/null
 xcodebuild -project PrompTTY.xcodeproj -scheme PrompTTYApp -configuration Debug \
-  -derivedDataPath .build/DerivedData build -quiet
+  -derivedDataPath .build/DerivedData CURRENT_PROJECT_VERSION="$(git rev-list --count HEAD)" build -quiet
 echo "OK"

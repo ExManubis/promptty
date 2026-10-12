@@ -3,5 +3,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 xcodegen generate
 xcodebuild -project PrompTTY.xcodeproj -scheme PrompTTYApp -configuration Debug \
-  -derivedDataPath .build/DerivedData build | tail -20
-open .build/DerivedData/Build/Products/Debug/PrompTTY.app
+  -derivedDataPath .build/DerivedData CURRENT_PROJECT_VERSION="$(git rev-list --count HEAD)" build | tail -20
+APP=.build/DerivedData/Build/Products/Debug/PrompTTY.app
+# `open` only brings an already-running copy to the front; it does not start the new build.
+if pgrep -f "$PWD/$APP/Contents/MacOS/PrompTTY" >/dev/null; then
+  echo "PrompTTY is already running: quit it (⌘Q) and run this again to start the new build."
+  exit 1
+fi
+open "$APP"
