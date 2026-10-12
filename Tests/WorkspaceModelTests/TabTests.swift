@@ -60,9 +60,9 @@ final class TabTests: XCTestCase {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let tab = Tab(title: "zsh", workingDirectory: home + "/Developer/x")
         XCTAssertEqual(tab.abbreviatedDirectory, "~/Developer/x")
-        tab.workingDirectory = home
+        tab.focusedPane.workingDirectory = home
         XCTAssertEqual(tab.abbreviatedDirectory, "~")
-        tab.workingDirectory = "/usr/local"
+        tab.focusedPane.workingDirectory = "/usr/local"
         XCTAssertEqual(tab.abbreviatedDirectory, "/usr/local")
     }
 }

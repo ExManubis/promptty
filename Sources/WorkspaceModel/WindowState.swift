@@ -48,6 +48,8 @@ public final class WindowState {
 
     public func index(of id: TabID) -> Int? { tabs.firstIndex { $0.id == id } }
 
+    public func tab(containing pane: PaneID) -> Tab? { tabs.first { $0.pane(pane) != nil } }
+
     @discardableResult
     public func addTab(title: String, workingDirectory: String, id: TabID = TabID(), customTitle: String? = nil) -> Tab {
         let tab = Tab(id: id, title: title, customTitle: customTitle, workingDirectory: workingDirectory)

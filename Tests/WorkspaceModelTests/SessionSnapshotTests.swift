@@ -21,6 +21,17 @@ final class SessionSnapshotTests: XCTestCase {
         XCTAssertEqual(snap.windows[0].selectedIndex, 1)
     }
 
+    func testSnapshotOfSplitTabWritesFocusedPane() {
+        let ws = Workspace()
+        let w = ws.addWindow()
+        let tab = w.addTab(title: "left", workingDirectory: "/left")
+        let right = tab.split(tab.focusedPaneID, direction: .right, workingDirectory: "/right")
+        right.title = "right"
+        XCTAssertEqual(ws.snapshot().windows[0].tabs[0], TabSnapshot(title: "right", customTitle: nil, workingDirectory: "/right"))
+        tab.focus(tab.root.leaves[0])
+        XCTAssertEqual(ws.snapshot().windows[0].tabs[0], TabSnapshot(title: "left", customTitle: nil, workingDirectory: "/left"))
+    }
+
     func testRoundTripThroughJSON() throws {
         let ws = Workspace()
         let w = ws.addWindow()

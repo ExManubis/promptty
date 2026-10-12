@@ -237,12 +237,12 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             return moved
         case .setTitle(let title), .setTabTitle(let title):
             guard let located else { return false }
-            located.1.title = title
+            located.1.focusedPane.title = title
             located.2.reload()
             return true
         case .pwd(let dir):
             guard let located else { return false }
-            located.1.workingDirectory = dir
+            located.1.focusedPane.workingDirectory = dir
             located.2.reload()
             modelDidChange()
             return true
