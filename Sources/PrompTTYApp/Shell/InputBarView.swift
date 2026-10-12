@@ -11,18 +11,19 @@ struct InputBarView: View {
     static let cornerRadius: CGFloat = 12
     /// From the card's edges to the box.
     static let inset: CGFloat = 8
+    static let minHeight: CGFloat = 88
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 8) {
             ShellHeaderView(shell: shell)
             LongLivedViewHost(view: shell.editor, dark: dark)
                 .frame(height: shell.editorHeight)
                 .opacity(shell.bar == .active ? 1 : 0.45)
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        // 88 pt for a one-line command, the content centered; longer commands grow the box.
+        .frame(maxWidth: .infinity, minHeight: Self.minHeight, alignment: .leading)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
         .padding([.horizontal, .bottom], Self.inset)
         .padding(.top, 2)
