@@ -14,7 +14,7 @@ struct BannerContent {
 @MainActor
 @Observable
 final class WindowChromeModel {
-    /// The window frame: the system's neutral window color, or a theme-tinted color.
+    /// The tint over the window's blurred backdrop: Dia's neutral gray, or a theme-tinted color.
     var tint: NSColor = ChromeTint.fallback
     /// The content panel's fill: the terminal theme background, so the toolbar and the
     /// terminal read as one surface.

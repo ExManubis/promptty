@@ -3,12 +3,26 @@ import AppKit
 /// Window colors. By default the frame is the system's neutral window color (Dia-style); the
 /// "Frame color" setting blends in the terminal theme's background instead.
 enum ChromeTint {
-    /// Dia's neutral frame: a soft gray in light mode (so white selected rows and the content
-    /// panel stand out), near-black in dark mode.
+    /// Dia's neutral frame, laid over the behind-window blur: near-black in dark mode, a soft
+    /// gray in light mode (so white selected rows stand out). Partly transparent, so the
+    /// blurred desktop tints it slightly.
     static let fallback = NSColor(name: "PrompTTYFrame") { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(srgbRed: 0.125, green: 0.125, blue: 0.13, alpha: 1)
-            : NSColor(srgbRed: 0.918, green: 0.918, blue: 0.925, alpha: 1)
+            ? NSColor(srgbRed: frameDark, green: frameDark, blue: frameDark, alpha: frameAlphaDark)
+            : NSColor(srgbRed: frameLight, green: frameLight, blue: frameLight + 0.006, alpha: frameAlphaLight)
+    }
+
+    // Tuned against Dia: the blur material adds lightness of its own, so the dark tint sits
+    // well below the #222222 it composites to on an active window.
+    static let frameDark: CGFloat = 0.075
+    static let frameLight: CGFloat = 0.915
+    /// How opaque the tint over the blur is; the rest is blurred desktop.
+    static let frameAlphaDark: CGFloat = 0.86
+    static let frameAlphaLight: CGFloat = 0.80
+
+    /// A theme-tinted frame over the blur, with the same transparency as the neutral one.
+    static func overBlur(_ color: NSColor) -> NSColor {
+        color.withAlphaComponent(isDark(color) ? frameAlphaDark : frameAlphaLight)
     }
 
     /// The frame color for a theme background, or nil for the neutral system color.

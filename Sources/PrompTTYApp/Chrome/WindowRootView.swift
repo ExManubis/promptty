@@ -19,7 +19,7 @@ struct WindowRootView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            Color(nsColor: chrome.tint)
+            WindowBackdrop(tint: chrome.tint)
 
             Group {
                 if hidden {

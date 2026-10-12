@@ -48,6 +48,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         window.toolbar = toolbar
         window.toolbarStyle = .unified
         window.isMovableByWindowBackground = true
+        // See-through so the backdrop can blur the desktop behind the window.
+        window.isOpaque = false
+        window.backgroundColor = .clear
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         window.minSize = NSSize(width: 520, height: 320)
@@ -97,7 +100,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func setColors(frame: NSColor?, panel: NSColor) {
         chrome.panelColor = panel
         if let frame {
-            chrome.tint = frame
+            chrome.tint = ChromeTint.overBlur(frame)
             window?.appearance = NSAppearance(named: ChromeTint.isDark(frame) ? .darkAqua : .aqua)
         } else {
             chrome.tint = ChromeTint.fallback
