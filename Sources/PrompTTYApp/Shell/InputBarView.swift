@@ -14,16 +14,21 @@ struct InputBarView: View {
     static let minHeight: CGFloat = 88
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // The header sits near the top edge; the input is centered in the space below it.
+        VStack(alignment: .leading, spacing: 0) {
             ShellHeaderView(shell: shell)
+                .padding(.top, 9)
+            Spacer(minLength: 6)
             LongLivedViewHost(view: shell.editor, dark: dark)
                 .frame(height: shell.editorHeight)
                 .opacity(shell.bar == .active ? 1 : 0.45)
+            Spacer(minLength: 12)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        // 88 pt for a one-line command, the content centered; longer commands grow the box.
+        // 88 pt for a one-line command; longer commands grow the box.
         .frame(maxWidth: .infinity, minHeight: Self.minHeight, alignment: .leading)
+        // Its own height, not a share of the pane: the spacers only divide the box's inside.
+        .fixedSize(horizontal: false, vertical: true)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
         .padding([.horizontal, .bottom], Self.inset)
         .padding(.top, 2)
