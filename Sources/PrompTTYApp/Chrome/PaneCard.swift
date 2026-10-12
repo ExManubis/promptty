@@ -1,7 +1,7 @@
 import SwiftUI
 import WorkspaceModel
 
-/// One pane: its terminal in a rounded card, a focus ring when the tab is split, a header that
+/// One pane: its terminal, dimmed when another pane of a split tab has focus, a header that
 /// appears when the pointer nears the top edge, and the "process exited" panel.
 struct PaneCard: View {
     let pane: Pane
@@ -20,16 +20,11 @@ struct PaneCard: View {
         ZStack(alignment: .top) {
             PaneHost(surface: actions.surfaceView(for: pane), visible: visible)
 
-            if tab.hasSplits {
-                if focused {
-                    RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
-                        .strokeBorder(Color.accentColor.opacity(0.85), lineWidth: 1.5)
-                        .allowsHitTesting(false)
-                } else {
-                    RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
-                        .fill(Color(nsColor: chrome.tint).opacity(0.15))
-                        .allowsHitTesting(false)
-                }
+            if tab.hasSplits, !focused {
+                // Dia-style focus: the other panes fade slightly toward the panel color.
+                Color(nsColor: chrome.panelColor)
+                    .opacity(0.38)
+                    .allowsHitTesting(false)
             }
 
             if let code = chrome.exitedPanes[pane.id] {
@@ -56,7 +51,7 @@ struct PaneCard: View {
     }
 }
 
-/// Glass capsule along a pane's top edge: drag handle, split and close buttons.
+/// Flat bar along a pane's top edge: drag handle, folder, split and close buttons.
 struct PaneHeader: View {
     let pane: Pane
     let tab: WorkspaceModel.Tab
@@ -78,7 +73,7 @@ struct PaneHeader: View {
         }
         .padding(.horizontal, 6)
         .frame(height: 28)
-        .glassEffect(.regular, in: .capsule)
+        .background(FlatSurface(cornerRadius: 8))
         .padding(.horizontal, 8)
         .padding(.top, 6)
     }
@@ -115,11 +110,24 @@ struct ExitedOverlay: View {
             Text(exitCode == 0 ? "Process exited" : "Process exited with code \(exitCode)")
                 .font(.system(size: 13, weight: .medium))
             Button("Close", action: onClose)
-                .buttonStyle(.glass)
                 .controlSize(.regular)
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 16)
-        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .background(FlatSurface(cornerRadius: 12))
+    }
+}
+
+/// A flat raised surface (Dia's popovers and bars): solid fill, hairline border, soft shadow.
+struct FlatSurface: View {
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        shape
+            .fill(colorScheme == .dark ? Color(white: 0.17) : Color.white)
+            .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0.10), radius: 4, y: 1)
+            .overlay(shape.strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
     }
 }

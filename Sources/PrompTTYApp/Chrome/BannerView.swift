@@ -15,13 +15,12 @@ struct BannerView: View {
             Spacer(minLength: 8)
             if let title = content.actionTitle, let action = content.action {
                 Button(title, action: action)
-                    .buttonStyle(.glass)
                     .controlSize(.small)
             }
         }
-        .padding(.horizontal, 14)
-        .frame(minHeight: ChromeMetrics.bannerHeight)
-        .glassEffect(.regular, in: .capsule)
+        .padding(.horizontal, 12)
+        .frame(minHeight: 32)
+        .background(FlatSurface(cornerRadius: 8))
         .accessibilityElement(children: .combine)
     }
 }

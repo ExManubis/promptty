@@ -1,12 +1,25 @@
 import AppKit
 
-/// Arc-style chrome: a solid backdrop derived from the terminal theme's background.
+/// Window colors. By default the frame is the system's neutral window color (Dia-style); the
+/// "Frame color" setting blends in the terminal theme's background instead.
 enum ChromeTint {
-    static let fallback = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.90, alpha: 1)
+    /// Dia's neutral frame: a soft gray in light mode (so white selected rows and the content
+    /// panel stand out), near-black in dark mode.
+    static let fallback = NSColor(name: "PrompTTYFrame") { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(srgbRed: 0.125, green: 0.125, blue: 0.13, alpha: 1)
+            : NSColor(srgbRed: 0.918, green: 0.918, blue: 0.925, alpha: 1)
+    }
 
-    /// Dark themes get a slightly lighter frame; light themes a slightly darker one, so the
-    /// terminal card always reads as inset. `strength` (0…1) is how much of the theme's hue the
-    /// frame keeps: 0 is a neutral gray of the same lightness, 1 the theme's own color.
+    /// The frame color for a theme background, or nil for the neutral system color.
+    /// `strength` (0…1) is how much of the theme's hue the frame keeps; 0 is neutral.
+    static func frame(forTerminalBackground bg: NSColor, strength: Double) -> NSColor? {
+        guard strength > 0 else { return nil }
+        return tint(forTerminalBackground: bg, strength: strength)
+    }
+
+    /// Dark themes get a slightly lighter frame, light themes a slightly darker one, so the
+    /// content panel always reads as inset.
     static func tint(forTerminalBackground bg: NSColor, strength: Double = 1) -> NSColor {
         guard let rgb = bg.usingColorSpace(.sRGB) else { return fallback }
         let dark = isDark(rgb)

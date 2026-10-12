@@ -39,15 +39,14 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     // MARK: Tint and appearance
 
-    /// Tints a window's chrome from the configured terminal background.
+    /// Colors a window's chrome from the configured terminal background.
     func applyConfiguredTint(to controller: TerminalWindowController) {
-        let strength = preferences.settings.tintStrength
         guard let bg = runtime.configuredBackground else {
-            controller.setTint(ChromeTint.fallback)
+            controller.setColors(frame: nil, panel: .textBackgroundColor)
             return
         }
         let color = NSColor(srgbRed: CGFloat(bg.red) / 255, green: CGFloat(bg.green) / 255, blue: CGFloat(bg.blue) / 255, alpha: 1)
-        controller.setTint(ChromeTint.tint(forTerminalBackground: color, strength: strength))
+        controller.setColors(frame: ChromeTint.frame(forTerminalBackground: color, strength: preferences.settings.tintStrength), panel: color)
     }
 
     /// Called after every config reload.
@@ -351,7 +350,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             guard kind == .background, let located, located.0.selectedTabID == located.1.id,
                   located.1.focusedPaneID == located.2.id else { return false }
             let color = NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
-            located.3.setTint(ChromeTint.tint(forTerminalBackground: color, strength: preferences.settings.tintStrength))
+            located.3.setColors(frame: ChromeTint.frame(forTerminalBackground: color, strength: preferences.settings.tintStrength), panel: color)
             return true
         case .showChildExited(let code, _):
             guard let located else { return false }

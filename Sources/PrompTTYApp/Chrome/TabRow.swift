@@ -1,7 +1,7 @@
 import SwiftUI
 import WorkspaceModel
 
-/// One tab in the sidebar (`.full`, two lines) or the strip (`.compact`, one line).
+/// One tab: a Dia-style single-line row in the sidebar (`.full`) or a pill in the strip (`.compact`).
 struct TabRow: View {
     enum Style { case full, compact }
 
@@ -22,37 +22,29 @@ struct TabRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: tab.hasSplits ? "rectangle.split.2x1" : "terminal")
-                .font(.system(size: style == .full ? 13 : 11, weight: .regular))
-                .foregroundStyle(selected ? Color.accentColor : Color.secondary)
-                .frame(width: 16)
-            VStack(alignment: .leading, spacing: 1) {
-                if renaming {
-                    TextField("Tab name", text: $draft)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13, weight: .medium))
-                        .focused($fieldFocused)
-                        .onSubmit(commitRename)
-                        .onExitCommand(perform: cancelRename)
-                        .onChange(of: fieldFocused) { _, focused in if !focused, renaming { commitRename() } }
-                } else {
-                    Text(tab.listTitle)
-                        .font(.system(size: style == .full ? 13 : 12, weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                if style == .full, let subtitle = tab.listSubtitle {
-                    Text(subtitle)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+            if renaming {
+                TextField("Tab name", text: $draft)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13, weight: .medium))
+                    .focused($fieldFocused)
+                    .onAppear { fieldFocused = true }
+                    .onSubmit(commitRename)
+                    .onExitCommand(perform: cancelRename)
+                    .onChange(of: fieldFocused) { _, focused in if !focused, renaming { commitRename() } }
+            } else {
+                Text(tab.listTitle)
+                    .font(.system(size: 13, weight: selected ? .medium : .regular))
+                    .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
-            .frame(minHeight: style == .full ? 32 : nil)
             Spacer(minLength: 2)
             Button { actions.requestCloseTab(tab.id) } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: 9, weight: .semibold))
                     .frame(width: 16, height: 16)
                     .contentShape(Rectangle())
             }
@@ -62,19 +54,14 @@ struct TabRow: View {
             .help("Close Tab")
             .accessibilityLabel("Close \(tab.listTitle)")
         }
-        .padding(.horizontal, style == .full ? 10 : 10)
-        .padding(.vertical, style == .full ? 7 : 5)
+        .padding(.leading, 8)
+        .padding(.trailing, 6)
+        .frame(height: style == .full ? ChromeMetrics.rowHeight : 28)
         .background {
-            let shape = RoundedRectangle(cornerRadius: style == .full ? 10 : 14, style: .continuous)
-            if paneDropTarget {
-                shape.fill(Color.accentColor.opacity(0.25)).overlay(shape.strokeBorder(Color.accentColor, lineWidth: 1.5))
-            } else if selected {
-                shape.fill(Color.accentColor.opacity(0.16))
-            } else if hovering {
-                shape.fill(Color.primary.opacity(0.05))
-            }
+            RowBackground(selected: selected, hovering: hovering, dropTarget: paneDropTarget)
         }
         .contentShape(Rectangle())
+        .help(tab.listSubtitle.map { "\(tab.listTitle) — \($0)" } ?? tab.listTitle)
         .onHover { hovering = $0 }
         .simultaneousGesture(TapGesture().onEnded { if !renaming { actions.selectTab(tab.id) } })
         .onTapGesture(count: 2) { beginRename() }
@@ -94,9 +81,8 @@ struct TabRow: View {
     }
 
     private func beginRename() {
-        draft = tab.customTitle ?? tab.displayTitle
+        draft = tab.customTitle ?? tab.listTitle
         chrome.renamingTab = tab.id
-        fieldFocused = true
     }
 
     private func commitRename() {
@@ -154,5 +140,61 @@ private struct RowDropDelegate: DropDelegate {
                 actions.moveTab(TabID(rawValue: id), to: destination)
             }
         }
+    }
+}
+
+/// Dia's row states: a soft fill when selected (a white pill with a faint shadow in light mode),
+/// a fainter one on hover.
+struct RowBackground: View {
+    let selected: Bool
+    let hovering: Bool
+    var dropTarget = false
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: ChromeMetrics.rowCornerRadius, style: .continuous)
+        if dropTarget {
+            shape.fill(Color.accentColor.opacity(0.22))
+                .overlay(shape.strokeBorder(Color.accentColor.opacity(0.9), lineWidth: 1.5))
+        } else if selected {
+            if colorScheme == .dark {
+                shape.fill(Color.white.opacity(0.10))
+                    .overlay(shape.strokeBorder(Color.white.opacity(0.05), lineWidth: 0.5))
+            } else {
+                shape.fill(Color.white)
+                    .shadow(color: .black.opacity(0.08), radius: 1.5, y: 0.5)
+                    .overlay(shape.strokeBorder(Color.black.opacity(0.05), lineWidth: 0.5))
+            }
+        } else if hovering {
+            shape.fill(Color.primary.opacity(colorScheme == .dark ? 0.06 : 0.05))
+        }
+    }
+}
+
+/// The dim "+ New Tab" row that ends the tab list.
+struct NewTabRow: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .regular))
+                    .frame(width: 18)
+                Text("New Tab")
+                    .font(.system(size: 13))
+                Spacer()
+            }
+            .foregroundStyle(.secondary)
+            .padding(.leading, 8)
+            .frame(height: ChromeMetrics.rowHeight)
+            .background { RowBackground(selected: false, hovering: hovering) }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("New Tab")
     }
 }

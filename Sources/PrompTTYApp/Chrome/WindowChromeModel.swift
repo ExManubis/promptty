@@ -14,7 +14,12 @@ struct BannerContent {
 @MainActor
 @Observable
 final class WindowChromeModel {
+    /// The window frame: the system's neutral window color, or a theme-tinted color.
     var tint: NSColor = ChromeTint.fallback
+    /// The content panel's fill: the terminal theme background, so the toolbar and the
+    /// terminal read as one surface.
+    var panelColor: NSColor = .textBackgroundColor
+    var panelIsDark: Bool { ChromeTint.isDark(panelColor) }
     var banner: BannerContent?
     /// Panes whose shell exited, with the exit code, until they are closed.
     var exitedPanes: [PaneID: UInt32] = [:]

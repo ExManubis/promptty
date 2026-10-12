@@ -1,7 +1,8 @@
 import SwiftUI
 import WorkspaceModel
 
-/// The floating glass sidebar: a header level with the traffic lights, then the tab list.
+/// The sidebar, flush with the window background like Dia's: a band for the traffic lights,
+/// the tab rows, and a dim "+ New Tab" row.
 struct SidebarView: View {
     let state: WindowState
     let chrome: WindowChromeModel
@@ -9,27 +10,20 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 2) {
-                Spacer()
-                ChromeIconButton(symbol: "sidebar.left", help: "Hide Sidebar", action: actions.toggleSidebar)
-                ChromeIconButton(symbol: "plus", help: "New Tab", action: actions.newTab)
-            }
-            .padding(.leading, ChromeMetrics.trafficLightsWidth - ChromeMetrics.inset)
-            .padding(.trailing, 8)
-            .frame(height: ChromeMetrics.titlebarHeight - ChromeMetrics.inset)
+            Color.clear.frame(height: ChromeMetrics.titlebarHeight)
 
             ScrollView(.vertical) {
                 LazyVStack(spacing: 2) {
                     ForEach(Array(state.tabs.enumerated()), id: \.element.id) { index, tab in
                         TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .full, chrome: chrome, actions: actions)
                     }
+                    NewTabRow(action: actions.newTab)
                 }
-                .padding(.horizontal, 8)
+                .padding(.horizontal, ChromeMetrics.sidebarHorizontalPadding)
                 .padding(.bottom, 8)
             }
             .scrollIndicators(.never)
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: ChromeMetrics.sidebarCornerRadius))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tabs")
     }
@@ -41,15 +35,22 @@ struct ChromeIconButton: View {
     let help: String
     let action: () -> Void
 
+    @State private var hovering = false
+
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 14, weight: .regular))
-                .frame(width: 28, height: 28)
+                .font(.system(size: 13, weight: .regular))
+                .frame(width: 26, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(hovering ? 0.07 : 0))
+                )
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
         .foregroundStyle(.secondary)
+        .onHover { hovering = $0 }
         .help(help)
         .accessibilityLabel(help)
     }

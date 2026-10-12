@@ -91,11 +91,18 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         focusSelectedPane()
     }
 
-    /// Sets the backdrop and matches the window's appearance to it, so chrome text stays legible
-    /// on a dark theme under a light system appearance (and the reverse).
-    func setTint(_ color: NSColor) {
-        chrome.tint = color
-        window?.appearance = NSAppearance(named: ChromeTint.isDark(color) ? .darkAqua : .aqua)
+    /// Sets the frame (nil for the neutral system color) and the content panel's fill. A tinted
+    /// frame sets the window's appearance from its lightness so chrome text stays legible; the
+    /// neutral frame follows the system appearance.
+    func setColors(frame: NSColor?, panel: NSColor) {
+        chrome.panelColor = panel
+        if let frame {
+            chrome.tint = frame
+            window?.appearance = NSAppearance(named: ChromeTint.isDark(frame) ? .darkAqua : .aqua)
+        } else {
+            chrome.tint = ChromeTint.fallback
+            window?.appearance = nil
+        }
     }
 
     // MARK: Surfaces
@@ -198,14 +205,21 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         appliedInitialSize = true
         let settings = coordinator.preferences.settings
         let inset = ChromeMetrics.inset
+        let pane = ChromeMetrics.paneInset
+        // Panel chrome around the grid: toolbar on top, pane inset on the other sides.
+        let panelW = pane * 2
+        let panelH = ChromeMetrics.toolbarHeight + pane
         let chromeW: CGFloat
         let chromeH: CGFloat
-        if !settings.tabListHidden, coordinator.workspace.tabLayout == .sidebar {
-            chromeW = inset * 2 + ChromeMetrics.sidebarGap + settings.sidebarWidth
-            chromeH = inset * 2
+        if settings.tabListHidden {
+            chromeW = inset * 2 + panelW
+            chromeH = inset * 2 + panelH
+        } else if coordinator.workspace.tabLayout == .sidebar {
+            chromeW = settings.sidebarWidth + inset + panelW
+            chromeH = inset * 2 + panelH
         } else {
-            chromeW = inset * 2
-            chromeH = ChromeMetrics.titlebarHeight + inset
+            chromeW = inset * 2 + panelW
+            chromeH = ChromeMetrics.titlebarHeight + inset + panelH
         }
         window.setContentSize(NSSize(width: size.width + chromeW, height: size.height + chromeH))
         window.center()

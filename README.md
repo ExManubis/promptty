@@ -1,10 +1,10 @@
 # PrompTTY 2
 
 A native macOS terminal built on [libghostty](https://ghostty.org), the engine behind Ghostty,
-with a Liquid Glass interface in SwiftUI: tabs in a floating sidebar or a strip, splits as
-separate rounded cards, and a Settings window. The window frame takes its color from the
-terminal theme. The default theme is [Flexoki](https://github.com/kepano/flexoki), following the
-system's light and dark appearance.
+with a SwiftUI interface in the style of the Dia browser: a flush sidebar (or a tab strip), one
+rounded content panel with a slim toolbar, splits divided by hairlines, and a Settings window.
+The default theme is [Flexoki](https://github.com/kepano/flexoki), following the system's light
+and dark appearance.
 
 This is the start of a larger agent-workspace project. See `docs/superpowers/specs/` for designs.
 
@@ -22,7 +22,8 @@ xcframework through SwiftPM.
 Everything is in **PrompTTY › Settings…** (⌘,) and applies immediately:
 
 - **Appearance:** font family and size, light and dark themes (every theme bundled with
-  Ghostty), cursor, how strongly the frame follows the theme color.
+  Ghostty), cursor, and how much of the theme's color the window frame takes on (neutral by
+  default).
 - **Tabs & Windows:** sidebar or strip, sidebar width, folder for new tabs, session restore,
   close confirmation.
 - **Keyboard:** Option as Alt, and every shortcut below.

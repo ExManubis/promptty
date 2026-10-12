@@ -2,8 +2,9 @@ import Preferences
 import SwiftUI
 import WorkspaceModel
 
-/// Everything inside a terminal window: tinted backdrop, the tab list (sidebar, strip, or hidden),
-/// the banner, and every tab's pane tree (only the selected one visible).
+/// Everything inside a terminal window, laid out like Dia: the window background, the tab list
+/// (flush sidebar, strip, or hidden), and one rounded content panel holding the toolbar, banner
+/// and every tab's pane tree (only the selected one visible).
 struct WindowRootView: View {
     let state: WindowState
     let workspace: Workspace
@@ -22,42 +23,45 @@ struct WindowRootView: View {
 
             Group {
                 if hidden {
-                    VStack(spacing: 0) {
-                        CompactTitleBar(state: state, actions: actions)
-                            .frame(height: ChromeMetrics.titlebarHeight)
-                        paneArea
-                            .padding([.horizontal, .bottom], ChromeMetrics.inset)
-                    }
+                    panel(toolbarLeadingInset: ChromeMetrics.trafficLightsWidth - ChromeMetrics.inset)
+                        .padding(ChromeMetrics.inset)
                 } else if layout == .sidebar {
-                    HStack(spacing: ChromeMetrics.sidebarGap) {
+                    HStack(spacing: 0) {
                         SidebarView(state: state, chrome: chrome, actions: actions)
                             .frame(width: settings.settings.sidebarWidth)
                             .transition(.move(edge: .leading).combined(with: .opacity))
-                        paneArea
+                        panel(toolbarLeadingInset: 0)
+                            .padding([.top, .bottom, .trailing], ChromeMetrics.inset)
                     }
-                    .padding(ChromeMetrics.inset)
                 } else {
                     VStack(spacing: 0) {
                         TabStripView(state: state, chrome: chrome, actions: actions)
                             .frame(height: ChromeMetrics.titlebarHeight)
                             .transition(.move(edge: .top).combined(with: .opacity))
-                        paneArea
+                        panel(toolbarLeadingInset: 0)
                             .padding([.horizontal, .bottom], ChromeMetrics.inset)
                     }
                 }
             }
         }
         .ignoresSafeArea()
-        .animation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.12), value: layout)
-        .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0.1), value: hidden)
+        .animation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.1), value: layout)
+        .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0.08), value: hidden)
         .environment(\.windowChrome, chrome)
     }
 
-    private var paneArea: some View {
-        VStack(spacing: 6) {
+    /// The content panel, filled with the terminal theme's background so the toolbar and the
+    /// terminal read as one surface. Its color scheme follows that fill, not the window.
+    private func panel(toolbarLeadingInset: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: ChromeMetrics.panelCornerRadius, style: .continuous)
+        return VStack(spacing: 0) {
+            PanelToolbar(state: state, sidebarHidden: hidden, actions: actions)
+                .padding(.leading, toolbarLeadingInset)
             if let banner = chrome.banner {
                 BannerView(content: banner)
                     .id(banner.id)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
             ZStack {
@@ -69,8 +73,18 @@ struct WindowRootView: View {
                         .accessibilityHidden(!visible)
                 }
             }
-            .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0.08), value: state.selectedTab?.root)
+            .padding([.horizontal, .bottom], ChromeMetrics.paneInset)
+            .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0.06), value: state.selectedTab?.root)
         }
+        .background {
+            shape.fill(Color(nsColor: chrome.panelColor))
+                .shadow(color: .black.opacity(chrome.panelIsDark ? 0.25 : 0.07), radius: 2.5, y: 1)
+        }
+        .overlay {
+            shape.strokeBorder(Color.primary.opacity(chrome.panelIsDark ? 0.09 : 0.10), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .environment(\.colorScheme, chrome.panelIsDark ? .dark : .light)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: chrome.banner?.id)
     }
 }

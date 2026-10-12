@@ -1,8 +1,8 @@
 import SwiftUI
 import WorkspaceModel
 
-/// Lays out one tab's split tree: each leaf a `PaneCard`, each split two subtrees with a
-/// draggable gap between them.
+/// Lays out one tab's split tree: each leaf a `PaneCard`, each split two subtrees divided by a
+/// hairline with a draggable area around it.
 struct PaneTreeView: View {
     let node: SplitNode
     let path: SplitPath
@@ -33,6 +33,13 @@ struct PaneTreeView: View {
                     SplitDivider(axis: axis, ratio: ratio, available: available) { newRatio in
                         actions.setRatio(in: tab.id, at: path, newRatio)
                     }
+                    .overlay {
+                        // The visible hairline; the 7pt around it is the drag area.
+                        Rectangle()
+                            .fill(Color.primary.opacity(0.12))
+                            .frame(width: axis == .horizontal ? 1 : nil, height: axis == .vertical ? 1 : nil)
+                            .allowsHitTesting(false)
+                    }
                     subtree(second, step: true)
                 }
             }
@@ -44,7 +51,7 @@ struct PaneTreeView: View {
     }
 }
 
-/// The tinted gap between two panes. Drag to resize; double-click to make both sides equal.
+/// The drag area between two panes. Drag to resize; double-click to make both sides equal.
 /// An AppKit view, like NSSplitView's divider: mouse tracking and the resize cursor are exact,
 /// and it sits beside AppKit terminal views without SwiftUI gesture arbitration.
 struct SplitDivider: NSViewRepresentable {
