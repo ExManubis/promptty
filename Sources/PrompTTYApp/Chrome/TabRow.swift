@@ -14,6 +14,8 @@ struct TabRow: View {
     let actions: ChromeActions
 
     @State private var hovering = false
+    /// The pointer has rested on the row: its preview shows.
+    @State private var previewing = false
     @State private var draft = ""
     @State private var lastTap: Date?
     @FocusState private var fieldFocused: Bool
@@ -85,7 +87,17 @@ struct TabRow: View {
         }
         .contentShape(Rectangle())
         .help(tab.listSubtitle.map { "\(tab.listTitle) — \($0)" } ?? tab.listTitle)
-        .onHover { hovering = $0 }
+        .onHover { inside in
+            hovering = inside
+            updatePreview()
+        }
+        .popover(isPresented: Binding(get: { previewing || chrome.forcedPreview == tab.id }, set: { shown in
+            previewing = shown
+            if !shown, chrome.forcedPreview == tab.id { chrome.forcedPreview = nil }
+        }), arrowEdge: .trailing) {
+            TabPreview(tab: tab, actions: actions, panel: chrome.panelColor)
+        }
+        .onChange(of: selected) { _, isSelected in if isSelected { previewing = false } }
         // One tap recognizer that tells a double click from a single one itself. A separate
         // count-2 recognizer makes SwiftUI hold every single click until the double-click
         // interval has passed (0.5s by default) before the tab is selected.
@@ -114,6 +126,18 @@ struct TabRow: View {
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", "))
         .accessibilityAction(named: "Rename", beginRename)
         .accessibilityAction(named: "Close") { actions.requestCloseTab(tab.id) }
+    }
+
+    /// Another tab of the sidebar, after the pointer has rested on it for half a second.
+    private func updatePreview() {
+        guard hovering, style == .full, !selected, !renaming, chrome.draggingPane == nil else {
+            previewing = false
+            return
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            if hovering, !selected, !renaming { previewing = true }
+        }
     }
 
     private func beginRename() {

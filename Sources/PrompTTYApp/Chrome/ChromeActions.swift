@@ -13,6 +13,9 @@ protocol ChromeActions: AnyObject {
     func agents() -> [AgentEntry]
     /// Brings a pane forward, in whichever window it is.
     func reveal(_ pane: PaneID)
+    /// A pane's visible text, from its terminal if it has one already (a preview never starts a
+    /// shell).
+    func screenText(for pane: PaneID) -> String?
     func selectTab(_ id: TabID)
     func requestCloseTab(_ id: TabID)
     func newTab()

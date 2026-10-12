@@ -30,6 +30,8 @@ final class WindowChromeModel {
     var dropTargetTab: TabID?
     /// A pane is being dragged (drop zones only appear then).
     var draggingPane: PaneID?
+    /// Debug driver: the tab whose preview shows without hovering.
+    var forcedPreview: TabID?
     /// A split divider is being dragged: panes follow it without animating.
     var resizingSplit = false
     /// Panes just closed whose terminals stay alive while their cards shrink away.

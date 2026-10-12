@@ -36,6 +36,16 @@ enum DebugHooks {
             guard let view = driver.focusedSurface(), let drop = view.onFileDrop else { return "error: no drop handler" }
             return drop(args.map { URL(fileURLWithPath: $0) }) ? "" : "declined"
         }
+        // eval preview <tab>|off — show a tab's sidebar preview without hovering.
+        driver.hooks["preview"] = { args in
+            guard let c = coordinator.allControllers.first else { return "error: no window" }
+            if let i = args.first.flatMap(Int.init), c.state.tabs.indices.contains(i) {
+                c.chrome.forcedPreview = c.state.tabs[i].id
+            } else {
+                c.chrome.forcedPreview = nil
+            }
+            return ""
+        }
         // eval headers on|off — show every pane header without hovering.
         driver.hooks["headers"] = { args in
             for c in coordinator.allControllers { c.chrome.forceHeaders = args.first == "on" }
