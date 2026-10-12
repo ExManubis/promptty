@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var workspace: Workspace!
     private var coordinator: WorkspaceCoordinator!
     private var appearanceObservation: NSKeyValueObservation?
+    private var sessionStore: SessionStore!
+    private var saver: DebouncedSaver!
 
     /// With no nib, `@main` alone never instantiates the delegate; install it explicitly and keep
     /// it alive for the lifetime of the run loop (`NSApplication.delegate` is weak).
@@ -32,8 +34,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
-        workspace = Workspace()
+        let store = SessionStore(url: AppPaths.session)
+        sessionStore = store
+        if let snapshot = store.load() {
+            workspace = Workspace.restore(from: snapshot)
+        } else {
+            workspace = Workspace()
+        }
         coordinator = WorkspaceCoordinator(runtime: runtime, workspace: workspace)
+        saver = DebouncedSaver(delay: .seconds(1)) { [weak self] in self?.saveSession() }
+        coordinator.onModelChanged = { [weak self] in self?.saver.schedule() }
         runtime.sink = coordinator
         runtime.onConfigDiagnostics = { [weak self] diags in
             self?.coordinator.configDidReload()
@@ -53,6 +63,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.syncColorScheme() }
         }
         coordinator.start()
+        #if DEBUG
+        DebugDriver.shared.stateProvider = { [weak self] in self?.coordinator.debugState() ?? "" }
+        DebugDriver.shared.install()
+        #endif
         coordinator.showConfigDiagnostics(runtime.configDiagnostics)
         NSApp.activate()
     }
@@ -70,6 +84,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidResignActive(_ notification: Notification) { runtime?.setFocus(false) }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard runtime?.needsConfirmQuit == true else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = "Quit PrompTTY?"
+        alert.informativeText = "A process is still running in one of your tabs."
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        guard sessionStore != nil else { return }
+        saver?.flush()
+        saveSession()
+    }
+
+    private func saveSession() {
+        do {
+            try sessionStore.save(workspace.snapshot())
+        } catch {
+            NSLog("PrompTTY: could not save session: \(error)")
+        }
+    }
 
     // MARK: Menu actions (responder chain)
 

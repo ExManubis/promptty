@@ -2,3 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swift test
+xcodegen generate >/dev/null
+xcodebuild -project PrompTTY.xcodeproj -scheme PrompTTYApp -configuration Debug \
+  -derivedDataPath .build/DerivedData build -quiet
+echo "OK"
