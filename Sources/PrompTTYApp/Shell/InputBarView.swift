@@ -45,16 +45,7 @@ struct ShellHeaderView: View {
         HStack(spacing: 10) {
             FolderButton(shell: shell)
             if let git = shell.git {
-                Label {
-                    HStack(spacing: 3) {
-                        Text(git.branch).lineLimit(1)
-                        if git.dirty {
-                            Circle().frame(width: 5, height: 5).accessibilityLabel("uncommitted changes")
-                        }
-                    }
-                } icon: {
-                    Image(systemName: "arrow.triangle.branch")
-                }
+                BranchButton(shell: shell, git: git)
             }
             Spacer(minLength: 0)
             if let exit = shell.state.lastExit {
@@ -89,7 +80,6 @@ private struct FolderButton: View {
     let shell: PaneShell
     @State private var picking = false
     @State private var picker: FolderPickerModel?
-    @State private var hovering = false
 
     var body: some View {
         Button {
@@ -104,41 +94,99 @@ private struct FolderButton: View {
             } icon: {
                 Image(systemName: "folder")
             }
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background {
-                if hovering || picking {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.primary.opacity(0.08))
-                }
-            }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        // Flush with the editor's text below, as the plain label was.
-        .padding(.horizontal, -5)
+        .buttonStyle(HeaderChipStyle(open: picking))
         .disabled(shell.bar != .active)
-        .onHover { hovering = $0 }
         .help("Change Folder")
         .accessibilityLabel("Folder \(Tab.abbreviate(shell.directory))")
         .accessibilityHint("Opens a list of folders to change to")
         .popover(isPresented: $picking, arrowEdge: .top) {
             if let picker {
                 FolderPickerView(model: picker, choose: { path in
-                    close()
+                    picking = false
+                    shell.returnKeysToBar()
                     shell.changeDirectory(to: path)
-                }, cancel: close)
+                }, cancel: {
+                    picking = false
+                    shell.returnKeysToBar()
+                })
             }
         }
     }
+}
 
-    /// Closed from the picker (⏎, ⎋, a click on a folder): the keys go back to the bar. Closed by a
-    /// click elsewhere, the keys stay where that click put them.
-    private func close() {
-        picking = false
-        DispatchQueue.main.async {
-            let editor = shell.editor.textView
-            editor.window?.makeFirstResponder(editor)
+/// The header's branch: a button that opens the branch picker and switches to (or creates) the
+/// branch chosen.
+private struct BranchButton: View {
+    let shell: PaneShell
+    let git: GitStatus
+    @State private var picking = false
+    @State private var picker: BranchPickerModel?
+
+    var body: some View {
+        Button {
+            picker = BranchPickerModel(current: git.branch, dirty: git.dirty)
+            picking = true
+        } label: {
+            Label {
+                HStack(spacing: 3) {
+                    Text(git.branch).lineLimit(1)
+                    if git.dirty {
+                        Circle().frame(width: 5, height: 5).accessibilityLabel("uncommitted changes")
+                    }
+                }
+            } icon: {
+                Image(systemName: "arrow.triangle.branch")
+            }
         }
+        .buttonStyle(HeaderChipStyle(open: picking))
+        .disabled(shell.bar != .active)
+        .help("Switch Branch")
+        .accessibilityLabel("Branch \(git.branch)\(git.dirty ? ", uncommitted changes" : "")")
+        .accessibilityHint("Opens a list of branches to switch to")
+        .popover(isPresented: $picking, arrowEdge: .top) {
+            if let picker {
+                BranchPickerView(model: picker, shell: shell, choose: { row in
+                    picking = false
+                    shell.returnKeysToBar()
+                    shell.switchBranch(row)
+                }, cancel: {
+                    picking = false
+                    shell.returnKeysToBar()
+                })
+            }
+        }
+    }
+}
+
+/// A header item that opens a picker: plain text that lights up under the pointer and while its
+/// picker is open, flush with the editor's text below.
+private struct HeaderChipStyle: ButtonStyle {
+    let open: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        HeaderChip(label: configuration.label, open: open, pressed: configuration.isPressed)
+    }
+}
+
+private struct HeaderChip<Content: View>: View {
+    let label: Content
+    let open: Bool
+    let pressed: Bool
+    @State private var hovering = false
+
+    var body: some View {
+        label
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background {
+                if hovering || open || pressed {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.primary.opacity(pressed ? 0.12 : 0.08))
+                }
+            }
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .padding(.horizontal, -5)
     }
 }
 

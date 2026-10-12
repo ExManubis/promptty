@@ -286,8 +286,16 @@ final class DebugDriver {
         // Child panels (the bar's completion list) are not in `orderedWindows`.
         let windows = NSApp.orderedWindows.filter(\.isVisible) + NSApp.windows.filter { $0.isVisible && $0.parent != nil }
         for (i, window) in windows.enumerated() {
-            // kCGWindowListOptionIncludingWindow = 1 << 3; boundsIgnoreFraming = 1 << 0, bestResolution = 1 << 3
-            guard let image = createImage(.null, 1 << 3, UInt32(window.windowNumber), (1 << 0) | (1 << 3))?.takeRetainedValue() else {
+            // kCGWindowListOptionIncludingWindow = 1 << 3; boundsIgnoreFraming = 1 << 0, bestResolution = 1 << 3.
+            // A child window (a popover, the completion list) is translucent: it is captured with
+            // what is on screen below it (kCGWindowListOptionOnScreenBelowWindow = 1 << 2), as seen.
+            let isChild = window.parent != nil || String(describing: type(of: window)).contains("Popover")
+            let screenHeight = NSScreen.screens.first?.frame.height ?? 0
+            let bounds = isChild
+                ? CGRect(x: window.frame.minX, y: screenHeight - window.frame.maxY, width: window.frame.width, height: window.frame.height)
+                : CGRect.null
+            let list: UInt32 = isChild ? (1 << 2) | (1 << 3) : 1 << 3
+            guard let image = createImage(bounds, list, UInt32(window.windowNumber), (1 << 0) | (1 << 3))?.takeRetainedValue() else {
                 lines.append("error: capture failed for window \(i)")
                 continue
             }
