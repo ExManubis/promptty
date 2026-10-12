@@ -1,44 +1,27 @@
-import AppKit
+import SwiftUI
 
-/// Non-modal message strip above the terminal card.
-@MainActor
-final class BannerView: NSView {
-    private var handler: ClosureTarget?
+/// Non-modal message above the panes: settings problems or a short-lived notice.
+struct BannerView: View {
+    let content: BannerContent
 
-    init(message: String, actionTitle: String?, action: (() -> Void)?) {
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerRadius = 8
-        layer?.cornerCurve = .continuous
-        layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.25).cgColor
-
-        let label = NSTextField(wrappingLabelWithString: message)
-        label.font = .systemFont(ofSize: 12)
-        label.maximumNumberOfLines = 1
-        label.lineBreakMode = .byTruncatingTail
-        var views: [NSView] = [label, NSView()]
-        if let actionTitle, let action {
-            let button = NSButton(title: actionTitle, target: nil, action: nil)
-            button.bezelStyle = .inline
-            button.controlSize = .small
-            let target = ClosureTarget(action)
-            button.target = target
-            button.action = #selector(ClosureTarget.fire)
-            handler = target
-            views.append(button)
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(content.message)
+                .font(.system(size: 12))
+                .lineLimit(2)
+                .truncationMode(.tail)
+            Spacer(minLength: 8)
+            if let title = content.actionTitle, let action = content.action {
+                Button(title, action: action)
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+            }
         }
-        let stack = NSStackView(views: views)
-        stack.orientation = .horizontal
-        stack.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 4, right: 8)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+        .padding(.horizontal, 14)
+        .frame(minHeight: ChromeMetrics.bannerHeight)
+        .glassEffect(.regular, in: .capsule)
+        .accessibilityElement(children: .combine)
     }
-
-    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 }

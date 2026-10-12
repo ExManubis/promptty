@@ -79,6 +79,39 @@ final class TabPaneTests: XCTestCase {
         XCTAssertEqual(tab.focusedPaneID, b)
     }
 
+    func testListTitleUsesFolderNameWhenShellTitleIsTheDirectory() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let tab = Tab(title: "~/Developer/promptty-2", workingDirectory: home + "/Developer/promptty-2")
+        XCTAssertEqual(tab.listTitle, "promptty-2")
+        XCTAssertEqual(tab.listSubtitle, "~/Developer/promptty-2")
+    }
+
+    func testListTitleKeepsARealCommandTitle() {
+        let tab = Tab(title: "nvim notes.md", workingDirectory: "/tmp")
+        XCTAssertEqual(tab.listTitle, "nvim notes.md")
+        XCTAssertEqual(tab.listSubtitle, "/tmp")
+    }
+
+    func testListTitleForHomeHasNoDuplicateSubtitle() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let tab = Tab(title: "~", workingDirectory: home)
+        XCTAssertEqual(tab.listTitle, "~")
+        XCTAssertNil(tab.listSubtitle)
+    }
+
+    func testListTitleForEmptyShellTitleAndRoot() {
+        XCTAssertEqual(Tab(title: "", workingDirectory: "/tmp").listTitle, "tmp")
+        let root = Tab(title: "/", workingDirectory: "/")
+        XCTAssertEqual(root.listTitle, "/")
+        XCTAssertNil(root.listSubtitle)
+    }
+
+    func testListTitlePrefersCustomTitle() {
+        let tab = Tab(title: "/tmp", customTitle: "Logs", workingDirectory: "/tmp")
+        XCTAssertEqual(tab.listTitle, "Logs")
+        XCTAssertEqual(tab.listSubtitle, "/tmp")
+    }
+
     func testEqualizeAndSetRatio() {
         let tab = Tab(title: "t", workingDirectory: "/a")
         _ = tab.split(tab.focusedPaneID, direction: .right, workingDirectory: "/b")

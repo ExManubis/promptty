@@ -67,6 +67,27 @@ public struct Shortcut: Hashable, Sendable, CustomStringConvertible {
         return out + keyDisplay
     }
 
+    /// The string for `NSMenuItem.keyEquivalent`. AppKit compares it with the event's
+    /// shift-applied character, so shifted letters are uppercase; named keys use AppKit's
+    /// function-key characters.
+    public var menuKeyEquivalent: String {
+        func scalar(_ value: UInt32) -> String { String(Character(UnicodeScalar(value)!)) }
+        switch key {
+        case "left": return scalar(0xF702)
+        case "right": return scalar(0xF703)
+        case "up": return scalar(0xF700)
+        case "down": return scalar(0xF701)
+        case "return": return "\r"
+        case "tab": return "\t"
+        case "delete": return "\u{8}"
+        case "escape": return "\u{1b}"
+        case "space": return " "
+        default:
+            let isLetter = key.unicodeScalars.allSatisfy { CharacterSet.letters.contains($0) }
+            return modifiers.contains(.shift) && isLetter ? key.uppercased() : key
+        }
+    }
+
     public var keyDisplay: String {
         switch key {
         case "left": return "←"

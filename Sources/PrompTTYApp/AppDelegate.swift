@@ -65,12 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.coordinator.showConfigDiagnostics(diags)
         }
         runtime.onSurfaceCreationFailed = { [weak self] view in
-            guard let id = view.token?.base as? TabID else { return }
-            // Fires synchronously inside the controller's `reload()` (surface creation happens when
-            // the view joins the window); defer so closing the tab does not re-enter that reload.
+            guard let id = view.token?.base as? PaneID else { return }
+            // Fires synchronously while SwiftUI places the view (surface creation happens when the
+            // view joins the window); defer so closing the pane does not re-enter that update.
             Task { @MainActor [weak self] in
-                self?.coordinator.closeTab(id)
-                self?.coordinator.showTransientBanner("Could not start a terminal for that tab.")
+                self?.coordinator.closePane(id)
+                self?.coordinator.showTransientBanner("Could not start a terminal for that pane.")
             }
         }
         syncColorScheme()
@@ -80,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator.start()
         #if DEBUG
         DebugDriver.shared.stateProvider = { [weak self] in self?.coordinator.debugState() ?? "" }
+        DebugHooks.install(on: DebugDriver.shared, coordinator: coordinator)
         DebugDriver.shared.install()
         #endif
         coordinator.showConfigDiagnostics(runtime.configDiagnostics)
@@ -143,5 +144,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func syncColorScheme() {
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         runtime.setColorScheme(dark: dark)
+        coordinator?.systemAppearanceDidChange(dark: dark)
     }
 }

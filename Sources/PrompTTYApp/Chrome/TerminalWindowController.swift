@@ -1,20 +1,24 @@
 import AppKit
 import GhosttyBridge
+import Preferences
+import SwiftUI
 import WorkspaceModel
 
+/// One terminal window. AppKit owns the window, focus and menu commands; the contents are the
+/// SwiftUI `WindowRootView`. Every pane's `TerminalSurfaceView` is created once and cached here,
+/// so SwiftUI only ever places surfaces and never restarts a shell.
 @MainActor
-final class TerminalWindowController: NSWindowController, NSWindowDelegate {
+final class TerminalWindowController: NSWindowController, NSWindowDelegate, ChromeActions {
     let state: WindowState
+    let chrome = WindowChromeModel()
     private unowned let coordinator: WorkspaceCoordinator
     private let runtime: GhosttyRuntime
-    let chrome = ChromeView()
-    private var surfaces: [TabID: TerminalSurfaceView] = [:]
+    private var surfaces: [PaneID: TerminalSurfaceView] = [:]
+    /// Source surfaces for panes created by a split, consumed when their surface is made.
+    private var pendingInherit: [PaneID: TerminalSurfaceView] = [:]
     private var appliedInitialSize = false
-    /// Last `setTabLayout(_:hidden:)` argument, so initial sizing knows the chrome's footprint.
-    private var tabListHidden = false
     /// The tab shown by the last `reload()`; a change resets any OSC 11 tint to the configured one.
     private var shownTabID: TabID?
-    private var tabList: TabCollectionView?
 
     init(state: WindowState, coordinator: WorkspaceCoordinator, runtime: GhosttyRuntime) {
         self.state = state
@@ -28,13 +32,29 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         )
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        window.titlebarSeparatorStyle = .none
+        // An empty unified toolbar gives the taller titlebar, so the traffic lights sit centered in
+        // the chrome's top band instead of hugging the window edge.
+        let toolbar = NSToolbar(identifier: "PrompTTYWindow")
+        toolbar.showsBaselineSeparator = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        window.minSize = NSSize(width: 480, height: 300)
+        window.minSize = NSSize(width: 520, height: 320)
         super.init(window: window)
         window.delegate = self
-        window.contentView = chrome
+        let root = WindowRootView(
+            state: state,
+            workspace: coordinator.workspace,
+            settings: coordinator.preferences.model,
+            chrome: chrome,
+            actions: self
+        )
+        let hosting = NSHostingView(rootView: root)
+        hosting.sizingOptions = []
+        window.contentView = hosting
         if let frame = state.frame {
             window.setFrame(NSRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height), display: false)
             appliedInitialSize = true
@@ -45,97 +65,194 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
-    /// Re-syncs the visible surface with the model. Called by the coordinator after every mutation.
+    // MARK: Model sync
+
+    /// Re-syncs window-level state with the model. Called by the coordinator after every mutation;
+    /// SwiftUI follows the observable model on its own.
     func reload() {
         guard let tab = state.selectedTab else { return }
-        tabList?.update(tabs: state.tabs, selected: state.selectedTabID)
-        let view = surfaceView(for: tab)
         if shownTabID != tab.id {
             shownTabID = tab.id
             coordinator.applyConfiguredTint(to: self)
         }
-        chrome.container.show(view)
-        window?.title = tab.displayTitle
+        window?.title = tab.listTitle
+        focusSelectedPane()
     }
 
-    func surfaceView(for tab: Tab) -> TerminalSurfaceView {
-        if let existing = surfaces[tab.id] { return existing }
+    /// Sets the backdrop and matches the window's appearance to it, so chrome text stays legible
+    /// on a dark theme under a light system appearance (and the reverse).
+    func setTint(_ color: NSColor) {
+        chrome.tint = color
+        window?.appearance = NSAppearance(named: ChromeTint.isDark(color) ? .darkAqua : .aqua)
+    }
+
+    // MARK: Surfaces
+
+    func surfaceView(for pane: Pane) -> TerminalSurfaceView {
+        if let existing = surfaces[pane.id] { return existing }
         let view = TerminalSurfaceView(
             runtime: runtime,
-            configuration: TerminalSurfaceConfiguration(workingDirectory: tab.workingDirectory)
+            configuration: TerminalSurfaceConfiguration(
+                workingDirectory: pane.workingDirectory,
+                inheritFrom: pendingInherit.removeValue(forKey: pane.id)
+            )
         )
-        view.token = tab.id
-        surfaces[tab.id] = view
+        view.token = pane.id
+        surfaces[pane.id] = view
+        bind(view, to: pane.id)
         return view
     }
 
-    func removeSurface(for id: TabID) {
-        guard let view = surfaces.removeValue(forKey: id) else { return }
-        chrome.container.remove(view)
+    private func bind(_ view: TerminalSurfaceView, to pane: PaneID) {
+        view.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
+        view.onAttachedToWindow = { [weak self] in self?.surfaceAttached(pane) }
+    }
+
+    /// A surface (re)joined the window, e.g. after SwiftUI re-hosted it during a rearrangement.
+    /// If it is the pane that should have focus and nothing else holds it, give it back.
+    private func surfaceAttached(_ pane: PaneID) {
+        guard let window, let tab = state.selectedTab, tab.focusedPaneID == pane,
+              chrome.renamingTab == nil, let view = surfaces[pane], view.window === window else { return }
+        let current = window.firstResponder
+        if current === view || current is NSText { return }
+        window.makeFirstResponder(view)
+    }
+
+    func existingSurface(for pane: PaneID) -> TerminalSurfaceView? { surfaces[pane] }
+
+    /// Records that `pane`'s surface should inherit from `source` when it is created.
+    func prepareSplit(_ pane: PaneID, inheritingFrom source: PaneID) {
+        if let s = surfaces[source] { pendingInherit[pane] = s }
+    }
+
+    /// Hands a live surface to another window (pane moved across windows).
+    func relinquishSurface(for pane: PaneID) -> TerminalSurfaceView? {
+        surfaces.removeValue(forKey: pane)
+    }
+
+    func adoptSurface(_ view: TerminalSurfaceView, for pane: PaneID) {
+        surfaces[pane] = view
+        bind(view, to: pane)
+    }
+
+    func removeSurface(for pane: PaneID) {
+        pendingInherit[pane] = nil
+        chrome.exitedPanes[pane] = nil
+        guard let view = surfaces.removeValue(forKey: pane) else { return }
+        view.removeFromSuperview()
         view.teardown()
     }
 
     func allSurfaces() -> [TerminalSurfaceView] { Array(surfaces.values) }
 
-    /// Sizes a fresh window so the terminal grid matches Ghostty's configured default size.
+    // MARK: Focus
+
+    private var focusGeneration = 0
+
+    /// Makes the selected tab's focused pane first responder once SwiftUI has placed it.
+    func focusSelectedPane() {
+        focusGeneration += 1
+        let generation = focusGeneration
+        attemptFocus(generation: generation, attemptsLeft: 60)
+    }
+
+    /// SwiftUI installs a surface in its host on a later layout pass (and after a move, possibly
+    /// several), so poll briefly until the surface is in this window.
+    private func attemptFocus(generation: Int, attemptsLeft: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (attemptsLeft == 60 ? 0 : 0.016)) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, generation == self.focusGeneration, let window = self.window,
+                      let tab = self.state.selectedTab, self.chrome.renamingTab == nil,
+                      let view = self.surfaces[tab.focusedPaneID] else { return }
+                if view.window === window {
+                    if window.firstResponder !== view { window.makeFirstResponder(view) }
+                } else if attemptsLeft > 0 {
+                    self.attemptFocus(generation: generation, attemptsLeft: attemptsLeft - 1)
+                }
+            }
+        }
+    }
+
+    var focusedSurface: TerminalSurfaceView? {
+        state.selectedTab.flatMap { surfaces[$0.focusedPaneID] }
+    }
+
+    // MARK: Sizing
+
+    /// Sizes a fresh window so the terminal grid matches libghostty's default size.
     /// `size` is in points: libghostty already divides by the content scale.
     func applyInitialTerminalSize(_ size: CGSize) {
         guard !appliedInitialSize, let window else { return }
         appliedInitialSize = true
-        let inset = TerminalContainerView.inset
+        let settings = coordinator.preferences.settings
+        let inset = ChromeMetrics.inset
         let chromeW: CGFloat
         let chromeH: CGFloat
-        if tabListHidden {
-            chromeW = inset * 2
-            chromeH = ChromeView.trafficLightsHeight + inset
-        } else if coordinator.workspace.tabLayout == .sidebar {
-            chromeW = ChromeView.sidebarWidth + inset
+        if !settings.tabListHidden, coordinator.workspace.tabLayout == .sidebar {
+            chromeW = inset * 2 + ChromeMetrics.sidebarGap + settings.sidebarWidth
             chromeH = inset * 2
         } else {
             chromeW = inset * 2
-            chromeH = ChromeView.stripHeight + 6 + inset * 2
+            chromeH = ChromeMetrics.titlebarHeight + inset
         }
-        let content = NSSize(width: size.width + chromeW, height: size.height + chromeH)
-        window.setContentSize(content)
+        window.setContentSize(NSSize(width: size.width + chromeW, height: size.height + chromeH))
         window.center()
     }
 
-    func setTabLayout(_ layout: TabLayout, hidden: Bool) {
-        tabListHidden = hidden
-        guard !hidden else {
-            tabList = nil
-            chrome.install(tabList: nil, layout: layout)
+    // MARK: ChromeActions
+
+    func selectTab(_ id: TabID) { coordinator.select(id) }
+
+    func requestCloseTab(_ id: TabID) {
+        guard let tab = state.tab(id: id) else { return }
+        let running = tab.orderedPanes.contains { surfaces[$0.id]?.needsConfirmQuit == true }
+        guard running, coordinator.preferences.settings.confirmCloseRunning else {
+            coordinator.closeTab(id)
             return
         }
-        let list = TabCollectionView(layout: layout)
-        list.delegate = self
-        tabList = list
-        chrome.install(tabList: list, layout: layout)
-        reload()
-    }
-
-    /// Gives keyboard focus back to the visible terminal (after an inline tab rename).
-    /// Deferred a turn so the field editor finishes resigning before focus moves.
-    func focusShownSurface() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let id = self.shownTabID, let view = self.surfaces[id] else { return }
-            self.window?.makeFirstResponder(view)
+        confirmClose(message: "Close this tab?", informativeText: "A process is still running in it.") { [weak self] in
+            self?.coordinator.closeTab(id)
         }
     }
+
+    func newTab() { coordinator.newTab(in: state) }
+    func renameTab(_ id: TabID, to title: String) { coordinator.rename(id, to: title) }
+    func endRenaming() { focusSelectedPane() }
+    func moveTab(_ id: TabID, to index: Int) { coordinator.move(id, to: index) }
+    func toggleSidebar() { coordinator.toggleTabListHidden() }
+    func split(_ pane: PaneID, direction: SplitDirection) { coordinator.split(pane, direction: direction) }
+
+    /// Asks libghostty to close the pane's surface; it answers through `close_surface_cb`, whose
+    /// handler confirms first when a process is still running.
+    func requestClosePane(_ pane: PaneID) {
+        if let view = surfaces[pane], !view.isTornDown, chrome.exitedPanes[pane] == nil {
+            view.requestClose()
+        } else {
+            coordinator.closePane(pane)
+        }
+    }
+
+    func focusPane(_ pane: PaneID) { coordinator.paneDidFocus(pane) }
+
+    func setRatio(in tab: TabID, at path: SplitPath, _ ratio: Double) {
+        state.tab(id: tab)?.setRatio(at: path, ratio)
+    }
+
+    func movePane(_ pane: PaneID, to target: PaneID, edge: PaneEdge) { coordinator.movePane(pane, to: target, edge: edge) }
+    func movePane(_ pane: PaneID, intoTab tab: TabID) { coordinator.movePane(pane, intoTab: tab) }
 
     // MARK: Menu actions (responder chain)
 
-    @objc func newTab(_ sender: Any?) { coordinator.newTab(in: state) }
+    @objc func newTab(_ sender: Any?) { newTab() }
 
-    /// Asks libghostty to close the selected tab's surface; it answers through `close_surface_cb`,
-    /// whose handler confirms first when a process is still running.
     @objc func closeTab(_ sender: Any?) {
         guard let id = state.selectedTabID else { return }
-        if let view = surfaces[id] {
-            view.requestClose()
-        } else {
-            coordinator.closeTab(id)
-        }
+        requestCloseTab(id)
+    }
+
+    @objc func closePane(_ sender: Any?) {
+        guard let tab = state.selectedTab else { return }
+        requestClosePane(tab.focusedPaneID)
     }
 
     @objc func previousTab(_ sender: Any?) {
@@ -152,21 +269,41 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         if state.gotoTab(.index(n)) { reload(); coordinator.modelDidChange() }
     }
 
-    @objc func closePane(_ sender: Any?) { closeTab(sender) }
+    @objc func splitRight(_ sender: Any?) { splitFocused(.right) }
+    @objc func splitDown(_ sender: Any?) { splitFocused(.down) }
 
-    @objc func clearTerminal(_ sender: Any?) {
-        guard let id = state.selectedTabID else { return }
-        surfaces[id]?.performBindingAction("clear_screen")
+    private func splitFocused(_ direction: SplitDirection) {
+        guard let tab = state.selectedTab else { return }
+        split(tab.focusedPaneID, direction: direction)
     }
 
-    // Splits arrive with the SwiftUI pane tree.
-    @objc func splitRight(_ sender: Any?) {}
-    @objc func splitDown(_ sender: Any?) {}
-    @objc func focusPaneLeft(_ sender: Any?) {}
-    @objc func focusPaneUp(_ sender: Any?) {}
-    @objc func focusPaneRight(_ sender: Any?) {}
-    @objc func focusPaneDown(_ sender: Any?) {}
-    @objc func equalizePanes(_ sender: Any?) {}
+    @objc func focusPaneLeft(_ sender: Any?) { moveFocus(.left) }
+    @objc func focusPaneUp(_ sender: Any?) { moveFocus(.up) }
+    @objc func focusPaneRight(_ sender: Any?) { moveFocus(.right) }
+    @objc func focusPaneDown(_ sender: Any?) { moveFocus(.down) }
+
+    private func moveFocus(_ direction: SplitDirection) {
+        guard let tab = state.selectedTab, tab.moveFocus(direction) else { return }
+        reload()
+    }
+
+    @objc func equalizePanes(_ sender: Any?) { state.selectedTab?.equalize() }
+
+    @objc func clearTerminal(_ sender: Any?) { focusedSurface?.performBindingAction("clear_screen") }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(focusPaneLeft(_:)), #selector(focusPaneUp(_:)), #selector(focusPaneRight(_:)),
+             #selector(focusPaneDown(_:)), #selector(equalizePanes(_:)):
+            return state.selectedTab?.hasSplits ?? false
+        case #selector(gotoTab(_:)):
+            return item.tag <= state.tabs.count
+        case #selector(previousTab(_:)), #selector(nextTab(_:)):
+            return state.tabs.count > 1
+        default:
+            return true
+        }
+    }
 
     // MARK: NSWindowDelegate
 
@@ -178,13 +315,14 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         alert.informativeText = informativeText
         alert.addButton(withTitle: "Close")
         alert.addButton(withTitle: "Cancel")
-        alert.beginSheetModal(for: window) { response in
-            if response == .alertFirstButtonReturn { onConfirm() }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            if response == .alertFirstButtonReturn { onConfirm() } else { self?.focusSelectedPane() }
         }
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard allSurfaces().contains(where: { $0.needsConfirmQuit }) else { return true }
+        guard coordinator.preferences.settings.confirmCloseRunning,
+              allSurfaces().contains(where: { $0.needsConfirmQuit }) else { return true }
         confirmClose(message: "Close this window?", informativeText: "A process is still running in one of its tabs.") { [weak self] in
             self?.window?.close()
         }
@@ -193,6 +331,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidResize(_ notification: Notification) { persistFrame() }
     func windowDidMove(_ notification: Notification) { persistFrame() }
+    func windowDidBecomeKey(_ notification: Notification) { focusSelectedPane() }
 
     func windowWillClose(_ notification: Notification) {
         coordinator.windowWillClose(state.id)
@@ -203,13 +342,4 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         state.frame = WindowFrame(x: f.origin.x, y: f.origin.y, width: f.width, height: f.height)
         coordinator.modelDidChange()
     }
-}
-
-extension TerminalWindowController: TabCollectionViewDelegate {
-    func tabList(_ list: TabCollectionView, didSelect id: TabID) { coordinator.select(id) }
-    func tabList(_ list: TabCollectionView, didRequestClose id: TabID) { coordinator.closeTab(id) }
-    func tabList(_ list: TabCollectionView, didRename id: TabID, to title: String) { coordinator.rename(id, to: title) }
-    func tabList(_ list: TabCollectionView, didMove id: TabID, to index: Int) { coordinator.move(id, to: index) }
-    func tabListDidRequestNewTab(_ list: TabCollectionView) { coordinator.newTab(in: state) }
-    func tabListDidEndRenaming(_ list: TabCollectionView) { focusShownSurface() }
 }

@@ -21,6 +21,19 @@ targets:
     platform: macOS
     sources:
       - path: Sources/PrompTTYApp
+        excludes:
+          - Info.plist
+    info:
+      path: Sources/PrompTTYApp/Info.plist
+      properties:
+        # In-app drag payloads (tabs and panes); see Chrome/DragSupport.swift.
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: dev.promptty.pane
+            UTTypeDescription: PrompTTY Pane
+            UTTypeConformsTo: [public.data]
+          - UTTypeIdentifier: dev.promptty.tab
+            UTTypeDescription: PrompTTY Tab
+            UTTypeConformsTo: [public.data]
     dependencies:
       - package: PrompTTYCore
         product: WorkspaceModel

@@ -1,0 +1,151 @@
+#if DEBUG
+import AppKit
+import WorkspaceModel
+
+/// Named hooks for `eval` in the debug driver: things a test needs that no menu item offers.
+@MainActor
+enum DebugHooks {
+    static func install(on driver: DebugDriver, coordinator: WorkspaceCoordinator) {
+        // eval headers on|off — show every pane header without hovering.
+        driver.hooks["headers"] = { args in
+            for c in coordinator.allControllers { c.chrome.forceHeaders = args.first == "on" }
+            return ""
+        }
+        // eval movepane <srcTab> <srcPane> <dstTab> <dstPane> <left|right|top|bottom> — indices in the key window.
+        driver.hooks["movepane"] = { args in
+            guard args.count == 5, let w = keyState(coordinator),
+                  let st = Int(args[0]), let sp = Int(args[1]), let dt = Int(args[2]), let dp = Int(args[3]),
+                  st < w.tabs.count, dt < w.tabs.count,
+                  sp < w.tabs[st].root.leaves.count, dp < w.tabs[dt].root.leaves.count,
+                  let edge = edge(args[4]) else { return "error: movepane srcTab srcPane dstTab dstPane edge" }
+            coordinator.movePane(w.tabs[st].root.leaves[sp], to: w.tabs[dt].root.leaves[dp], edge: edge)
+            return ""
+        }
+        // eval moveintotab <srcTab> <srcPane> <dstTab>
+        driver.hooks["moveintotab"] = { args in
+            guard args.count == 3, let w = keyState(coordinator),
+                  let st = Int(args[0]), let sp = Int(args[1]), let dt = Int(args[2]),
+                  st < w.tabs.count, dt < w.tabs.count, sp < w.tabs[st].root.leaves.count else { return "error: moveintotab srcTab srcPane dstTab" }
+            coordinator.movePane(w.tabs[st].root.leaves[sp], intoTab: w.tabs[dt].id)
+            return ""
+        }
+        // eval movetowindow <srcWindow> <srcPane> <dstWindow> — move a pane of one window's selected tab
+        // next to the focused pane of another window's selected tab.
+        driver.hooks["movetowindow"] = { args in
+            let windows = coordinator.workspace.windows
+            guard args.count == 3, let sw = Int(args[0]), let sp = Int(args[1]), let dw = Int(args[2]),
+                  sw < windows.count, dw < windows.count, let tab = windows[sw].selectedTab,
+                  sp < tab.root.leaves.count,
+                  let target = windows[dw].selectedTab else { return "error: movetowindow srcWindow srcPane dstWindow" }
+            coordinator.movePane(tab.root.leaves[sp], to: target.focusedPaneID, edge: .right)
+            return ""
+        }
+        // eval exit — mark the focused pane's process as exited (shows the overlay).
+        driver.hooks["exited"] = { args in
+            guard let c = coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true }) ?? coordinator.allControllers.first,
+                  let tab = c.state.selectedTab else { return "error: no window" }
+            c.chrome.exitedPanes[tab.focusedPaneID] = UInt32(args.first ?? "0") ?? 0
+            return ""
+        }
+        // eval menukey <title> — print a menu item's key equivalent and test it against a synthesized event.
+        driver.hooks["menukey"] = { args in
+            let title = args.joined(separator: " ")
+            func find(_ menu: NSMenu) -> NSMenuItem? {
+                for item in menu.items {
+                    if item.title == title { return item }
+                    if let sub = item.submenu, let found = find(sub) { return found }
+                }
+                return nil
+            }
+            guard let menu = NSApp.mainMenu, let item = find(menu) else { return "error: no item \(title)" }
+            let scalars = item.keyEquivalent.unicodeScalars.map { String(format: "U+%04X", $0.value) }.joined(separator: " ")
+            return "keyEquivalent=\(scalars) mask=\(item.keyEquivalentModifierMask.rawValue) enabled=\(item.isEnabled) target=\(String(describing: item.target)) action=\(String(describing: item.action))"
+        }
+        // eval keyprobe <spec> — show the synthesized event and whether the main menu claims it.
+        driver.hooks["keyprobe"] = { args in
+            guard let spec = args.first, let e = KeySpec.events(spec, window: NSApp.keyWindow)?.first else { return "error: keyprobe spec" }
+            let chars = (e.characters ?? "").unicodeScalars.map { String(format: "U+%04X", $0.value) }.joined(separator: " ")
+            let ign = (e.charactersIgnoringModifiers ?? "").unicodeScalars.map { String(format: "U+%04X", $0.value) }.joined(separator: " ")
+            let claimed = NSApp.mainMenu?.performKeyEquivalent(with: e) ?? false
+            return "chars=\(chars) ignoring=\(ign) flags=\(e.modifierFlags.rawValue) menuClaimed=\(claimed)"
+        }
+        // eval matrix — which key-equivalent spellings match which ⇧⌘D event spellings.
+        driver.hooks["matrix"] = { _ in
+            final class Sink: NSObject { @objc func hit(_ s: Any?) {} }
+            let sink = Sink()
+            var lines: [String] = []
+            let items: [(String, NSEvent.ModifierFlags)] = [("d", [.command, .shift]), ("D", [.command]), ("D", [.command, .shift])]
+            let events: [(String, String)] = [("d", "D"), ("D", "D"), ("D", "d"), ("d", "d")]
+            for (key, mask) in items {
+                for (chars, ignoring) in events {
+                    let menu = NSMenu()
+                    let item = NSMenuItem(title: "x", action: #selector(Sink.hit(_:)), keyEquivalent: key)
+                    item.keyEquivalentModifierMask = mask
+                    item.target = sink
+                    menu.addItem(item)
+                    let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0,
+                                             windowNumber: NSApp.keyWindow?.windowNumber ?? 0, context: nil,
+                                             characters: chars, charactersIgnoringModifiers: ignoring, isARepeat: false, keyCode: 2)!
+                    lines.append("item=\(key) mask=\(mask.contains(.shift) ? "cmd+shift" : "cmd") event chars=\(chars) ign=\(ignoring) -> \(menu.performKeyEquivalent(with: e))")
+                }
+            }
+            return lines.joined(separator: "\n")
+        }
+        // eval hit x y — the AppKit view under a window point (top-left origin).
+        driver.hooks["hit"] = { args in
+            guard args.count == 2, let x = Double(args[0]), let y = Double(args[1]),
+                  let window = NSApp.keyWindow ?? NSApp.orderedWindows.first,
+                  let content = window.contentView,
+                  let root = content.superview else { return "error: hit x y" }
+            let point = NSPoint(x: x, y: window.frame.height - y)
+            let hit = root.hitTest(point)
+            var chain: [String] = []
+            var v = hit
+            while let view = v, chain.count < 6 {
+                chain.append("\(type(of: view)) \(NSStringFromRect(view.frame))")
+                v = view.superview
+            }
+            return chain.joined(separator: "\n  <- ")
+        }
+        // eval droptarget <pane> <edge> | off — show a pane's drop highlight in the key window's selected tab.
+        driver.hooks["droptarget"] = { args in
+            guard let c = coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true }) ?? coordinator.allControllers.first,
+                  let tab = c.state.selectedTab else { return "error: no window" }
+            if args.first == "off" { c.chrome.dropTarget = nil; return "" }
+            guard args.count == 2, let i = Int(args[0]), i < tab.root.leaves.count, let e = edge(args[1]) else { return "error: droptarget pane edge" }
+            c.chrome.dropTarget = (tab.root.leaves[i], e)
+            return ""
+        }
+        driver.hooks["banner"] = { args in
+            coordinator.showTransientBanner(args.joined(separator: " "))
+            return ""
+        }
+        driver.hooks["settings"] = { args in
+            // eval settings <key> <value> for a few app settings.
+            guard args.count == 2 else { return "error: settings key value" }
+            switch args[0] {
+            case "sidebarWidth": coordinator.preferences.update { $0.sidebarWidth = Double(args[1]) ?? 220 }
+            case "tintStrength": coordinator.preferences.update { $0.tintStrength = Double(args[1]) ?? 0.5 }
+            case "follow": coordinator.preferences.update { $0.followSystemAppearance = args[1] == "on" }
+            case "theme": coordinator.preferences.update { $0.theme = args[1].replacingOccurrences(of: "_", with: " ") }
+            default: return "error: unknown setting"
+            }
+            return ""
+        }
+    }
+
+    private static func keyState(_ coordinator: WorkspaceCoordinator) -> WindowState? {
+        (coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true }) ?? coordinator.allControllers.first)?.state
+    }
+
+    private static func edge(_ s: String) -> PaneEdge? {
+        switch s {
+        case "left": return .left
+        case "right": return .right
+        case "top": return .top
+        case "bottom": return .bottom
+        default: return nil
+        }
+    }
+}
+#endif

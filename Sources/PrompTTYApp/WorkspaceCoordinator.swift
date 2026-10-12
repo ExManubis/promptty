@@ -10,7 +10,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     let workspace: Workspace
     let preferences: PreferencesController
     private var controllers: [WindowID: TerminalWindowController] = [:]
-    /// Set by Task 10 to schedule a session save.
+    /// Schedules a session save.
     var onModelChanged: (() -> Void)?
 
     init(runtime: GhosttyRuntime, workspace: Workspace, preferences: PreferencesController) {
@@ -33,17 +33,21 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     }
 
     func controller(for id: WindowID) -> TerminalWindowController? { controllers[id] }
+    var allControllers: [TerminalWindowController] { Array(controllers.values) }
 
     func modelDidChange() { onModelChanged?() }
 
+    // MARK: Tint and appearance
+
     /// Tints a window's chrome from the configured terminal background.
     func applyConfiguredTint(to controller: TerminalWindowController) {
+        let strength = preferences.settings.tintStrength
         guard let bg = runtime.configuredBackground else {
-            controller.chrome.tint = ChromeTint.fallback
+            controller.setTint(ChromeTint.fallback)
             return
         }
         let color = NSColor(srgbRed: CGFloat(bg.red) / 255, green: CGFloat(bg.green) / 255, blue: CGFloat(bg.blue) / 255, alpha: 1)
-        controller.chrome.tint = ChromeTint.tint(forTerminalBackground: color)
+        controller.setTint(ChromeTint.tint(forTerminalBackground: color, strength: strength))
     }
 
     /// Called after every config reload.
@@ -51,44 +55,80 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         for c in controllers.values { applyConfiguredTint(to: c) }
     }
 
+    /// The system appearance changed: every surface resolves its light/dark theme again.
+    func systemAppearanceDidChange(dark: Bool) {
+        for c in controllers.values {
+            for s in c.allSurfaces() { s.setColorScheme(dark: dark) }
+        }
+    }
+
     // MARK: Banner
 
-    private var configBannerMessage: String?
+    private var configBanner: BannerContent?
     /// Bumped per transient banner so an older one's timer does not cut a newer one short.
     private var transientBannerGeneration = 0
-    private var transientBannerActive = false
+    private var transientBanner: BannerContent?
 
     func showConfigDiagnostics(_ diagnostics: [String]) {
-        configBannerMessage = diagnostics.isEmpty ? nil : "Ghostty config: \(diagnostics[0])" + (diagnostics.count > 1 ? " (+\(diagnostics.count - 1) more)" : "")
-        guard !transientBannerActive else { return }
-        for c in controllers.values { applyBanner(to: c) }
-    }
-
-    private func applyBanner(to controller: TerminalWindowController) {
-        guard let message = configBannerMessage else {
-            controller.chrome.setBanner(nil)
-            return
+        if diagnostics.isEmpty {
+            configBanner = nil
+        } else {
+            let more = diagnostics.count > 1 ? " (+\(diagnostics.count - 1) more)" : ""
+            configBanner = BannerContent(
+                message: "Terminal settings: \(diagnostics[0])\(more)",
+                actionTitle: "Reset to Defaults",
+                action: { [weak self] in self?.preferences.resetToDefaults() }
+            )
         }
-        controller.chrome.setBanner(BannerView(message: message, actionTitle: nil, action: nil))
+        applyBanners()
     }
 
-    /// Shows `message` in every window for a few seconds, then restores the config banner (if any).
+    /// Shows `message` in every window for a few seconds, then restores the settings banner (if any).
     func showTransientBanner(_ message: String) {
         transientBannerGeneration += 1
-        transientBannerActive = true
         let generation = transientBannerGeneration
-        for c in controllers.values {
-            c.chrome.setBanner(BannerView(message: message, actionTitle: nil, action: nil))
-        }
+        transientBanner = BannerContent(message: message)
+        applyBanners()
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(6))
             guard let self, self.transientBannerGeneration == generation else { return }
-            self.transientBannerActive = false
-            for c in self.controllers.values { self.applyBanner(to: c) }
+            self.transientBanner = nil
+            self.applyBanners()
         }
     }
 
-    // MARK: Mutations
+    private func applyBanners() {
+        for c in controllers.values { c.chrome.banner = transientBanner ?? configBanner }
+    }
+
+    // MARK: Settings
+
+    func toggleTabLayout() {
+        preferences.update { $0.tabLayout = $0.tabLayout == .sidebar ? .strip : .sidebar }
+    }
+
+    func toggleTabListHidden() {
+        preferences.update { $0.tabListHidden.toggle() }
+    }
+
+    private var lastTintStrength: Double?
+
+    /// Applies app-only settings after a change. Layout, sidebar width and visibility are
+    /// observed by SwiftUI directly; the model's layout is kept in step for the session file.
+    func applyAppSettings(_ settings: Preferences.Settings) {
+        let layout = TabLayout(settings.tabLayout)
+        if workspace.tabLayout != layout {
+            workspace.tabLayout = layout
+            modelDidChange()
+        }
+        if lastTintStrength != settings.tintStrength {
+            lastTintStrength = settings.tintStrength
+            configDidReload()
+        }
+        for c in controllers.values { c.focusSelectedPane() }
+    }
+
+    // MARK: Windows and tabs
 
     func newWindow(workingDirectory: String? = nil) {
         let state = workspace.addWindow()
@@ -113,10 +153,11 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
-    /// Closes a tab; closing the last tab closes the window.
+    /// Closes a tab and all its panes; closing the last tab closes the window.
     func closeTab(_ id: TabID) {
-        guard let state = workspace.window(containing: id), let controller = controllers[state.id] else { return }
-        controller.removeSurface(for: id)
+        guard let state = workspace.window(containing: id), let controller = controllers[state.id],
+              let tab = state.tab(id: id) else { return }
+        for pane in tab.orderedPanes { controller.removeSurface(for: pane.id) }
         state.closeTab(id: id)
         if state.isEmpty {
             controller.window?.close()
@@ -140,30 +181,6 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
-    func toggleTabLayout() {
-        preferences.update { $0.tabLayout = $0.tabLayout == .sidebar ? .strip : .sidebar }
-    }
-
-    var tabListHidden: Bool { preferences.settings.tabListHidden }
-
-    func toggleTabListHidden() {
-        preferences.update { $0.tabListHidden.toggle() }
-    }
-
-    private var appliedLayout: (TabLayout, Bool)?
-
-    /// Applies app-only settings (layout, sidebar) to every window after a settings change.
-    func applyAppSettings(_ settings: Preferences.Settings) {
-        let layout = TabLayout(settings.tabLayout)
-        if workspace.tabLayout != layout {
-            workspace.tabLayout = layout
-            modelDidChange()
-        }
-        guard appliedLayout.map({ $0 != (layout, settings.tabListHidden) }) ?? true else { return }
-        appliedLayout = (layout, settings.tabListHidden)
-        for c in controllers.values { c.setTabLayout(layout, hidden: settings.tabListHidden) }
-    }
-
     func windowWillClose(_ id: WindowID) {
         guard let controller = controllers.removeValue(forKey: id) else { return }
         for view in controller.allSurfaces() { view.teardown() }
@@ -174,21 +191,87 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     private func open(_ state: WindowState) {
         let controller = TerminalWindowController(state: state, coordinator: self, runtime: runtime)
         controllers[state.id] = controller
-        controller.setTabLayout(workspace.tabLayout, hidden: tabListHidden)
-        applyBanner(to: controller)
+        controller.chrome.banner = transientBanner ?? configBanner
         applyConfiguredTint(to: controller)
         controller.reload()
         controller.showWindow(nil)
     }
 
+    // MARK: Panes
+
+    func split(_ pane: PaneID, direction: SplitDirection) {
+        guard let (state, tab) = workspace.tab(containing: pane), let controller = controllers[state.id],
+              let source = tab.pane(pane) else { return }
+        let new = tab.split(pane, direction: direction, workingDirectory: source.workingDirectory)
+        controller.prepareSplit(new.id, inheritingFrom: pane)
+        state.select(id: tab.id)
+        controller.reload()
+        modelDidChange()
+    }
+
+    /// Removes a pane (its surface is already closing or closed); the last pane closes its tab.
+    func closePane(_ pane: PaneID) {
+        guard let (state, tab) = workspace.tab(containing: pane), let controller = controllers[state.id] else { return }
+        guard tab.hasSplits else {
+            closeTab(tab.id)
+            return
+        }
+        controller.removeSurface(for: pane)
+        tab.closePane(pane)
+        controller.reload()
+        modelDidChange()
+    }
+
+    /// The user clicked into (or programmatically focused) a pane's terminal.
+    func paneDidFocus(_ pane: PaneID) {
+        guard let (state, tab) = workspace.tab(containing: pane), tab.focusedPaneID != pane || state.selectedTabID != tab.id else { return }
+        tab.focus(pane)
+        if state.selectedTabID != tab.id { state.select(id: tab.id) }
+        controllers[state.id]?.reload()
+        modelDidChange()
+    }
+
+    func movePane(_ pane: PaneID, to target: PaneID, edge: PaneEdge) {
+        guard let (sourceWindow, _) = workspace.tab(containing: pane),
+              let (targetWindow, _) = workspace.tab(containing: target) else { return }
+        guard workspace.movePane(pane, to: target, edge: edge) else { return }
+        finishMove(pane, from: sourceWindow, to: targetWindow)
+    }
+
+    func movePane(_ pane: PaneID, intoTab tabID: TabID) {
+        guard let (sourceWindow, _) = workspace.tab(containing: pane),
+              let targetWindow = workspace.window(containing: tabID) else { return }
+        guard workspace.movePane(pane, intoTab: tabID) else { return }
+        finishMove(pane, from: sourceWindow, to: targetWindow)
+    }
+
+    /// After a model move: hand the live surface to the target window if it changed, close a
+    /// window left without tabs, and focus the moved pane.
+    private func finishMove(_ pane: PaneID, from source: WindowState, to target: WindowState) {
+        if source !== target, let from = controllers[source.id], let to = controllers[target.id],
+           let surface = from.relinquishSurface(for: pane) {
+            to.adoptSurface(surface, for: pane)
+        }
+        if source.isEmpty {
+            controllers[source.id]?.window?.close()
+        } else {
+            controllers[source.id]?.reload()
+        }
+        if let to = controllers[target.id] {
+            to.reload()
+            if source !== target { to.window?.makeKeyAndOrderFront(nil) }
+        }
+        modelDidChange()
+    }
+
     // MARK: Lookup
 
-    private func locate(_ view: TerminalSurfaceView) -> (WindowState, Tab, TerminalWindowController)? {
-        guard let id = view.token?.base as? TabID,
-              let state = workspace.window(containing: id),
-              let tab = state.tab(id: id),
+    private func locate(_ view: TerminalSurfaceView) -> (WindowState, Tab, Pane, TerminalWindowController)? {
+        guard let id = view.token?.base as? PaneID,
+              let (state, tab) = workspace.tab(containing: id),
+              let pane = tab.pane(id),
               let controller = controllers[state.id] else { return nil }
-        return (state, tab, controller)
+        return (state, tab, pane, controller)
     }
 
     private var keyWindowState: WindowState? {
@@ -198,13 +281,13 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     // MARK: GhosttyActionSink
 
     func handle(_ action: GhosttyAction, target: GhosttyActionTarget) -> Bool {
-        let located: (WindowState, Tab, TerminalWindowController)?
+        let located: (WindowState, Tab, Pane, TerminalWindowController)?
         if case .surface(let view) = target { located = locate(view) } else { located = nil }
         let state = located?.0 ?? keyWindowState
 
         switch action {
         case .newWindow:
-            newWindow(workingDirectory: located?.1.workingDirectory)
+            newWindow(workingDirectory: located?.2.workingDirectory)
             return true
         case .newTab:
             guard let state else { return false }
@@ -248,43 +331,42 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             return moved
         case .setTitle(let title), .setTabTitle(let title):
             guard let located else { return false }
-            located.1.focusedPane.title = title
-            located.2.reload()
+            located.2.title = title
+            located.3.reload()
             return true
         case .pwd(let dir):
             guard let located else { return false }
-            located.1.focusedPane.workingDirectory = dir
-            located.2.reload()
+            located.2.workingDirectory = dir
+            located.3.reload()
             modelDidChange()
             return true
         case .initialSize(let w, let h):
             guard let located else { return false }
-            located.2.applyInitialTerminalSize(CGSize(width: Double(w), height: Double(h)))
+            located.3.applyInitialTerminalSize(CGSize(width: Double(w), height: Double(h)))
             return true
         case .cellSize, .render, .configChange:
             return true
         case .colorChange(let kind, let r, let g, let b):
-            // Only the selected tab's background (OSC 11) tints its own window.
-            guard kind == .background, let located, located.0.selectedTabID == located.1.id else { return false }
+            // Only the focused pane of the selected tab (OSC 11) tints its own window.
+            guard kind == .background, let located, located.0.selectedTabID == located.1.id,
+                  located.1.focusedPaneID == located.2.id else { return false }
             let color = NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
-            located.2.chrome.tint = ChromeTint.tint(forTerminalBackground: color)
+            located.3.setTint(ChromeTint.tint(forTerminalBackground: color, strength: preferences.settings.tintStrength))
             return true
         case .showChildExited(let code, _):
-            guard let located, case .surface(let view) = target else { return false }
-            let tabID = located.1.id
-            located.2.chrome.container.showExitedOverlay(for: view, exitCode: code) { [weak self] in
-                self?.closeTab(tabID)
-            }
+            guard let located else { return false }
+            located.3.chrome.exitedPanes[located.2.id] = code
             return true
         case .closeSurface(let processAlive):
             guard let located else { return false }
-            let tabID = located.1.id
-            if processAlive {
-                located.2.confirmClose(message: "Close this tab?", informativeText: "A process is still running in it.") { [weak self] in
-                    self?.closeTab(tabID)
+            let paneID = located.2.id
+            if processAlive, preferences.settings.confirmCloseRunning {
+                let message = located.1.hasSplits ? "Close this pane?" : "Close this tab?"
+                located.3.confirmClose(message: message, informativeText: "A process is still running in it.") { [weak self] in
+                    self?.closePane(paneID)
                 }
             } else {
-                closeTab(tabID)
+                closePane(paneID)
             }
             return true
         case .desktopNotification(let title, let body):
@@ -302,17 +384,31 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
 #if DEBUG
 extension WorkspaceCoordinator {
-    /// One line per window and tab, for the debug driver.
+    /// One line per window, tab and pane, for the debug driver.
     func debugState() -> String {
-        var lines = ["layout=\(workspace.tabLayout.rawValue) windows=\(workspace.windows.count)"]
+        var lines = ["layout=\(workspace.tabLayout.rawValue) hidden=\(preferences.settings.tabListHidden) windows=\(workspace.windows.count)"]
         for (wi, w) in workspace.windows.enumerated() {
             lines.append("window \(wi) tabs=\(w.tabs.count) selected=\(w.selectedTabID.flatMap(w.index(of:)).map(String.init) ?? "-")")
             for (ti, t) in w.tabs.enumerated() {
-                lines.append("  tab \(ti) title=\"\(t.displayTitle)\" dir=\(t.abbreviatedDirectory)")
+                lines.append("  tab \(ti) title=\"\(t.displayTitle)\" dir=\(t.abbreviatedDirectory) panes=\(t.panes.count) tree=\(describe(t.root, t))")
             }
+        }
+        if let key = controllers.values.first(where: { $0.window?.isKeyWindow == true }) ?? controllers.values.first,
+           let surface = key.window?.firstResponder as? TerminalSurfaceView,
+           let id = surface.token?.base as? PaneID, let (_, tab) = workspace.tab(containing: id) {
+            lines.append("firstResponder=pane\(tab.root.leaves.firstIndex(of: id).map(String.init) ?? "?") of tab \"\(tab.displayTitle)\"")
         }
         return lines.joined(separator: "\n")
     }
+
+    private func describe(_ node: SplitNode, _ tab: Tab) -> String {
+        switch node {
+        case .leaf(let id):
+            let index = tab.root.leaves.firstIndex(of: id).map(String.init) ?? "?"
+            return id == tab.focusedPaneID ? "[p\(index)*]" : "[p\(index)]"
+        case .split(let axis, let ratio, let a, let b):
+            return "(\(axis == .horizontal ? "H" : "V") \(String(format: "%.2f", ratio)) \(describe(a, tab)) \(describe(b, tab)))"
+        }
+    }
 }
 #endif
-

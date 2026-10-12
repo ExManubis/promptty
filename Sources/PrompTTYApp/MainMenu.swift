@@ -118,29 +118,13 @@ enum MainMenu {
 
     /// Sets `item`'s key equivalent from a shortcut.
     static func apply(_ shortcut: Shortcut, to item: NSMenuItem) {
-        item.keyEquivalent = keyEquivalent(for: shortcut.key)
+        item.keyEquivalent = shortcut.menuKeyEquivalent
         var mask: NSEvent.ModifierFlags = []
         if shortcut.modifiers.contains(.command) { mask.insert(.command) }
         if shortcut.modifiers.contains(.shift) { mask.insert(.shift) }
         if shortcut.modifiers.contains(.option) { mask.insert(.option) }
         if shortcut.modifiers.contains(.control) { mask.insert(.control) }
         item.keyEquivalentModifierMask = mask
-    }
-
-    static func keyEquivalent(for key: String) -> String {
-        func scalar(_ code: Int) -> String { String(UnicodeScalar(UInt16(code)).map(Character.init) ?? " ") }
-        switch key {
-        case "left": return scalar(NSLeftArrowFunctionKey)
-        case "right": return scalar(NSRightArrowFunctionKey)
-        case "up": return scalar(NSUpArrowFunctionKey)
-        case "down": return scalar(NSDownArrowFunctionKey)
-        case "return": return "\r"
-        case "tab": return "\t"
-        case "delete": return "\u{8}"
-        case "escape": return "\u{1b}"
-        case "space": return " "
-        default: return key
-        }
     }
 }
 

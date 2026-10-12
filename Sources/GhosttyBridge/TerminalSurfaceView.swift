@@ -19,6 +19,9 @@ public final class TerminalSurfaceView: NSView {
     public var token: AnyHashable?
     /// Called when the view becomes first responder (a click or programmatic focus).
     public var onFocus: (() -> Void)?
+    /// Called each time the view joins a window. Hosts that move the view between containers use
+    /// it to restore focus, which AppKit drops when a first responder leaves the window.
+    public var onAttachedToWindow: (() -> Void)?
 
     /// Size libghostty asked for during `ghostty_surface_new`, before this view had a window.
     public private(set) var pendingInitialSize: CGSize?
@@ -96,6 +99,7 @@ public final class TerminalSurfaceView: NSView {
         sizeDidChange()
         updateOcclusion()
         focusDidChange()
+        onAttachedToWindow?()
     }
 
     private func createSurfaceIfNeeded() {
@@ -138,7 +142,7 @@ public final class TerminalSurfaceView: NSView {
     }
 
     /// True once the surface has been freed (or failed to be created).
-    var isTornDown: Bool { isFreed }
+    public var isTornDown: Bool { isFreed }
 
     public func requestClose() {
         guard let surface else { return }
@@ -173,16 +177,15 @@ public final class TerminalSurfaceView: NSView {
     // MARK: Appearance
 
     /// Conditional config (`theme = light:…,dark:…`) is resolved per surface, so each surface has
-    /// to be told when the system appearance flips.
-    public override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateColorScheme()
+    /// to be told when the *system* appearance flips. The app calls this; the view's own
+    /// appearance is not used because windows set theirs from the tint, which would feed back.
+    public func setColorScheme(dark: Bool) {
+        guard let surface else { return }
+        ghostty_surface_set_color_scheme(surface, dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
     }
 
     private func updateColorScheme() {
-        guard let surface else { return }
-        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        ghostty_surface_set_color_scheme(surface, dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+        setColorScheme(dark: NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
     }
 
     // MARK: Geometry

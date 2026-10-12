@@ -115,6 +115,25 @@ public final class Tab {
         return shell.isEmpty ? Tab.fallbackTitle : shell
     }
 
+    /// The tab list's first line. An idle shell titles itself with its directory; showing the
+    /// folder name there (and the path below) reads better than the same path twice.
+    public var listTitle: String {
+        let custom = Tab.sanitize(customTitle ?? "")
+        if !custom.isEmpty { return custom }
+        let shell = Tab.sanitize(title)
+        guard shell.isEmpty || shell == abbreviatedDirectory || shell == workingDirectory else { return shell }
+        let dir = abbreviatedDirectory
+        if dir == "~" || dir == "/" { return dir }
+        let name = (workingDirectory as NSString).lastPathComponent
+        return name.isEmpty ? dir : name
+    }
+
+    /// The tab list's second line, or nil when it would repeat the first.
+    public var listSubtitle: String? {
+        let dir = abbreviatedDirectory
+        return dir == listTitle ? nil : dir
+    }
+
     public var abbreviatedDirectory: String {
         Tab.abbreviate(workingDirectory)
     }
@@ -146,7 +165,7 @@ public final class Tab {
             .trimmingCharacters(in: .whitespaces)
     }
 
-    static func abbreviate(_ path: String) -> String {
+    public static func abbreviate(_ path: String) -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         if path == home { return "~" }
         if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }

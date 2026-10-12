@@ -81,11 +81,26 @@ final class DebugDriver {
             try? await Task.sleep(for: .seconds(Double(arg) ?? 0.5))
             return ""
         case "action":
-            let ok = NSApp.sendAction(NSSelectorFromString(arg), to: nil, from: nil)
-            return ok ? "" : "error: no target for \(arg)"
+            let selector = NSSelectorFromString(arg)
+            guard let window = NSApp.keyWindow ?? NSApp.orderedWindows.first,
+                  let target = Self.responder(for: selector, in: window) else { return "error: no target for \(arg)" }
+            NSApp.sendAction(selector, to: target, from: nil)
+            return ""
         case "key":
-            guard let events = KeySpec.events(arg, window: NSApp.keyWindow ?? NSApp.orderedWindows.first) else { return "error: bad key \(arg)" }
-            for e in events { NSApp.sendEvent(e) }
+            let window = NSApp.keyWindow ?? NSApp.orderedWindows.first
+            guard let events = KeySpec.events(arg, window: window) else { return "error: bad key \(arg)" }
+            for e in events { Self.dispatch(e, to: window) }
+            return ""
+        case "keys":
+            // Types `arg` as individual key presses into whatever has focus (text fields too).
+            let window = NSApp.keyWindow ?? NSApp.orderedWindows.first
+            for ch in arg {
+                let s = String(ch)
+                let spec = s == " " ? "space" : s.lowercased()
+                guard var events = KeySpec.events(spec, window: window) else { continue }
+                if ch.isUppercase, let shifted = KeySpec.events("shift+" + spec, window: window) { events = shifted }
+                for e in events { Self.dispatch(e, to: window) }
+            }
             return ""
         case "type":
             guard let view = focusedSurface() else { return "error: no focused terminal" }
@@ -95,7 +110,7 @@ final class DebugDriver {
             for (i, chunk) in chunks.enumerated() {
                 if !chunk.isEmpty { view.sendText(chunk) }
                 if i < chunks.count - 1, let events = KeySpec.events("return", window: view.window) {
-                    for e in events { NSApp.sendEvent(e) }
+                    for e in events { Self.dispatch(e, to: view.window) }
                 }
             }
             return ""
@@ -106,6 +121,40 @@ final class DebugDriver {
             return ""
         case "state":
             return stateProvider?() ?? "error: no state provider"
+        case "click", "dclick", "rclick":
+            // x y in window points, top-left origin.
+            let nums = arg.split(separator: " ").compactMap { Double($0) }
+            guard nums.count == 2, let window = NSApp.keyWindow ?? NSApp.orderedWindows.first else { return "error: click x y" }
+            let p = NSPoint(x: nums[0], y: window.frame.height - nums[1])
+            let clicks = command == "dclick" ? 2 : 1
+            for n in 1...clicks {
+                let downType: NSEvent.EventType = command == "rclick" ? .rightMouseDown : .leftMouseDown
+                let upType: NSEvent.EventType = command == "rclick" ? .rightMouseUp : .leftMouseUp
+                for type in [downType, upType] {
+                    if let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: n, pressure: 1) {
+                        window.sendEvent(e)
+                    }
+                }
+            }
+            return ""
+        case "drag":
+            // x1 y1 x2 y2 in window points, top-left origin; ten intermediate moves.
+            let nums = arg.split(separator: " ").compactMap { Double($0) }
+            guard nums.count == 4, let window = NSApp.keyWindow ?? NSApp.orderedWindows.first else { return "error: drag x1 y1 x2 y2" }
+            let h = window.frame.height
+            func event(_ type: NSEvent.EventType, _ x: Double, _ y: Double) -> NSEvent? {
+                NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: h - y), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                   windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            }
+            if let e = event(.leftMouseDown, nums[0], nums[1]) { window.sendEvent(e) }
+            for i in 1...10 {
+                let t = Double(i) / 10
+                if let e = event(.leftMouseDragged, nums[0] + (nums[2] - nums[0]) * t, nums[1] + (nums[3] - nums[1]) * t) { window.sendEvent(e) }
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+            if let e = event(.leftMouseUp, nums[2], nums[3]) { window.sendEvent(e) }
+            return ""
         case "snapshot":
             return snapshot(name: arg, in: directory)
         case "appearance":
@@ -125,6 +174,57 @@ final class DebugDriver {
         default:
             return "error: unknown command \(command)"
         }
+    }
+
+    /// Delivers a key event the way `NSApplication` does for the active app, so tests do not
+    /// depend on the test app being frontmost: key equivalents go to the window's views, then the
+    /// main menu; anything unclaimed becomes `keyDown`/`keyUp` on the first responder.
+    static func dispatch(_ event: NSEvent, to window: NSWindow?) {
+        guard let window else { return }
+        if event.type == .keyDown {
+            if window.performKeyEquivalent(with: event) { return }
+            // NSMenu resolves nil targets through the key window, which an inactive app does not
+            // have; match the item here (same rule as NSMenu: the shift-applied character against
+            // keyEquivalent, an uppercase letter implying ⇧) and send its action to this window.
+            if let item = matchingMenuItem(for: event), let action = item.action {
+                if let target = item.target ?? responder(for: action, in: window) {
+                    let enabled = (target as? NSMenuItemValidation)?.validateMenuItem(item) ?? true
+                    if enabled { NSApp.sendAction(action, to: target, from: item) }
+                    return
+                }
+            }
+        }
+        window.sendEvent(event)
+    }
+
+    static func matchingMenuItem(for event: NSEvent) -> NSMenuItem? {
+        let relevant: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
+        let flags = event.modifierFlags.intersection(relevant)
+        guard flags.contains(.command) || flags.contains(.control), let chars = event.charactersIgnoringModifiers else { return nil }
+        func search(_ menu: NSMenu) -> NSMenuItem? {
+            for item in menu.items {
+                if let sub = item.submenu, let found = search(sub) { return found }
+                guard !item.keyEquivalent.isEmpty else { continue }
+                var mask = item.keyEquivalentModifierMask.intersection(relevant)
+                if item.keyEquivalent != item.keyEquivalent.lowercased() { mask.insert(.shift) }
+                if item.keyEquivalent == chars, mask == flags { return item }
+            }
+            return nil
+        }
+        return NSApp.mainMenu.flatMap(search)
+    }
+
+    /// The first object in `window`'s responder chain (then the app and its delegate) that handles `action`.
+    static func responder(for action: Selector, in window: NSWindow) -> AnyObject? {
+        var r: NSResponder? = window.firstResponder
+        while let current = r {
+            if current.responds(to: action) { return current }
+            r = current.nextResponder
+        }
+        if let d = window.delegate as? NSObject, d.responds(to: action) { return d }
+        if NSApp.responds(to: action) { return NSApp }
+        if let d = NSApp.delegate as? NSObject, d.responds(to: action) { return d }
+        return nil
     }
 
     func focusedSurface() -> TerminalSurfaceView? {
@@ -191,20 +291,27 @@ enum KeySpec {
             }
         }
         guard let key, let code = codes[key] else { return nil }
-        let base = specials[key] ?? key
-        var chars = flags.contains(.shift) ? base.uppercased() : base
-        if flags.contains(.control), key.count == 1, let scalar = key.unicodeScalars.first, scalar.isASCII, scalar.properties.isAlphabetic {
-            chars = String(UnicodeScalar(UInt8(scalar.value & 0x1f)))
-        }
         if ["left", "right", "up", "down"].contains(key) { flags.insert([.numericPad, .function]) }
-        func make(_ type: NSEvent.EventType) -> NSEvent? {
-            NSEvent.keyEvent(
-                with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window?.windowNumber ?? 0, context: nil, characters: chars,
-                charactersIgnoringModifiers: base, isARepeat: false, keyCode: code
+        // Built from CGEvents so the system translates the key code through the current keyboard
+        // layout exactly as for a physical key press (characters, shifted characters, dead keys).
+        var cgFlags: CGEventFlags = []
+        if flags.contains(.command) { cgFlags.insert(.maskCommand) }
+        if flags.contains(.control) { cgFlags.insert(.maskControl) }
+        if flags.contains(.option) { cgFlags.insert(.maskAlternate) }
+        if flags.contains(.shift) { cgFlags.insert(.maskShift) }
+        if flags.contains(.function) { cgFlags.insert([.maskSecondaryFn, .maskNumericPad]) }
+        func make(_ down: Bool) -> NSEvent? {
+            guard let cg = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { return nil }
+            cg.flags = cgFlags
+            guard let ns = NSEvent(cgEvent: cg) else { return nil }
+            // Retarget to our window (CGEvent-made NSEvents carry no window number).
+            return NSEvent.keyEvent(
+                with: ns.type, location: .zero, modifierFlags: ns.modifierFlags, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window?.windowNumber ?? 0, context: nil, characters: ns.characters ?? "",
+                charactersIgnoringModifiers: ns.charactersIgnoringModifiers ?? "", isARepeat: false, keyCode: code
             )
         }
-        guard let down = make(.keyDown), let up = make(.keyUp) else { return nil }
+        guard let down = make(true), let up = make(false) else { return nil }
         return [down, up]
     }
 }

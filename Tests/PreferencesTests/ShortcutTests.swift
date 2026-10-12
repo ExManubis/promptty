@@ -45,6 +45,32 @@ final class ShortcutTests: XCTestCase {
         XCTAssertThrowsError(try JSONDecoder().decode(Shortcut.self, from: Data(#""nope+""#.utf8)))
     }
 
+    /// AppKit matches menu items against the event's shift-applied character, so a shifted letter
+    /// must be declared uppercase or ⇧⌘D never fires.
+    func testMenuKeyEquivalentUppercasesShiftedLetters() {
+        XCTAssertEqual(Shortcut(string: "shift+cmd+d")?.menuKeyEquivalent, "D")
+        XCTAssertEqual(Shortcut(string: "cmd+d")?.menuKeyEquivalent, "d")
+        XCTAssertEqual(Shortcut(string: "opt+shift+cmd+w")?.menuKeyEquivalent, "W")
+    }
+
+    func testMenuKeyEquivalentLeavesNonLettersAlone() {
+        XCTAssertEqual(Shortcut(string: "shift+cmd+]")?.menuKeyEquivalent, "]")
+        XCTAssertEqual(Shortcut(string: "ctrl+cmd+=")?.menuKeyEquivalent, "=")
+        XCTAssertEqual(Shortcut(string: "cmd+1")?.menuKeyEquivalent, "1")
+    }
+
+    func testMenuKeyEquivalentForNamedKeys() {
+        XCTAssertEqual(Shortcut(string: "opt+cmd+left")?.menuKeyEquivalent, "\u{F702}")
+        XCTAssertEqual(Shortcut(string: "opt+cmd+right")?.menuKeyEquivalent, "\u{F703}")
+        XCTAssertEqual(Shortcut(string: "opt+cmd+up")?.menuKeyEquivalent, "\u{F700}")
+        XCTAssertEqual(Shortcut(string: "opt+cmd+down")?.menuKeyEquivalent, "\u{F701}")
+        XCTAssertEqual(Shortcut(string: "cmd+return")?.menuKeyEquivalent, "\r")
+        XCTAssertEqual(Shortcut(string: "cmd+tab")?.menuKeyEquivalent, "\t")
+        XCTAssertEqual(Shortcut(string: "cmd+delete")?.menuKeyEquivalent, "\u{8}")
+        XCTAssertEqual(Shortcut(string: "cmd+escape")?.menuKeyEquivalent, "\u{1b}")
+        XCTAssertEqual(Shortcut(string: "cmd+space")?.menuKeyEquivalent, " ")
+    }
+
     func testContainsCommand() {
         XCTAssertTrue(Shortcut(string: "cmd+d")!.containsCommand)
         XCTAssertFalse(Shortcut(string: "ctrl+d")!.containsCommand)
