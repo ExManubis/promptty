@@ -8,16 +8,20 @@ import WorkspaceModel
 struct TabPreview: View {
     let tab: WorkspaceModel.Tab
     let actions: ChromeActions
-    let panel: NSColor
+    /// The window's chrome, for the terminal's colors as they are now.
+    let chrome: WindowChromeModel
 
     static let size = CGSize(width: 380, height: 236)
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { _ in
-            PreviewNode(node: tab.root, tab: tab, actions: actions, panel: panel)
+        // The tick reaches every pane, so their text is read again each second.
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            PreviewNode(node: tab.root, tab: tab, actions: actions, panel: chrome.panelColor, tick: context.date)
         }
+        .environment(\.colorScheme, chrome.panelIsDark ? .dark : .light)
         .frame(width: Self.size.width, height: Self.size.height)
-        .padding(6)
+        .padding(7)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Preview of \(tab.listTitle)")
     }
@@ -28,12 +32,13 @@ private struct PreviewNode: View {
     let tab: WorkspaceModel.Tab
     let actions: ChromeActions
     let panel: NSColor
+    let tick: Date
 
     var body: some View {
         switch node {
         case .leaf(let id):
             if let pane = tab.pane(id) {
-                PreviewPane(pane: pane, focused: id == tab.focusedPaneID && tab.hasSplits, actions: actions, panel: panel)
+                PreviewPane(pane: pane, focused: id == tab.focusedPaneID && tab.hasSplits, actions: actions, panel: panel, tick: tick)
             }
         case .split(let axis, let ratio, let first, let second):
             GeometryReader { proxy in
@@ -41,14 +46,14 @@ private struct PreviewNode: View {
                 if axis == .horizontal {
                     let width = (proxy.size.width - gap) * ratio
                     HStack(spacing: gap) {
-                        PreviewNode(node: first, tab: tab, actions: actions, panel: panel).frame(width: width)
-                        PreviewNode(node: second, tab: tab, actions: actions, panel: panel)
+                        PreviewNode(node: first, tab: tab, actions: actions, panel: panel, tick: tick).frame(width: width)
+                        PreviewNode(node: second, tab: tab, actions: actions, panel: panel, tick: tick)
                     }
                 } else {
                     let height = (proxy.size.height - gap) * ratio
                     VStack(spacing: gap) {
-                        PreviewNode(node: first, tab: tab, actions: actions, panel: panel).frame(height: height)
-                        PreviewNode(node: second, tab: tab, actions: actions, panel: panel)
+                        PreviewNode(node: first, tab: tab, actions: actions, panel: panel, tick: tick).frame(height: height)
+                        PreviewNode(node: second, tab: tab, actions: actions, panel: panel, tick: tick)
                     }
                 }
             }
@@ -61,6 +66,8 @@ private struct PreviewPane: View {
     let focused: Bool
     let actions: ChromeActions
     let panel: NSColor
+    /// Changes every second: the screen is read again.
+    let tick: Date
 
     var body: some View {
         let activity = actions.activity(for: pane.id)
@@ -79,17 +86,22 @@ private struct PreviewPane: View {
             .foregroundStyle(Color(nsColor: EditorStyle.colors.text).opacity(0.85))
             // The bottom of the screen, where the latest output is; lines cut at the edge, as a
             // terminal shows them, not wrapped.
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(Self.lastLines(of: actions.screenText(for: pane.id) ?? "").enumerated()), id: \.offset) { _, line in
-                    Text(line.isEmpty ? " " : line)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+            // Over a clear area that takes the space there is: the lines start at its bottom and
+            // what does not fit is cut off at the top.
+            Color.clear
+                .overlay(alignment: .bottomLeading) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(Self.lastLines(of: actions.screenText(for: pane.id) ?? "").enumerated()), id: \.offset) { _, line in
+                            Text(line.isEmpty ? " " : line)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .font(.system(size: 6.5, design: .monospaced))
+                    .foregroundStyle(Color(nsColor: EditorStyle.colors.text))
                 }
-            }
-            .font(.system(size: 6.5, design: .monospaced))
-            .foregroundStyle(Color(nsColor: EditorStyle.colors.text))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            .clipped()
+                .clipped()
         }
         .padding(6)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

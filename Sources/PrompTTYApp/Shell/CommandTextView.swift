@@ -290,16 +290,20 @@ final class CommandTextView: NSTextView {
         for ch in text { applyVi(.char(ch)) }
     }
 
-    /// Inserts on the app's behalf (completions, suggestions), in any mode.
     // MARK: File drops
 
     /// Files dropped on the bar (or on its terminal while the bar is shown): their paths, quoted,
     /// at the drop point, or at the caret.
     func insertDroppedFiles(_ urls: [URL], at index: Int? = nil) {
-        let directory = completionContext()?.directory ?? FileManager.default.currentDirectoryPath
+        // Without the pane's folder, paths stay absolute (the app's own folder means nothing here).
+        let directory = completionContext()?.directory ?? ""
         let words = urls.map { ShellQuoting.pathArgument($0.path, directory: directory, home: NSHomeDirectory()) }
+        // A composition in progress is committed first, as a click elsewhere would.
+        if hasMarkedText() { unmarkText() }
         let text = string as NSString
-        let at = min(index ?? selectedRange().location, text.length)
+        // In normal mode the block cursor sits on a character: the paths go after it, as `a` would.
+        let caret = selectedRange().location + (vi.mode == .normal && selectedRange().location < text.length ? 1 : 0)
+        let at = min(index ?? caret, text.length)
         let before = at > 0 ? text.substring(with: NSRange(location: at - 1, length: 1)) : " "
         let after = at < text.length ? text.substring(with: NSRange(location: at, length: 1)) : ""
         let spaceBefore = before.rangeOfCharacter(from: .whitespacesAndNewlines) == nil ? " " : ""
@@ -324,6 +328,7 @@ final class CommandTextView: NSTextView {
         sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
     }
 
+    /// Inserts on the app's behalf (completions, suggestions), in any mode.
     private func insertProgrammatically(_ text: String, replacing range: NSRange) {
         insertingProgrammatically = true
         defer { insertingProgrammatically = false }

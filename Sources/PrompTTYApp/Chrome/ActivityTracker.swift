@@ -8,7 +8,10 @@ import WorkspaceModel
 @MainActor
 @Observable
 final class ActivityTracker {
+    /// What views read: republished only when what they show changes.
     private(set) var activities: [PaneID: PaneActivity] = [:]
+    /// The full state, with the per-second bookkeeping views do not need.
+    @ObservationIgnored private var states: [PaneID: PaneActivity] = [:]
 
     /// A pane to watch: its terminal, the shell's pid if known, and whether the user sees it.
     struct Watched {
@@ -16,8 +19,10 @@ final class ActivityTracker {
         let foregroundPID: Int?
         let shellPID: Int?
         let seen: Bool
-        /// The pane's visible text, read only for agents (to tell working from waiting).
+        /// The pane's screen text, read only for agents (to tell working from waiting).
         let screen: () -> String?
+        /// Screen changes before this are the terminal's doing (a resize, a key echoed).
+        let quietUntil: Date?
     }
 
     /// The panes to watch right now; set by the coordinator.
@@ -51,7 +56,7 @@ final class ActivityTracker {
         var live = Set<PaneID>()
         for watched in panes() {
             live.insert(watched.pane)
-            var activity = activities[watched.pane] ?? PaneActivity()
+            var activity = states[watched.pane] ?? PaneActivity()
             if let foreground = foreground(of: watched) {
                 if let notice = activity.observe(foreground, at: now, seen: watched.seen) {
                     onNotice(watched.pane, notice)
@@ -59,7 +64,8 @@ final class ActivityTracker {
             }
             if activity.program?.isAgent == true, let text = watched.screen() {
                 let hash = text.hashValue
-                let changed = screens[watched.pane].map { $0 != hash } ?? false
+                let redraw = watched.quietUntil.map { now < $0 } ?? false
+                let changed = !redraw && (screens[watched.pane].map { $0 != hash } ?? false)
                 screens[watched.pane] = hash
                 if let notice = activity.agentScreen(changed: changed, at: now, seen: watched.seen) {
                     onNotice(watched.pane, notice)
@@ -71,9 +77,10 @@ final class ActivityTracker {
                 activity.seen()
                 onSeen(watched.pane)
             }
-            if activities[watched.pane] != activity { activities[watched.pane] = activity }
+            store(activity, for: watched.pane)
         }
-        for gone in Set(activities.keys).subtracting(live) {
+        for gone in Set(states.keys).subtracting(live) {
+            states[gone] = nil
             activities[gone] = nil
             shellPIDs[gone] = nil
             identified[gone] = nil
@@ -83,9 +90,9 @@ final class ActivityTracker {
 
     /// The shell reported how a command ended.
     func exitReported(_ pane: PaneID, code: Int) {
-        var activity = activities[pane] ?? PaneActivity()
+        var activity = states[pane] ?? PaneActivity()
         if let notice = activity.exitReported(code: code, at: Date(), seen: isSeen(pane)) { onNotice(pane, notice) }
-        if activities[pane] != activity { activities[pane] = activity }
+        store(activity, for: pane)
     }
 
     /// A bell or a program's notification. Returns false when the user sees the pane (nothing is
@@ -93,10 +100,15 @@ final class ActivityTracker {
     @discardableResult
     func attention(_ pane: PaneID, message: String?) -> Bool {
         guard !isSeen(pane) else { return false }
-        var activity = activities[pane] ?? PaneActivity()
+        var activity = states[pane] ?? PaneActivity()
         if let notice = activity.attention(seen: false, message: message) { onNotice(pane, notice) }
-        if activities[pane] != activity { activities[pane] = activity }
+        store(activity, for: pane)
         return true
+    }
+
+    private func store(_ activity: PaneActivity, for pane: PaneID) {
+        states[pane] = activity
+        if activities[pane]?.visible != activity.visible { activities[pane] = activity }
     }
 
     private func isSeen(_ pane: PaneID) -> Bool {

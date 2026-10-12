@@ -27,6 +27,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Forgets which commands ran in which folder (the bar's per-folder suggestions).
+    @objc func clearFolderHistory(_ sender: Any?) {
+        FolderHistoryStore.shared.clear()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let store = SessionStore(url: AppPaths.session)
         sessionStore = store

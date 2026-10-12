@@ -271,7 +271,7 @@ final class PaneShell {
         if !command.isEmpty {
             surface.sendText(command)
             history.add(command)
-            FolderHistoryStore.shared.add(command, in: directory)
+            FolderHistoryStore.shared.add(command, in: directory, persist: stateFile?.historyFile != nil)
             lastCommand = command
         }
         surface.sendReturn()

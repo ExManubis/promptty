@@ -8,18 +8,29 @@ final class FolderHistoryStore {
     static let shared = FolderHistoryStore(url: AppPaths.folderHistory)
 
     private let url: URL
-    private var history: FolderHistory
+    private var history = FolderHistory()
     /// The last ranking asked for, until the next command is added.
     private var cached: (directory: String, ranked: [String])?
     private let writes = DispatchQueue(label: "dev.promptty.folder-history", qos: .utility)
     /// Lines in the file, which only grows between rewrites.
-    private var fileLines: Int
+    private var fileLines = 0
 
     init(url: URL) {
         self.url = url
-        let data = (try? Data(contentsOf: url)) ?? Data()
-        history = FolderHistory.decode(data)
-        fileLines = data.split(separator: 0x0A).count
+        // Read off the main thread; commands run meanwhile join what was read.
+        writes.async { [url] in
+            let data = (try? Data(contentsOf: url)) ?? Data()
+            let loaded = FolderHistory.decode(data)
+            let lines = data.split(separator: 0x0A).count
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    let added = self.history.entries
+                    self.history = FolderHistory(entries: loaded.entries + added)
+                    self.fileLines = lines + added.count
+                    self.cached = nil
+                }
+            }
+        }
     }
 
     func ranked(for directory: String) -> [String] {
@@ -29,29 +40,44 @@ final class FolderHistoryStore {
         return ranked
     }
 
-    func add(_ command: String, in directory: String) {
+    /// Records a command for this session's suggestions, and on disk only when the shell keeps a
+    /// history file itself: a shell with `HISTFILE` unset is not recorded either.
+    func add(_ command: String, in directory: String, persist: Bool) {
         guard let entry = history.add(command: command, directory: directory, date: Date()) else { return }
         cached = nil
+        guard persist else { return }
         let url = url
-        let line = FolderHistory.line(for: entry)
         // The file keeps only the newest entries: rewritten whole once it has grown well past them.
         fileLines += 1
-        var all: Data?
+        var rewrite: [FolderHistory.Entry]?
         if fileLines > FolderHistory.limit + 500 {
-            all = history.entries.reduce(into: Data()) { $0 += FolderHistory.line(for: $1) }
+            rewrite = history.entries
             fileLines = history.entries.count
         }
         writes.async {
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if let all {
+            let fm = FileManager.default
+            try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if let rewrite {
+                let all = rewrite.reduce(into: Data()) { $0 += FolderHistory.line(for: $1) }
                 try? all.write(to: url, options: .atomic)
             } else if let handle = try? FileHandle(forWritingTo: url) {
                 _ = try? handle.seekToEnd()
-                try? handle.write(contentsOf: line)
+                try? handle.write(contentsOf: FolderHistory.line(for: entry))
                 try? handle.close()
             } else {
-                try? line.write(to: url)
+                fm.createFile(atPath: url.path, contents: FolderHistory.line(for: entry))
             }
+            // Private, as zsh keeps its history.
+            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
+    }
+
+    /// Forgets every recorded command, in memory and on disk.
+    func clear() {
+        history = FolderHistory()
+        cached = nil
+        fileLines = 0
+        let url = url
+        writes.async { try? FileManager.default.removeItem(at: url) }
     }
 }

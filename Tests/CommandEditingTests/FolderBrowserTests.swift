@@ -244,6 +244,12 @@ final class DroppedPathTests: XCTestCase {
         XCTAssertEqual(arg("/Users/me/app-old/x"), "~/app-old/x")
     }
 
+    /// Without a known folder nothing is relative (not to `/` either).
+    func testWithoutAFolderPathsAreAbsoluteOrUnderHome() {
+        XCTAssertEqual(ShellQuoting.pathArgument("/tmp/x", directory: "", home: "/Users/me"), "/tmp/x")
+        XCTAssertEqual(ShellQuoting.pathArgument("/Users/me/x", directory: "", home: "/Users/me"), "~/x")
+    }
+
     func testElsewhereIsAbsolute() {
         XCTAssertEqual(arg("/tmp/x y"), #"/tmp/x\ y"#)
     }

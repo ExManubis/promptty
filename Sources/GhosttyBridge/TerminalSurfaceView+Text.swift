@@ -50,10 +50,19 @@ extension TerminalSurfaceView {
 
     /// The text currently visible in the viewport, one line per row, or nil before the surface exists.
     public func visibleText() -> String? {
+        text(in: GHOSTTY_POINT_VIEWPORT)
+    }
+
+    /// The program's screen, whatever the user has scrolled back to.
+    public func activeScreenText() -> String? {
+        text(in: GHOSTTY_POINT_ACTIVE)
+    }
+
+    private func text(in tag: ghostty_point_tag_e) -> String? {
         guard let surface else { return nil }
         let selection = ghostty_selection_s(
-            top_left: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
-            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
+            top_left: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
             rectangle: false
         )
         var text = ghostty_text_s()

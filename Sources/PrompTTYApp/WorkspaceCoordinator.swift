@@ -60,7 +60,9 @@ final class WorkspaceCoordinator: GhosttyActionSink {
                         foregroundPID: surface.foregroundPID,
                         shellPID: controller.shell(for: pane.id)?.state.shellPID,
                         seen: tabSeen,
-                        screen: { [weak surface] in surface?.visibleText() }
+                        screen: { [weak surface] in surface?.activeScreenText() },
+                        quietUntil: [surface.lastResize.map { $0.addingTimeInterval(1.5) },
+                                     surface.lastKeyPress.map { $0.addingTimeInterval(1) }].compactMap { $0 }.max()
                     ))
                 }
             }

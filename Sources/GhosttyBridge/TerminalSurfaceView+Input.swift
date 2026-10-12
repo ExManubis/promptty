@@ -34,6 +34,7 @@ extension TerminalSurfaceView {
     public override func keyDown(with event: NSEvent) {
         if redirect(event) { return }
         guard let surface else { return }
+        lastKeyPress = Date()
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
         // Let the text system run first so IME, dead keys, and `insertText` happen; we collect the
         // resulting text and send one key event with it attached.

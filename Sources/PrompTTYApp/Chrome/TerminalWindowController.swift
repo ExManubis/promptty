@@ -143,6 +143,24 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func agents() -> [AgentEntry] { coordinator.agents() }
     func reveal(_ pane: PaneID) { coordinator.reveal(pane) }
     func screenText(for pane: PaneID) -> String? { surfaces[pane]?.visibleText() }
+
+    private let previewPanel = PreviewPanel()
+    private var previewedTab: TabID?
+
+    func showPreview(of tab: TabID, beside row: CGRect) {
+        guard let window, let model = state.tab(id: tab) else { return }
+        previewedTab = tab
+        previewPanel.show(
+            TabPreview(tab: model, actions: self, chrome: chrome),
+            beside: row, in: window
+        )
+    }
+
+    func hidePreview(of tab: TabID) {
+        guard previewedTab == tab else { return }
+        previewedTab = nil
+        previewPanel.hide()
+    }
     func allShells() -> [PaneShell] { Array(shells.values) }
 
     private func bind(_ view: TerminalSurfaceView, to pane: PaneID) {

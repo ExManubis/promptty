@@ -27,9 +27,20 @@ final class AgentActivityTests: XCTestCase {
         XCTAssertEqual(a.display, .running)
     }
 
+    /// One change is not work: a clock in a status line, a keystroke echoed, a redraw.
+    func testASingleChangeIsNotWork() {
+        var a = agent()
+        a.agentScreen(changed: true, at: at(1), seen: false)
+        XCTAssertFalse(a.isWorking)
+        a.agentScreen(changed: false, at: at(10), seen: false)
+        a.agentScreen(changed: true, at: at(20), seen: false)
+        XCTAssertFalse(a.isWorking)
+    }
+
     func testAChangingScreenIsWorking() {
         var a = agent()
         a.agentScreen(changed: true, at: at(1), seen: false)
+        a.agentScreen(changed: true, at: at(1.5), seen: false)
         XCTAssertTrue(a.isWorking)
         XCTAssertEqual(a.display, .working)
         XCTAssertEqual(a.agentSince, at(1))
@@ -41,6 +52,7 @@ final class AgentActivityTests: XCTestCase {
     func testGoingQuietUnseenIsYourTurnAndALongTurnNotifies() {
         var a = agent()
         a.agentScreen(changed: true, at: at(1), seen: false)
+        a.agentScreen(changed: true, at: at(1.5), seen: false)
         a.agentScreen(changed: true, at: at(40), seen: false)
         XCTAssertNil(a.agentScreen(changed: false, at: at(42), seen: false))
         let notice = a.agentScreen(changed: false, at: at(43), seen: false)
@@ -54,6 +66,7 @@ final class AgentActivityTests: XCTestCase {
     func testAShortTurnIsYourTurnWithoutANotification() {
         var a = agent()
         a.agentScreen(changed: true, at: at(1), seen: false)
+        a.agentScreen(changed: true, at: at(1.5), seen: false)
         XCTAssertNil(a.agentScreen(changed: false, at: at(5), seen: false))
         XCTAssertEqual(a.display, .attention)
     }
@@ -61,6 +74,7 @@ final class AgentActivityTests: XCTestCase {
     func testGoingQuietWhileLookingIsJustWaiting() {
         var a = agent()
         a.agentScreen(changed: true, at: at(1), seen: true)
+        a.agentScreen(changed: true, at: at(1.5), seen: true)
         XCTAssertNil(a.agentScreen(changed: false, at: at(30), seen: true))
         XCTAssertEqual(a.display, .running)
     }
@@ -73,13 +87,38 @@ final class AgentActivityTests: XCTestCase {
         XCTAssertEqual(a.display, .running)
     }
 
+    /// The user watched the turn end and switched away before the agent had been quiet for three
+    /// seconds: they saw it, so it is not news.
+    func testATurnThatEndedWhileLookingIsNotYourTurnAfterSwitchingAway() {
+        var a = agent()
+        a.agentScreen(changed: true, at: at(1), seen: true)
+        a.agentScreen(changed: true, at: at(1.5), seen: true)
+        a.agentScreen(changed: true, at: at(60), seen: true)
+        XCTAssertTrue(a.isWorking)
+        a.agentScreen(changed: false, at: at(61), seen: true)
+        XCTAssertNil(a.agentScreen(changed: false, at: at(63), seen: false))
+        XCTAssertFalse(a.isWorking)
+        XCTAssertEqual(a.display, .running)
+    }
+
     func testTheAgentQuittingEndsItsWork() {
         var a = agent()
         a.agentScreen(changed: true, at: at(1), seen: false)
+        a.agentScreen(changed: true, at: at(1.5), seen: false)
         a.observe(.shell, at: at(2), seen: true)
         a.observe(.shell, at: at(2.5), seen: true)
         XCTAssertFalse(a.isWorking)
         XCTAssertNil(a.agentSince)
+    }
+
+    /// What views compare: only what they show, not the per-second bookkeeping.
+    func testVisibleStateIgnoresTheScreenBookkeeping() {
+        var a = agent()
+        a.agentScreen(changed: true, at: at(1), seen: false)
+        a.agentScreen(changed: true, at: at(1.5), seen: false)
+        let before = a.visible
+        a.agentScreen(changed: true, at: at(2), seen: false)
+        XCTAssertEqual(a.visible, before)
     }
 
     func testWorkingRanksBetweenRunningAndFinished() {

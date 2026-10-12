@@ -16,6 +16,9 @@ struct TabRow: View {
     @State private var hovering = false
     /// The pointer has rested on the row: its preview shows.
     @State private var previewing = false
+    @State private var previewTimer: Task<Void, Never>?
+    /// The row's frame in the window, for placing its preview.
+    @State private var rowFrame: CGRect = .zero
     @State private var draft = ""
     @State private var lastTap: Date?
     @FocusState private var fieldFocused: Bool
@@ -91,13 +94,17 @@ struct TabRow: View {
             hovering = inside
             updatePreview()
         }
-        .popover(isPresented: Binding(get: { previewing || chrome.forcedPreview == tab.id }, set: { shown in
-            previewing = shown
-            if !shown, chrome.forcedPreview == tab.id { chrome.forcedPreview = nil }
-        }), arrowEdge: .trailing) {
-            TabPreview(tab: tab, actions: actions, panel: chrome.panelColor)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rowFrame = $0 }
+        .onChange(of: previewing || chrome.forcedPreview == tab.id) { _, shown in
+            if shown { actions.showPreview(of: tab.id, beside: rowFrame) } else { actions.hidePreview(of: tab.id) }
         }
-        .onChange(of: selected) { _, isSelected in if isSelected { previewing = false } }
+        .onChange(of: selected) { _, isSelected in
+            if isSelected {
+                previewing = false
+                if chrome.forcedPreview == tab.id { chrome.forcedPreview = nil }
+            }
+        }
+        .onDisappear { actions.hidePreview(of: tab.id) }
         // One tap recognizer that tells a double click from a single one itself. A separate
         // count-2 recognizer makes SwiftUI hold every single click until the double-click
         // interval has passed (0.5s by default) before the tab is selected.
@@ -128,15 +135,19 @@ struct TabRow: View {
         .accessibilityAction(named: "Close") { actions.requestCloseTab(tab.id) }
     }
 
-    /// Another tab of the sidebar, after the pointer has rested on it for half a second.
+    /// Another tab of the sidebar, after the pointer has rested on it for half a second (not
+    /// while something is dragged).
     private func updatePreview() {
+        previewTimer?.cancel()
         guard hovering, style == .full, !selected, !renaming, chrome.draggingPane == nil else {
             previewing = false
             return
         }
-        Task { @MainActor in
+        previewTimer = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
-            if hovering, !selected, !renaming { previewing = true }
+            guard !Task.isCancelled, hovering, !selected, !renaming, chrome.draggingPane == nil,
+                  NSEvent.pressedMouseButtons == 0 else { return }
+            previewing = true
         }
     }
 

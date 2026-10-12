@@ -270,6 +270,10 @@ public final class TerminalSurfaceView: NSView {
     /// The last pixel size sent; AppKit re-sets an unchanged frame often (SwiftUI does on every
     /// animation frame), and each set would otherwise reach libghostty as a resize.
     private var sentSize: (width: UInt32, height: UInt32)?
+    /// When the terminal last got a new size, or a key: programs redraw for either, which is not
+    /// activity of their own.
+    public private(set) var lastResize: Date?
+    public internal(set) var lastKeyPress: Date?
 
     private func sizeDidChange(force: Bool = false) {
         guard let surface else { return }
@@ -278,6 +282,7 @@ public final class TerminalSurfaceView: NSView {
         let h = UInt32(max(1, (bounds.height * scale).rounded()))
         if !force, let sent = sentSize, sent.width == w, sent.height == h { return }
         sentSize = (w, h)
+        lastResize = Date()
         #if DEBUG
         Self.sentSizes.append("\(w)x\(h)")
         #endif

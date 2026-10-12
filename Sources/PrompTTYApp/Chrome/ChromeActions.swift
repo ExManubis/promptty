@@ -1,3 +1,4 @@
+import CoreGraphics
 import GhosttyBridge
 import PaneActivity
 import WorkspaceModel
@@ -13,6 +14,9 @@ protocol ChromeActions: AnyObject {
     func agents() -> [AgentEntry]
     /// Brings a pane forward, in whichever window it is.
     func reveal(_ pane: PaneID)
+    /// Shows a tab's preview beside its sidebar row (`row` in the window's top-left coordinates).
+    func showPreview(of tab: TabID, beside row: CGRect)
+    func hidePreview(of tab: TabID)
     /// A pane's visible text, from its terminal if it has one already (a preview never starts a
     /// shell).
     func screenText(for pane: PaneID) -> String?

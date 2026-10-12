@@ -59,6 +59,10 @@ public struct PaneActivity: Equatable, Sendable {
     public private(set) var agentSince: Date?
     private var lastScreenChange: Date?
     private var workStarted: Date?
+    /// A change not yet confirmed by a second one (a lone change is a clock or a redraw).
+    private var firstChange: Date?
+    /// The user saw the pane at some tick since its screen last changed.
+    private var seenSinceChange = false
     /// An agent is waiting once its screen has been still this long.
     static let agentQuiet: TimeInterval = 3
 
@@ -77,6 +81,18 @@ public struct PaneActivity: Equatable, Sendable {
         case .finished: .finished
         case nil: isWorking ? .working : isRunning ? .running : .idle
         }
+    }
+
+    /// What views show of a pane; the per-second bookkeeping is left out, so views redraw only
+    /// when this changes.
+    public struct Visible: Equatable, Sendable {
+        public let display: Display
+        public let program: Program?
+        public let agentSince: Date?
+    }
+
+    public var visible: Visible {
+        Visible(display: display, program: program, agentSince: agentSince)
     }
 
     /// Whether something happened here the user has not seen.
@@ -150,20 +166,28 @@ public struct PaneActivity: Equatable, Sendable {
         if agentSince == nil { agentSince = now }
         if changed {
             lastScreenChange = now
+            seenSinceChange = seen
             if !isWorking {
+                // Work is a screen that keeps changing: two changes within the quiet time.
+                guard let first = firstChange, now.timeIntervalSince(first) < Self.agentQuiet else {
+                    firstChange = now
+                    return nil
+                }
                 isWorking = true
-                workStarted = now
-                agentSince = now
+                workStarted = first
+                agentSince = first
+                firstChange = nil
             }
             return nil
         }
+        seenSinceChange = seenSinceChange || seen
         guard isWorking, let lastScreenChange, now.timeIntervalSince(lastScreenChange) >= Self.agentQuiet else { return nil }
         isWorking = false
         agentSince = lastScreenChange
         let duration = workStarted.map { lastScreenChange.timeIntervalSince($0) } ?? 0
         workStarted = nil
-        // The agent's turn is over: the user's, where they were not looking.
-        guard !seen, unseen != .attention else { return nil }
+        // The agent's turn is over: the user's, unless they saw it end.
+        guard !seenSinceChange, unseen != .attention else { return nil }
         unseen = .attention
         guard duration >= Self.notifyAfter else { return nil }
         return Notice(kind: .waiting, program: program, duration: duration)
@@ -174,6 +198,8 @@ public struct PaneActivity: Equatable, Sendable {
         agentSince = nil
         lastScreenChange = nil
         workStarted = nil
+        firstChange = nil
+        seenSinceChange = false
     }
 
     /// A bell, or a program's notification (an agent waiting for the user). Notifies once until
