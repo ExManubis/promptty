@@ -149,6 +149,44 @@ enum DebugHooks {
             }
             return "no sheet"
         }
+        // eval realmenu <spec> <Menu Title> — does AppKit's own NSMenu match a layout-true key press
+        // against that main-menu item's key equivalent? (Copies the item into a scratch menu with a
+        // target, so the match does not depend on the app being active.)
+        driver.hooks["realmenu"] = { args in
+            guard args.count >= 2 else { return "error: realmenu spec title" }
+            let title = args.dropFirst().joined(separator: " ")
+            func find(_ menu: NSMenu) -> NSMenuItem? {
+                for item in menu.items {
+                    if item.title == title { return item }
+                    if let sub = item.submenu, let found = find(sub) { return found }
+                }
+                return nil
+            }
+            guard let original = NSApp.mainMenu.flatMap(find),
+                  let event = KeySpec.events(args[0], window: NSApp.orderedWindows.first)?.first else { return "error: no item or key" }
+            final class Sink: NSObject { var hit = false; @objc func fire(_ s: Any?) { hit = true } }
+            let sink = Sink()
+            let menu = NSMenu()
+            let copy = NSMenuItem(title: title, action: #selector(Sink.fire(_:)), keyEquivalent: original.keyEquivalent)
+            copy.keyEquivalentModifierMask = original.keyEquivalentModifierMask
+            copy.allowsAutomaticKeyEquivalentLocalization = original.allowsAutomaticKeyEquivalentLocalization
+            copy.target = sink
+            menu.addItem(copy)
+            _ = menu.performKeyEquivalent(with: event)
+            let k = original.keyEquivalent.unicodeScalars.map { String(format: "U+%04X", $0.value) }.joined()
+            return "item=\(k) mask=\(original.keyEquivalentModifierMask.rawValue) event=\(event.charactersIgnoringModifiers ?? "") matched=\(sink.hit)"
+        }
+        // eval sysitem — add a Ctrl-only menu item (Ctrl+F12), standing in for the system-provided
+        // Globe/fn items AppKit inserts (Move & Resize, Emoji & Symbols); eval sysitem hit reports it.
+        driver.hooks["sysitem"] = { args in
+            if args.first == "hit" { return "sysitem hit=\(SystemItemSink.shared.hits)" }
+            let item = NSMenuItem(title: "Debug System Item", action: #selector(SystemItemSink.fire(_:)), keyEquivalent: String(Character(UnicodeScalar(0xF70F)!)))
+            item.keyEquivalentModifierMask = [.control]
+            item.target = SystemItemSink.shared
+            NSApp.mainMenu?.items.last?.submenu?.addItem(item)
+            return ""
+        }
+        driver.hooks["live"] = { _ in "controllers=\(TerminalWindowController.liveCount)" }
         driver.hooks["banner"] = { args in
             coordinator.showTransientBanner(args.joined(separator: " "))
             return ""
@@ -165,6 +203,12 @@ enum DebugHooks {
             }
             return ""
         }
+    }
+
+    @MainActor final class SystemItemSink: NSObject {
+        static let shared = SystemItemSink()
+        var hits = 0
+        @objc func fire(_ sender: Any?) { hits += 1 }
     }
 
     private static func texts(in view: NSView) -> [String] {

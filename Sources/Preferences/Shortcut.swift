@@ -88,6 +88,26 @@ public struct Shortcut: Hashable, Sendable, CustomStringConvertible {
         }
     }
 
+    public struct MenuKeyEquivalent: Equatable, Sendable {
+        public var key: String
+        /// Whether Shift belongs in the item's modifier mask.
+        public var includesShift: Bool
+    }
+
+    /// The key equivalent for the current keyboard layout. A shifted non-letter is matched by
+    /// NSMenu against the character the key types with Shift ("}" for ⇧⌘] on US), so it is
+    /// declared as that character without Shift. `shiftedCharacter` maps a base key to what the
+    /// layout types for it with Shift, or nil when no key types the base character unshifted.
+    public func menuKeyEquivalent(shiftedCharacter: (String) -> String?) -> MenuKeyEquivalent {
+        let shift = modifiers.contains(.shift)
+        let isLetter = key.unicodeScalars.allSatisfy { CharacterSet.letters.contains($0) }
+        guard shift, !Self.namedKeys.contains(key), !isLetter,
+              let shifted = shiftedCharacter(key), shifted.count == 1 else {
+            return MenuKeyEquivalent(key: menuKeyEquivalent, includesShift: shift)
+        }
+        return MenuKeyEquivalent(key: shifted, includesShift: false)
+    }
+
     public var keyDisplay: String {
         switch key {
         case "left": return "←"

@@ -100,4 +100,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) { onClose?() }
+
+    // ⌘W is Close Pane and ⌥⌘W Close Tab; in Settings both close the window, as users expect.
+    @objc func closePane(_ sender: Any?) { window?.performClose(sender) }
+    @objc func closeTab(_ sender: Any?) { window?.performClose(sender) }
 }

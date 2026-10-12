@@ -59,6 +59,44 @@ final class ShortcutTests: XCTestCase {
         XCTAssertEqual(Shortcut(string: "cmd+1")?.menuKeyEquivalent, "1")
     }
 
+    /// US layout: what each key types with Shift.
+    private let usShifted: (String) -> String? = { ["]": "}", "[": "{", "=": "+", "-": "_", "1": "!", ",": "<"][$0] }
+
+    func testShiftedPunctuationUsesTheLayoutsShiftedCharacterWithoutShift() {
+        // NSMenu compares the event's shift-applied character: ⇧⌘] arrives as "}".
+        let next = Shortcut(string: "shift+cmd+]")!.menuKeyEquivalent(shiftedCharacter: usShifted)
+        XCTAssertEqual(next.key, "}")
+        XCTAssertFalse(next.includesShift)
+        let bigger = Shortcut(string: "shift+cmd+=")!.menuKeyEquivalent(shiftedCharacter: usShifted)
+        XCTAssertEqual(bigger.key, "+")
+        XCTAssertFalse(bigger.includesShift)
+    }
+
+    func testShiftedLettersStayUppercaseWithShift() {
+        let e = Shortcut(string: "shift+cmd+d")!.menuKeyEquivalent(shiftedCharacter: usShifted)
+        XCTAssertEqual(e.key, "D")
+        XCTAssertTrue(e.includesShift)
+    }
+
+    func testUnshiftedShortcutsAreUnchanged() {
+        let e = Shortcut(string: "ctrl+cmd+=")!.menuKeyEquivalent(shiftedCharacter: usShifted)
+        XCTAssertEqual(e.key, "=")
+        XCTAssertFalse(e.includesShift)
+    }
+
+    func testShiftedPunctuationTheLayoutCannotTypeKeepsShift() {
+        // No key on the layout types "]" unshifted: leave it to AppKit's own localization.
+        let e = Shortcut(string: "shift+cmd+]")!.menuKeyEquivalent(shiftedCharacter: { _ in nil })
+        XCTAssertEqual(e.key, "]")
+        XCTAssertTrue(e.includesShift)
+    }
+
+    func testShiftedNamedKeysKeepShift() {
+        let e = Shortcut(string: "shift+cmd+left")!.menuKeyEquivalent(shiftedCharacter: usShifted)
+        XCTAssertEqual(e.key, "\u{F702}")
+        XCTAssertTrue(e.includesShift)
+    }
+
     func testMenuKeyEquivalentForNamedKeys() {
         XCTAssertEqual(Shortcut(string: "opt+cmd+left")?.menuKeyEquivalent, "\u{F702}")
         XCTAssertEqual(Shortcut(string: "opt+cmd+right")?.menuKeyEquivalent, "\u{F703}")

@@ -20,7 +20,15 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     /// The tab shown by the last `reload()`; a change resets any OSC 11 tint to the configured one.
     private var shownTabID: TabID?
 
+    #if DEBUG
+    /// Live controllers, for leak checks in the debug driver.
+    nonisolated(unsafe) static var liveCount = 0
+    #endif
+
     init(state: WindowState, coordinator: WorkspaceCoordinator, runtime: GhosttyRuntime) {
+        #if DEBUG
+        Self.liveCount += 1
+        #endif
         self.state = state
         self.coordinator = coordinator
         self.runtime = runtime
@@ -64,6 +72,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    #if DEBUG
+    deinit { Self.liveCount -= 1 }
+    #endif
 
     // MARK: Model sync
 
@@ -335,6 +347,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     func windowWillClose(_ notification: Notification) {
         coordinator.windowWillClose(state.id)
+        // The SwiftUI root holds this controller as its ChromeActions; dropping the hosting view
+        // breaks controller → window → hosting view → controller, and stops a closed window's
+        // view graph from observing the shared workspace and settings.
+        window?.contentView = nil
     }
 
     private func persistFrame() {

@@ -118,10 +118,15 @@ enum MainMenu {
 
     /// Sets `item`'s key equivalent from a shortcut.
     static func apply(_ shortcut: Shortcut, to item: NSMenuItem) {
-        item.keyEquivalent = shortcut.menuKeyEquivalent
+        let equivalent = shortcut.menuKeyEquivalent(shiftedCharacter: KeyboardLayout.shiftedCharacter(for:))
+        item.keyEquivalent = equivalent.key
+        // Already translated for this layout; AppKit's own remapping would undo it.
+        if shortcut.modifiers.contains(.shift), !equivalent.includesShift {
+            item.allowsAutomaticKeyEquivalentLocalization = false
+        }
         var mask: NSEvent.ModifierFlags = []
         if shortcut.modifiers.contains(.command) { mask.insert(.command) }
-        if shortcut.modifiers.contains(.shift) { mask.insert(.shift) }
+        if equivalent.includesShift { mask.insert(.shift) }
         if shortcut.modifiers.contains(.option) { mask.insert(.option) }
         if shortcut.modifiers.contains(.control) { mask.insert(.control) }
         item.keyEquivalentModifierMask = mask

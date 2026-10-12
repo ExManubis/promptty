@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var sessionStore: SessionStore!
     private var saver: DebouncedSaver!
     private var preferences: PreferencesController!
+    private var layoutObserver: NSObjectProtocol?
 
     /// With no nib, `@main` alone never instantiates the delegate; install it explicitly and keep
     /// it alive for the lifetime of the run loop (`NSApplication.delegate` is weak).
@@ -56,6 +57,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator = WorkspaceCoordinator(runtime: runtime, workspace: workspace, preferences: preferences)
         preferences.onTerminalConfigChanged = { [weak self] in self?.runtime.reloadConfig() }
         preferences.onShortcutsChanged = { NSApp.mainMenu = MainMenu.build(shortcuts: $0) }
+        // Shifted punctuation shortcuts are declared per keyboard layout; rebuild when it changes.
+        layoutObserver = DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("com.apple.Carbon.TISNotifySelectedKeyboardInputSourceChanged"),
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                NSApp.mainMenu = MainMenu.build(shortcuts: self.preferences.shortcuts)
+            }
+        }
         preferences.onAppSettingsChanged = { [weak self] in self?.coordinator.applyAppSettings($0) }
         saver = DebouncedSaver(delay: .seconds(1)) { [weak self] in self?.saveSession() }
         coordinator.onModelChanged = { [weak self] in self?.saver.schedule() }

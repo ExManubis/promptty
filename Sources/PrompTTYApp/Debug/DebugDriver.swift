@@ -270,7 +270,7 @@ enum KeySpec {
         "=": 24, "9": 25, "7": 26, "-": 27, "8": 28, "0": 29, "]": 30, "o": 31, "u": 32, "[": 33, "i": 34,
         "p": 35, "return": 36, "l": 37, "j": 38, "'": 39, "k": 40, ";": 41, "\\": 42, ",": 43, "/": 44,
         "n": 45, "m": 46, ".": 47, "tab": 48, "space": 49, "`": 50, "delete": 51, "escape": 53,
-        "left": 123, "right": 124, "down": 125, "up": 126,
+        "left": 123, "right": 124, "down": 125, "up": 126, "f12": 111,
     ]
     private static let specials: [String: String] = [
         "return": "\r", "tab": "\t", "space": " ", "delete": "\u{7f}", "escape": "\u{1b}",
@@ -292,6 +292,7 @@ enum KeySpec {
         }
         guard let key, let code = codes[key] else { return nil }
         if ["left", "right", "up", "down"].contains(key) { flags.insert([.numericPad, .function]) }
+        if key == "f12" { flags.insert(.function) }
         // Built from CGEvents so the system translates the key code through the current keyboard
         // layout exactly as for a physical key press (characters, shifted characters, dead keys).
         var cgFlags: CGEventFlags = []

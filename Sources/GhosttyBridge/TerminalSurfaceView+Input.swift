@@ -8,12 +8,17 @@ extension TerminalSurfaceView {
     /// combinations (Ctrl+Return, Ctrl+/, Ctrl+Tab, …) only this way, never as `keyDown`. Keys
     /// without ⌘ belong to the terminal, so take them here; ⌘ keys go on to the menu, and reach
     /// `keyDown` only if no menu item claims them.
+    ///
+    /// The menu still gets the first look at non-⌘ keys: the app's own items all contain ⌘, so
+    /// only system-provided items can match (Globe shortcuts such as window tiling and Emoji &
+    /// Symbols), and those should keep working while a terminal is focused.
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown,
               window?.firstResponder === self,
               KeyRouting.terminalHandlesKeyEquivalent(flags: event.modifierFlags) else {
             return super.performKeyEquivalent(with: event)
         }
+        if NSApp.mainMenu?.performKeyEquivalent(with: event) == true { return true }
         keyDown(with: event)
         return true
     }
