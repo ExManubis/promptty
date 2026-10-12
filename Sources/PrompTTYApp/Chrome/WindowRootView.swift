@@ -67,7 +67,7 @@ struct WindowRootView: View {
                 ZStack {
                     ForEach(state.tabs, id: \.id) { tab in
                         TabPanes(tab: tab, selected: tab.id == state.selectedTabID, outgoing: tab.id == tabSlide.outgoing,
-                                 shift: slideShift(in: geo.size), chrome: chrome, actions: actions)
+                                 direction: tabSlide.direction, shift: slideShift(in: geo.size), chrome: chrome, actions: actions)
                     }
                 }
                 .keyframeAnimator(initialValue: CGFloat(1), trigger: generation) { content, progress in

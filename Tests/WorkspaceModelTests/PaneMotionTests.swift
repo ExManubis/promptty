@@ -60,3 +60,20 @@ final class PaneMotionTests: XCTestCase {
         XCTAssertEqual(PaneMotion.Flight(from: .zero, to: .zero, appearing: false).opacity(at: 0), 1)
     }
 }
+
+final class TabSlideTests: XCTestCase {
+    func testNextTabComesInFromAfterAndOldTabLeavesBefore() {
+        XCTAssertEqual(PaneMotion.tabSlideFraction(selected: true, outgoing: false, direction: 1, progress: 0), 1)
+        XCTAssertEqual(PaneMotion.tabSlideFraction(selected: false, outgoing: true, direction: 1, progress: 1), -1)
+    }
+
+    func testPreviousTabComesInFromBeforeAndOldTabLeavesAfter() {
+        XCTAssertEqual(PaneMotion.tabSlideFraction(selected: true, outgoing: false, direction: -1, progress: 0), -1)
+        XCTAssertEqual(PaneMotion.tabSlideFraction(selected: false, outgoing: true, direction: -1, progress: 1), 1)
+    }
+
+    func testAtRestTheSelectedTabSitsInPlace() {
+        XCTAssertEqual(PaneMotion.tabSlideFraction(selected: true, outgoing: false, direction: -1, progress: 1), 0)
+        XCTAssertEqual(PaneMotion.tabSlideFraction(selected: false, outgoing: false, direction: 1, progress: 0.5), 0)
+    }
+}

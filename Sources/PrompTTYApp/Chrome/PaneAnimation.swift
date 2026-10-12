@@ -142,7 +142,9 @@ struct TabPanes: View {
     let tab: WorkspaceModel.Tab
     let selected: Bool
     let outgoing: Bool
-    /// The slide's direction and length: along x for a tab strip, along y for the sidebar.
+    /// +1 when the selection moved later in the tab list, -1 when earlier.
+    let direction: CGFloat
+    /// The slide's axis and length: along x for a tab strip, along y for the sidebar.
     let shift: CGSize
     let chrome: WindowChromeModel
     let actions: ChromeActions
@@ -151,7 +153,7 @@ struct TabPanes: View {
     var body: some View {
         let sliding = progress < 1
         let showing = selected || (outgoing && sliding)
-        let fraction = selected ? 1 - progress : (outgoing ? -progress : 0)
+        let fraction = PaneMotion.tabSlideFraction(selected: selected, outgoing: outgoing, direction: direction, progress: progress)
         PaneTreeView(tab: tab, visible: showing, chrome: chrome, actions: actions)
             .offset(x: shift.width * fraction, y: shift.height * fraction)
             .opacity(showing ? 1 : 0)

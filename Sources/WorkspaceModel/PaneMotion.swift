@@ -67,4 +67,13 @@ public enum PaneMotion {
             }
         }
     }
+
+    /// How far a tab is shifted, in pane-area lengths, while the selection slides: the new tab
+    /// comes in from the side the old one is not (`direction` +1 when the new tab is later in the
+    /// list) and the old one leaves the other way. Other tabs, and every tab at rest, sit at 0.
+    public static func tabSlideFraction(selected: Bool, outgoing: Bool, direction: CGFloat, progress: CGFloat) -> CGFloat {
+        if selected { return direction * (1 - progress) }
+        if outgoing { return -direction * progress }
+        return 0
+    }
 }
