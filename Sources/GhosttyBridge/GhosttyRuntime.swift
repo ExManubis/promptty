@@ -93,6 +93,24 @@ public final class GhosttyRuntime {
         return (color.r, color.g, color.b)
     }
 
+    /// The `foreground` color of the current config.
+    public var configuredForeground: (red: UInt8, green: UInt8, blue: UInt8)? {
+        var color = ghostty_config_color_s()
+        let key = "foreground"
+        guard ghostty_config_get(config, &color, key, UInt(key.utf8.count)) else { return nil }
+        return (color.r, color.g, color.b)
+    }
+
+    /// The first 16 palette colors (the ANSI ones) of the current config.
+    public var configuredANSIPalette: [(red: UInt8, green: UInt8, blue: UInt8)]? {
+        var palette = ghostty_config_palette_s()
+        let key = "palette"
+        guard ghostty_config_get(config, &palette, key, UInt(key.utf8.count)) else { return nil }
+        return withUnsafeBytes(of: palette.colors) { raw in
+            raw.bindMemory(to: ghostty_config_color_s.self).prefix(16).map { ($0.r, $0.g, $0.b) }
+        }
+    }
+
     // MARK: Internal
 
     func surfaceCreationFailed(_ view: TerminalSurfaceView) {

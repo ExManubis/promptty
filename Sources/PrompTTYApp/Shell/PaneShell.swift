@@ -59,10 +59,45 @@ enum BarPresentation: Equatable {
     case inactive
 }
 
-/// The editor font: the terminal's family and size, so typed commands look like terminal text.
+/// Syntax colors for the editor, from the terminal theme's ANSI palette.
+struct EditorColors {
+    var text: NSColor = .textColor
+    var command: NSColor = .systemGreen
+    var unknownCommand: NSColor = .systemRed
+    var flag: NSColor = .systemTeal
+    var string: NSColor = .systemYellow
+    var variable: NSColor = .systemBlue
+    var op: NSColor = .systemPurple
+    var comment: NSColor = .secondaryLabelColor
+    var ghost: NSColor = .tertiaryLabelColor
+}
+
+/// The editor font (the terminal's family and size, so typed commands look like terminal text)
+/// and colors (the terminal theme's).
 @MainActor
 enum EditorStyle {
     static var font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+    static var colors = EditorColors()
+
+    /// `palette` is the theme's 16 ANSI colors.
+    static func update(foreground: (red: UInt8, green: UInt8, blue: UInt8)?, palette: [(red: UInt8, green: UInt8, blue: UInt8)]?) {
+        func color(_ c: (red: UInt8, green: UInt8, blue: UInt8)) -> NSColor {
+            NSColor(srgbRed: CGFloat(c.red) / 255, green: CGFloat(c.green) / 255, blue: CGFloat(c.blue) / 255, alpha: 1)
+        }
+        var colors = EditorColors()
+        if let foreground { colors.text = color(foreground) }
+        if let palette, palette.count >= 16 {
+            colors.unknownCommand = color(palette[1])
+            colors.command = color(palette[2])
+            colors.string = color(palette[3])
+            colors.variable = color(palette[4])
+            colors.op = color(palette[5])
+            colors.flag = color(palette[6])
+            colors.comment = color(palette[8])
+            colors.ghost = color(palette[8])
+        }
+        self.colors = colors
+    }
 
     static func update(family: String, size: Double) {
         let size = CGFloat(size)
@@ -105,7 +140,7 @@ final class PaneShell {
         self.pane = pane
         self.directory = directory
         self.integrated = integrated
-        editorHeight = NSLayoutManager().defaultLineHeight(for: EditorStyle.font)
+        editorHeight = CommandTextView.lineHeight(for: EditorStyle.font)
     }
 
     // MARK: Events
@@ -135,16 +170,54 @@ final class PaneShell {
         let view = CommandEditorView()
         let text = view.textView
         text.font = EditorStyle.font
+        text.styleChanged()
         text.terminal = surface
         text.onSubmit = { [weak self] in self?.run($0) }
+        text.history = { [weak self] in self?.history.newestFirst ?? [] }
+        text.isKnownCommand = { [weak self] in self?.isKnownCommand($0) ?? true }
         text.onShellInput = { [weak self] in self?.surface?.sendInput($0) }
         text.onTextChange = { [weak self] in self?.editorTextChanged() }
         return view
     }
 
-    func fontChanged() {
+    func styleChanged() {
         editor.textView.font = EditorStyle.font
+        editor.textView.styleChanged()
         editorTextChanged()
+    }
+
+    /// Command names the shell runs without a path: its aliases, functions, builtins, reserved
+    /// words and the executables on its PATH. Empty until the PATH has been listed.
+    @ObservationIgnored private var knownCommands: Set<String> = []
+
+    /// Unknown until the shell has reported its names: nothing shows as unknown before then.
+    func isKnownCommand(_ name: String) -> Bool {
+        if name.contains("/") {
+            let path = (name as NSString).expandingTildeInPath
+            let full = path.hasPrefix("/") ? path : (directory as NSString).appendingPathComponent(path)
+            return FileManager.default.isExecutableFile(atPath: full)
+        }
+        return knownCommands.isEmpty || knownCommands.contains(name)
+    }
+
+    private func listCommands() {
+        guard let stateFile else { return }
+        let names = stateFile.commandNames
+        let path = stateFile.path
+        Task.detached(priority: .utility) {
+            var all = names
+            let fm = FileManager.default
+            for dir in path {
+                for entry in (try? fm.contentsOfDirectory(atPath: dir)) ?? [] where fm.isExecutableFile(atPath: (dir as NSString).appendingPathComponent(entry)) {
+                    all.insert(entry)
+                }
+            }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.knownCommands = all
+                self.editor.textView.recolor()
+            }
+        }
     }
 
     private func editorTextChanged() {
@@ -160,6 +233,7 @@ final class PaneShell {
             history.add(command)
         }
         surface.sendInput("\r")
+        editor.textView.commandRan()
         state.submitted()
         phaseChanged()
     }
@@ -215,6 +289,7 @@ final class PaneShell {
         let url = ShellIntegration.stateFile(for: pane)
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
         stateFile = ShellStateFile.parse(text)
+        listCommands()
     }
 
     private func reloadHistoryIfChanged() {

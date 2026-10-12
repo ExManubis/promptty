@@ -52,9 +52,10 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     /// Called after every config reload.
     func configDidReload() {
         EditorStyle.update(family: preferences.settings.fontFamily, size: preferences.settings.fontSize)
+        EditorStyle.update(foreground: runtime.configuredForeground, palette: runtime.configuredANSIPalette)
         for c in controllers.values {
             applyConfiguredTint(to: c)
-            for shell in c.allShells() { shell.fontChanged() }
+            for shell in c.allShells() { shell.styleChanged() }
         }
     }
 

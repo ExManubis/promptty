@@ -207,7 +207,8 @@ enum DebugHooks {
                   let tab = c.state.selectedTab, let shell = c.shell(for: tab.focusedPaneID) else { return "error: no shell" }
             let responder = c.window?.firstResponder
             let who = responder === shell.editor.textView ? "bar" : (responder is TerminalSurfaceView ? "terminal" : String(describing: type(of: responder as Any)))
-            return "bar=\(shell.bar) phase=\(shell.phase) text=\(shell.editor.textView.string.debugDescription) height=\(shell.editorHeight) keys=\(who)"
+            let tv = shell.editor.textView
+            return "bar=\(shell.bar) phase=\(shell.phase) mode=\(tv.vi.mode) text=\(tv.string.debugDescription) caret=\(tv.selectedRange().location) ghost=\((tv.suggestion ?? "-").debugDescription) height=\(shell.editorHeight) keys=\(who) scroll=\(NSStringFromRect(shell.editor.frame)) tv=\(NSStringFromRect(tv.frame)) container=\(NSStringFromSize(tv.textContainer?.size ?? .zero)) inWindow=\(tv.window != nil) host=\(shell.editor.superview.map { NSStringFromRect($0.frame) } ?? "-") color=\(String(describing: tv.textColor))"
         }
         // eval bartext <text> — puts text in the focused pane's bar, as if typed (any keyboard layout).
         driver.hooks["bartext"] = { args in
