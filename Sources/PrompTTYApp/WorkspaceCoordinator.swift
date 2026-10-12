@@ -51,7 +51,11 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     /// Called after every config reload.
     func configDidReload() {
-        for c in controllers.values { applyConfiguredTint(to: c) }
+        EditorStyle.update(family: preferences.settings.fontFamily, size: preferences.settings.fontSize)
+        for c in controllers.values {
+            applyConfiguredTint(to: c)
+            for shell in c.allShells() { shell.fontChanged() }
+        }
     }
 
     /// The system appearance changed: every surface resolves its light/dark theme again.

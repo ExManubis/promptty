@@ -24,8 +24,14 @@ struct PaneCard: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            if let surface = actions.surfaceView(for: pane) {
-                PaneHost(surface: surface, visible: visible)
+            VStack(spacing: 0) {
+                if let surface = actions.surfaceView(for: pane) {
+                    PaneHost(surface: surface, visible: visible)
+                }
+                if let shell = actions.shell(for: pane.id), shell.bar != .hidden {
+                    InputBarView(shell: shell, dark: chrome.panelIsDark)
+                        .transition(.opacity)
+                }
             }
 
             // Dia-style focus: the other panes fade slightly toward the panel color, in the

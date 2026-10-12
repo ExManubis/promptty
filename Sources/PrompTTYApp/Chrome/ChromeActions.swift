@@ -5,6 +5,7 @@ import WorkspaceModel
 @MainActor
 protocol ChromeActions: AnyObject {
     func surfaceView(for pane: Pane) -> TerminalSurfaceView?
+    func shell(for pane: PaneID) -> PaneShell?
     func selectTab(_ id: TabID)
     func requestCloseTab(_ id: TabID)
     func newTab()

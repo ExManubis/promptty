@@ -96,7 +96,7 @@ enum DebugHooks {
         // eval hit x y — the AppKit view under a window point (top-left origin).
         driver.hooks["hit"] = { args in
             guard args.count == 2, let x = Double(args[0]), let y = Double(args[1]),
-                  let window = NSApp.keyWindow ?? NSApp.orderedWindows.first,
+                  let window = DebugDriver.targetWindow,
                   let content = window.contentView,
                   let root = content.superview else { return "error: hit x y" }
             let point = NSPoint(x: x, y: window.frame.height - y)
@@ -200,6 +200,25 @@ enum DebugHooks {
             let git = shell.git.map { "\($0.branch)\($0.dirty ? "*" : "")" } ?? "-"
             let file = shell.stateFile.map { "histfile=\($0.historyFile ?? "-") path=\($0.path.count) names=\($0.commandNames.count) exports=\($0.exports.count)" } ?? "no-state-file"
             return "phase=\(shell.phase) integrated=\(shell.integrated) pid=\(shell.state.shellPID ?? -1) fg=\(shell.surface?.foregroundPID ?? -1) dir=\(shell.directory) git=\(git) exit=\(exit) history=\(shell.history.newestFirst.count) \(file)"
+        }
+        // eval bar — the focused pane's input bar: presentation, text, and who has the keys.
+        driver.hooks["bar"] = { _ in
+            guard let c = coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true }) ?? coordinator.allControllers.first,
+                  let tab = c.state.selectedTab, let shell = c.shell(for: tab.focusedPaneID) else { return "error: no shell" }
+            let responder = c.window?.firstResponder
+            let who = responder === shell.editor.textView ? "bar" : (responder is TerminalSurfaceView ? "terminal" : String(describing: type(of: responder as Any)))
+            return "bar=\(shell.bar) phase=\(shell.phase) text=\(shell.editor.textView.string.debugDescription) height=\(shell.editorHeight) keys=\(who)"
+        }
+        // eval bartext <text> — puts text in the focused pane's bar, as if typed (any keyboard layout).
+        driver.hooks["bartext"] = { args in
+            guard let c = coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true }) ?? coordinator.allControllers.first,
+                  let tab = c.state.selectedTab, let shell = c.shell(for: tab.focusedPaneID) else { return "error: no shell" }
+            shell.editor.textView.insertText(args.joined(separator: " "), replacementRange: shell.editor.textView.selectedRange())
+            return ""
+        }
+        // eval windows — every window: class, frame, visibility, title.
+        driver.hooks["windows"] = { _ in
+            NSApp.windows.map { "\(type(of: $0)) \(NSStringFromRect($0.frame)) visible=\($0.isVisible) \"\($0.title)\"" }.joined(separator: "\n")
         }
         driver.hooks["live"] = { _ in "controllers=\(TerminalWindowController.liveCount)" }
         // eval backdrop — window transparency and the blur view's state, for checking the chrome.

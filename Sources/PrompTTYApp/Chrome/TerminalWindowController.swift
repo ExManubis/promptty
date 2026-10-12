@@ -137,19 +137,41 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     }
 
     func shell(for pane: PaneID) -> PaneShell? { shells[pane] }
+    func allShells() -> [PaneShell] { Array(shells.values) }
 
     private func bind(_ view: TerminalSurfaceView, to pane: PaneID) {
         view.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
         view.onAttachedToWindow = { [weak self] in self?.surfaceAttached(pane) }
+        guard let shell = shells[pane] else { return }
+        // At a prompt the bar takes the keys, even after a click into the terminal's output
+        // (which still selects text there).
+        view.keyRedirect = { [weak shell] in
+            guard let shell, shell.bar == .active else { return nil }
+            return shell.editor.textView
+        }
+        shell.editor.textView.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
+        shell.onPhaseChange = { [weak self] _ in self?.shellPhaseChanged(pane) }
+    }
+
+    /// Where a pane's keys go: the input bar at a prompt, the terminal otherwise.
+    private func focusTarget(for pane: PaneID) -> NSView? {
+        if let shell = shells[pane], shell.bar == .active { return shell.editor.textView }
+        return surfaces[pane]
+    }
+
+    /// A pane reached a prompt or started a command: if it has focus, its keys move.
+    private func shellPhaseChanged(_ pane: PaneID) {
+        guard let tab = state.selectedTab, tab.focusedPaneID == pane else { return }
+        focusSelectedPane()
     }
 
     /// A surface (re)joined the window, e.g. after SwiftUI re-hosted it during a rearrangement.
     /// If it is the pane that should have focus and nothing else holds it, give it back.
     private func surfaceAttached(_ pane: PaneID) {
         guard let window, let tab = state.selectedTab, tab.focusedPaneID == pane,
-              chrome.renamingTab == nil, let view = surfaces[pane], view.window === window else { return }
+              chrome.renamingTab == nil, let view = focusTarget(for: pane), view.window === window else { return }
         let current = window.firstResponder
-        if current === view || current is NSText { return }
+        if current === view || (current is NSText && current !== surfaces[pane]) { return }
         window.makeFirstResponder(view)
     }
 
@@ -221,7 +243,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             MainActor.assumeIsolated {
                 guard let self, generation == self.focusGeneration, let window = self.window,
                       let tab = self.state.selectedTab, self.chrome.renamingTab == nil,
-                      let view = self.surfaces[tab.focusedPaneID] else { return }
+                      let view = self.focusTarget(for: tab.focusedPaneID) else { return }
                 if view.window === window {
                     if window.firstResponder !== view { window.makeFirstResponder(view) }
                 } else if attemptsLeft > 0 {

@@ -55,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         workspace.tabLayout = TabLayout(preferences.settings.tabLayout)
         ShellIntegration.install()
+        EditorStyle.update(family: preferences.settings.fontFamily, size: preferences.settings.fontSize)
         coordinator = WorkspaceCoordinator(runtime: runtime, workspace: workspace, preferences: preferences)
         preferences.onTerminalConfigChanged = { [weak self] in self?.runtime.reloadConfig() }
         preferences.onShortcutsChanged = { NSApp.mainMenu = MainMenu.build(shortcuts: $0) }

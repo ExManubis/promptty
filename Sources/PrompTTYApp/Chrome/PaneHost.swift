@@ -10,7 +10,7 @@ struct PaneHost: NSViewRepresentable {
     let surface: TerminalSurfaceView
     let visible: Bool
 
-    func makeNSView(context: Context) -> PaneHostView { PaneHostView() }
+    func makeNSView(context: Context) -> PaneHostView { PaneHostView(cornerRadius: ChromeMetrics.paneCornerRadius) }
 
     func updateNSView(_ host: PaneHostView, context: Context) {
         host.host(surface)
@@ -23,22 +23,37 @@ struct PaneHost: NSViewRepresentable {
     }
 }
 
-/// Rounded, clipping container for one surface. Clipping happens here, in AppKit, because the
-/// surface renders into a `CAMetalLayer` that SwiftUI's clip shapes do not reliably mask.
+/// Places another long-lived AppKit view (a pane's input bar editor) the same way.
+struct LongLivedViewHost: NSViewRepresentable {
+    let view: NSView
+    /// AppKit views do not follow SwiftUI's color scheme; this sets theirs.
+    var dark: Bool
+
+    func makeNSView(context: Context) -> PaneHostView { PaneHostView(cornerRadius: 0) }
+    func updateNSView(_ host: PaneHostView, context: Context) {
+        view.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        host.host(view)
+    }
+    static func dismantleNSView(_ host: PaneHostView, coordinator: ()) { host.dismantle() }
+}
+
+/// Rounded, clipping container for one long-lived view (a terminal surface, an input bar).
+/// Clipping happens here, in AppKit, because a surface renders into a `CAMetalLayer` that
+/// SwiftUI's clip shapes do not reliably mask.
 ///
-/// Hosts that are in a window register per surface. When the host holding a surface leaves the
+/// Hosts that are in a window register per hosted view. When the host holding a view leaves the
 /// window (SwiftUI discarding a transient copy, or the old position after a move), it hands the
-/// surface to another live host for the same surface instead of taking it out of the window.
+/// view to another live host for the same view instead of taking it out of the window.
 final class PaneHostView: NSView {
-    private(set) var surface: TerminalSurfaceView?
+    private(set) var surface: NSView?
 
     private struct WeakHost { weak var host: PaneHostView? }
     @MainActor private static var live: [ObjectIdentifier: [WeakHost]] = [:]
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
+    init(cornerRadius: CGFloat) {
+        super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = ChromeMetrics.paneCornerRadius
+        layer?.cornerRadius = cornerRadius
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
     }
@@ -47,7 +62,7 @@ final class PaneHostView: NSView {
 
     override var mouseDownCanMoveWindow: Bool { false }
 
-    func host(_ new: TerminalSurfaceView) {
+    func host(_ new: NSView) {
         if surface !== new {
             leave()
             surface = new

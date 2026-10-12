@@ -1,5 +1,6 @@
 import AppKit
 import CommandEditing
+import SwiftUI
 import Darwin
 import GhosttyBridge
 import Observation
@@ -48,6 +49,29 @@ enum ShellIntegration {
     }
 }
 
+/// How the input bar is shown.
+enum BarPresentation: Equatable {
+    /// Not part of the pane (a plain terminal, or a command that has been running for a while).
+    case hidden
+    /// At a prompt: in the layout, taking keys.
+    case active
+    /// A command just started: still in the layout so a quick command never makes it blink.
+    case inactive
+}
+
+/// The editor font: the terminal's family and size, so typed commands look like terminal text.
+@MainActor
+enum EditorStyle {
+    static var font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+
+    static func update(family: String, size: Double) {
+        let size = CGFloat(size)
+        font = NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size)
+            ?? NSFont(name: family, size: size)
+            ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    }
+}
+
 /// One pane's shell as the input bar sees it: whether it is at a prompt, what the header shows,
 /// and what the shell told us about itself (history, commands, PATH).
 @MainActor
@@ -62,6 +86,12 @@ final class PaneShell {
     private(set) var git: GitStatus?
     private(set) var stateFile: ShellStateFile?
     private(set) var history = CommandHistory(fileEntries: [])
+    private(set) var bar: BarPresentation = .hidden
+    /// The editor's height for its current text (one to eight lines).
+    private(set) var editorHeight: CGFloat = 18
+
+    /// The bar's editor. Long-lived like the terminal: hosts move it, never recreate it.
+    @ObservationIgnored private(set) lazy var editor: CommandEditorView = makeEditor()
 
     /// Called when the pane reaches a prompt (`.idle`) or leaves it.
     @ObservationIgnored var onPhaseChange: ((ShellPhase) -> Void)?
@@ -75,6 +105,7 @@ final class PaneShell {
         self.pane = pane
         self.directory = directory
         self.integrated = integrated
+        editorHeight = NSLayoutManager().defaultLineHeight(for: EditorStyle.font)
     }
 
     // MARK: Events
@@ -98,9 +129,37 @@ final class PaneShell {
         state.commandFinished(code: Int(code), durationNanoseconds: durationNs)
     }
 
-    /// The bar ran `command`.
-    func submitted(_ command: String) {
-        history.add(command)
+    // MARK: The bar
+
+    private func makeEditor() -> CommandEditorView {
+        let view = CommandEditorView()
+        let text = view.textView
+        text.font = EditorStyle.font
+        text.terminal = surface
+        text.onSubmit = { [weak self] in self?.run($0) }
+        text.onShellInput = { [weak self] in self?.surface?.sendInput($0) }
+        text.onTextChange = { [weak self] in self?.editorTextChanged() }
+        return view
+    }
+
+    func fontChanged() {
+        editor.textView.font = EditorStyle.font
+        editorTextChanged()
+    }
+
+    private func editorTextChanged() {
+        editorHeight = editor.textView.height()
+    }
+
+    /// Runs `command` from the bar: zsh gets it as a paste (so it is one line edit, however many
+    /// lines) followed by Return.
+    private func run(_ command: String) {
+        guard state.phase == .idle, let surface else { return }
+        if !command.isEmpty {
+            surface.sendText(command)
+            history.add(command)
+        }
+        surface.sendInput("\r")
         state.submitted()
         phaseChanged()
     }
@@ -114,6 +173,25 @@ final class PaneShell {
     private func phaseChanged() {
         poll?.invalidate()
         poll = nil
+        switch state.phase {
+        case .idle:
+            bar = .active
+        case .starting:
+            bar = .hidden
+        case .running where bar == .active:
+            // Started from the bar: it stays put for a moment, so a quick command (most of them)
+            // finishes without the bar or the terminal moving.
+            bar = .inactive
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.state.phase == .running, self.bar == .inactive else { return }
+                    let fade: Animation? = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .easeOut(duration: 0.12)
+                    withAnimation(fade) { self.bar = .hidden }
+                }
+            }
+        case .running:
+            bar = .hidden
+        }
         if state.phase == .idle {
             // Something other than the shell can take the terminal without a command from the bar
             // (`fg`, a program started by a hook): watch the foreground process while idle.

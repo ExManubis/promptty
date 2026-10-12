@@ -82,18 +82,18 @@ final class DebugDriver {
             return ""
         case "action":
             let selector = NSSelectorFromString(arg)
-            guard let window = NSApp.keyWindow ?? NSApp.orderedWindows.first,
+            guard let window = DebugDriver.targetWindow,
                   let target = Self.responder(for: selector, in: window) else { return "error: no target for \(arg)" }
             NSApp.sendAction(selector, to: target, from: nil)
             return ""
         case "key":
-            let window = NSApp.keyWindow ?? NSApp.orderedWindows.first
+            let window = DebugDriver.targetWindow
             guard let events = KeySpec.events(arg, window: window) else { return "error: bad key \(arg)" }
             for e in events { Self.dispatch(e, to: window) }
             return ""
         case "keys":
             // Types `arg` as individual key presses into whatever has focus (text fields too).
-            let window = NSApp.keyWindow ?? NSApp.orderedWindows.first
+            let window = DebugDriver.targetWindow
             for ch in arg {
                 let s = String(ch)
                 let spec = s == " " ? "space" : s.lowercased()
@@ -124,7 +124,7 @@ final class DebugDriver {
         case "click", "dclick", "rclick":
             // x y in window points, top-left origin.
             let nums = arg.split(separator: " ").compactMap { Double($0) }
-            guard nums.count == 2, let window = NSApp.keyWindow ?? NSApp.orderedWindows.first else { return "error: click x y" }
+            guard nums.count == 2, let window = DebugDriver.targetWindow else { return "error: click x y" }
             let p = NSPoint(x: nums[0], y: window.frame.height - nums[1])
             let clicks = command == "dclick" ? 2 : 1
             for n in 1...clicks {
@@ -141,7 +141,7 @@ final class DebugDriver {
         case "drag":
             // x1 y1 x2 y2 in window points, top-left origin; ten intermediate moves.
             let nums = arg.split(separator: " ").compactMap { Double($0) }
-            guard nums.count == 4, let window = NSApp.keyWindow ?? NSApp.orderedWindows.first else { return "error: drag x1 y1 x2 y2" }
+            guard nums.count == 4, let window = DebugDriver.targetWindow else { return "error: drag x1 y1 x2 y2" }
             let h = window.frame.height
             func event(_ type: NSEvent.EventType, _ x: Double, _ y: Double) -> NSEvent? {
                 NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: h - y), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
@@ -181,7 +181,9 @@ final class DebugDriver {
     /// main menu; anything unclaimed becomes `keyDown`/`keyUp` on the first responder.
     static func dispatch(_ event: NSEvent, to window: NSWindow?) {
         guard let window else { return }
-        if event.type == .keyDown {
+        // AppKit offers only ⌘ and ⌃ keys as key equivalents; a plain letter offered too would be
+        // claimed by the system's Globe-key items (Emoji & Symbols is fn-E).
+        if event.type == .keyDown, !event.modifierFlags.intersection([.command, .control]).isEmpty {
             if window.performKeyEquivalent(with: event) { return }
             // NSMenu resolves nil targets through the key window, which an inactive app does not
             // have; match the item here (same rule as NSMenu: the shift-applied character against
@@ -234,8 +236,16 @@ final class DebugDriver {
         return eventCounter
     }
 
+    /// The window commands act on: the key window, else the frontmost of PrompTTY's own windows
+    /// (system panels such as the input-source indicator can be frontmost while the app is inactive).
+    static var targetWindow: NSWindow? {
+        NSApp.keyWindow ?? NSApp.orderedWindows.first { $0.windowController != nil } ?? NSApp.orderedWindows.first
+    }
+
+    /// The focused pane's terminal, also when its input bar has the keys.
     func focusedSurface() -> TerminalSurfaceView? {
-        (NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.orderedWindows.first)?.firstResponder as? TerminalSurfaceView
+        let responder = Self.targetWindow?.firstResponder
+        return (responder as? TerminalSurfaceView) ?? (responder as? CommandTextView)?.terminal
     }
 
     // MARK: Snapshots
