@@ -10,6 +10,7 @@ struct PinnedTabsGrid: View {
 
     static let tileHeight: CGFloat = 40
     private static let spacing: CGFloat = 6
+    static let maxColumns = 4
 
     @State private var dropTargeted = false
     /// The grid's right edge in the window, where the tiles' previews go.
@@ -20,14 +21,16 @@ struct PinnedTabsGrid: View {
         let dragging = chrome.draggingTab.map { id in !pinned.contains { $0.id == id } } ?? false
         if !pinned.isEmpty || dragging {
             VStack(spacing: 8) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 46), spacing: Self.spacing)], spacing: Self.spacing) {
+                // Up to four to a row, sharing its width, as Dia and Arc lay them out.
+                let columns = min(max(pinned.count + (dragging ? 1 : 0), 1), Self.maxColumns)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Self.spacing), count: columns), spacing: Self.spacing) {
                     ForEach(Array(pinned.enumerated()), id: \.element.id) { index, tab in
                         TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .tile,
                                chrome: chrome, actions: actions, previewEdge: trailingEdge + ChromeMetrics.sidebarHorizontalPadding)
                             .frame(height: Self.tileHeight)
                     }
                     if dragging {
-                        DropTile(targeted: dropTargeted, alone: pinned.isEmpty)
+                        DropTile(targeted: dropTargeted)
                             .frame(height: Self.tileHeight)
                     }
                 }
@@ -54,8 +57,6 @@ struct PinnedTabsGrid: View {
 /// The empty tile a dragged tab can be dropped on to pin it.
 private struct DropTile: View {
     let targeted: Bool
-    /// The only tile: it spans the row and says what it is for.
-    let alone: Bool
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: ChromeMetrics.rowCornerRadius, style: .continuous)
@@ -66,7 +67,6 @@ private struct DropTile: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color.accentColor)
             }
-            .gridCellColumns(alone ? 4 : 1)
             .accessibilityLabel("Drop to pin")
     }
 }

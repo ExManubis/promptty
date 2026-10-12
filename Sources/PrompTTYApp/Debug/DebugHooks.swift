@@ -36,6 +36,50 @@ enum DebugHooks {
             guard let view = driver.focusedSurface(), let drop = view.onFileDrop else { return "error: no drop handler" }
             return drop(args.map { URL(fileURLWithPath: $0) }) ? "" : "declined"
         }
+        // eval pin <tab> [index] / unpin <tab> [index] — what the context menu and drops do.
+        driver.hooks["pin"] = { args in
+            guard let c = coordinator.allControllers.first, let i = args.first.flatMap(Int.init),
+                  c.state.tabs.indices.contains(i) else { return "error: pin <tab> [index]" }
+            c.pinTab(c.state.tabs[i].id, at: args.dropFirst().first.flatMap(Int.init))
+            return ""
+        }
+        driver.hooks["unpin"] = { args in
+            guard let c = coordinator.allControllers.first, let i = args.first.flatMap(Int.init),
+                  c.state.tabs.indices.contains(i) else { return "error: unpin <tab> [index]" }
+            c.unpinTab(c.state.tabs[i].id, at: args.dropFirst().first.flatMap(Int.init))
+            return ""
+        }
+        // eval resetpin <tab> — Reset Pinned Tab.
+        driver.hooks["resetpin"] = { args in
+            guard let c = coordinator.allControllers.first, let i = args.first.flatMap(Int.init),
+                  c.state.tabs.indices.contains(i) else { return "error: resetpin <tab>" }
+            c.resetPinnedTab(c.state.tabs[i].id)
+            return ""
+        }
+        // eval pincommand <tab> <command…> — Edit Pinned Command… without the sheet.
+        driver.hooks["pincommand"] = { args in
+            guard let c = coordinator.allControllers.first, let i = args.first.flatMap(Int.init),
+                  c.state.tabs.indices.contains(i) else { return "error: pincommand <tab> <command>" }
+            coordinator.setPinnedCommand(c.state.tabs[i].id, args.dropFirst().joined(separator: " "))
+            return ""
+        }
+        // eval pins — each tab's pin.
+        driver.hooks["pins"] = { _ in
+            guard let c = coordinator.allControllers.first else { return "error: no window" }
+            return c.state.tabs.enumerated().map { i, t in
+                "\(i) \(t.listTitle): " + (t.pin.map { "pinned dir=\(Tab.abbreviate($0.directory)) command=\($0.command ?? "-")" } ?? "-")
+            }.joined(separator: "\n")
+        }
+        // eval tabdrag <tab>|off — a tab drag in progress, for the pin drop tile.
+        driver.hooks["tabdrag"] = { args in
+            guard let c = coordinator.allControllers.first else { return "error: no window" }
+            if let i = args.first.flatMap(Int.init), c.state.tabs.indices.contains(i) {
+                c.chrome.draggingTab = c.state.tabs[i].id
+            } else {
+                c.chrome.draggingTab = nil
+            }
+            return ""
+        }
         // eval preview <tab>|off — show a tab's sidebar preview without hovering.
         driver.hooks["preview"] = { args in
             guard let c = coordinator.allControllers.first else { return "error: no window" }

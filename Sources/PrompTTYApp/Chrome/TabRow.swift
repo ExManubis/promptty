@@ -109,6 +109,8 @@ struct TabRow: View {
     /// having no title of its own.
     private var tileContent: some View {
         ProgramStack(cards: stackCards)
+            // Larger in the sidebar's tiles (the ones that preview) than in the strip's pills.
+            .scaleEffect(style == .tile && previewEdge != nil ? 1.25 : 1)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .topTrailing) {
                 ActivityIndicator(display: display)
