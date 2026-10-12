@@ -146,16 +146,17 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         // At a prompt the bar takes the keys, even after a click into the terminal's output
         // (which still selects text there).
         view.keyRedirect = { [weak shell] in
-            guard let shell, shell.bar == .active else { return nil }
+            guard let shell, shell.bar != .hidden else { return nil }
             return shell.editor.textView
         }
         shell.editor.textView.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
         shell.onPhaseChange = { [weak self] _ in self?.shellPhaseChanged(pane) }
     }
 
-    /// Where a pane's keys go: the input bar at a prompt, the terminal otherwise.
+    /// Where a pane's keys go: the input bar while it is shown (at a prompt, and in the moment a
+    /// quick command runs, so typing ahead of it lands in the bar), the terminal otherwise.
     private func focusTarget(for pane: PaneID) -> NSView? {
-        if let shell = shells[pane], shell.bar == .active { return shell.editor.textView }
+        if let shell = shells[pane], shell.bar != .hidden { return shell.editor.textView }
         return surfaces[pane]
     }
 

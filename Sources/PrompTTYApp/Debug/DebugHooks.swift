@@ -217,6 +217,12 @@ enum DebugHooks {
             shell.editor.textView.insertText(args.joined(separator: " "), replacementRange: shell.editor.textView.selectedRange())
             return ""
         }
+        // eval clip <text> — puts text on the general pasteboard.
+        driver.hooks["clip"] = { args in
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(args.joined(separator: " "), forType: .string)
+            return ""
+        }
         // eval windows — every window: class, frame, visibility, title.
         driver.hooks["windows"] = { _ in
             NSApp.windows.map { "\(type(of: $0)) \(NSStringFromRect($0.frame)) visible=\($0.isVisible) \"\($0.title)\"" }.joined(separator: "\n")

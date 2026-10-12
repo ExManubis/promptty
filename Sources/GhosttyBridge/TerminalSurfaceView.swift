@@ -198,7 +198,15 @@ public final class TerminalSurfaceView: NSView {
 
     // Standard Edit menu actions. libghostty binds no keys, so ⌘C/⌘V/⌘A arrive here from the menu.
     @objc public func copy(_ sender: Any?) { performBindingAction("copy_to_clipboard") }
-    @objc public func paste(_ sender: Any?) { performBindingAction("paste_from_clipboard") }
+    @objc public func paste(_ sender: Any?) {
+        // At a prompt a paste belongs in the input bar, not in the shell's hidden line.
+        if let target = keyRedirect?(), let window {
+            window.makeFirstResponder(target)
+            NSApp.sendAction(#selector(NSText.paste(_:)), to: target, from: sender)
+            return
+        }
+        performBindingAction("paste_from_clipboard")
+    }
     @objc public override func selectAll(_ sender: Any?) { performBindingAction("select_all") }
 
     // MARK: Appearance

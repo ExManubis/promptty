@@ -37,8 +37,8 @@ final class CommandEditorView: NSScrollView {
 final class CommandTextView: NSTextView {
     /// Runs the text as a command (Return). Empty text runs nothing but still gets a fresh prompt.
     var onSubmit: ((String) -> Void)?
-    /// Raw input for the shell: ⌃D (end of input) on an empty bar, ⌃L (clear screen).
-    var onShellInput: ((String) -> Void)?
+    /// Control keys for the shell: `d` (end of input) on an empty bar, `l` (clear screen).
+    var onShellControl: ((Character) -> Void)?
     var onFocus: (() -> Void)?
     var onTextChange: (() -> Void)?
     /// The terminal next to the bar: ⌘C copies its selection when the bar has none.
@@ -56,6 +56,13 @@ final class CommandTextView: NSTextView {
     /// Where Tab completion looks: the shell's names and the pane's directory.
     var completionContext: () -> (sources: CompletionSources, directory: String)? = { nil }
     private let popup = CompletionPopup()
+    /// The sources for the open completion list, so filtering does not ask git again per key.
+    private var popupSources: (sources: CompletionSources, directory: String)?
+    /// Each bar keeps its own undo history; the window's is shared by every pane.
+    private let ownUndoManager = UndoManager()
+    /// Set while the app itself inserts text (completions, suggestions), which normal mode must
+    /// not mistake for typing.
+    private var insertingProgrammatically = false
     var isShowingCompletions: Bool { popup.isVisible }
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
@@ -80,11 +87,13 @@ final class CommandTextView: NSTextView {
         // macOS's inline predictions (grey text and their panel) would compete with the bar's own
         // history suggestions.
         inlinePredictionType = .no
+        popup.onClose = { [weak self] in self?.popupSources = nil }
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
     override var acceptsFirstResponder: Bool { true }
+    override var undoManager: UndoManager? { ownUndoManager }
     override var mouseDownCanMoveWindow: Bool { false }
 
     override func becomeFirstResponder() -> Bool {
@@ -114,6 +123,7 @@ final class CommandTextView: NSTextView {
     /// The command was sent: start the next one fresh, in insert mode.
     func commandRan() {
         popup.close()
+        clearText()
         navigator = nil
         vi.enterInsert()
         modeChanged()
@@ -131,6 +141,12 @@ final class CommandTextView: NSTextView {
 
     override func keyDown(with event: NSEvent) {
         let mods = event.modifierFlags.intersection([.shift, .control, .option, .command])
+        // A composition in progress (Japanese, Chinese, Korean, dead keys) owns Return, Escape and
+        // every other key until it is committed or cancelled.
+        if hasMarkedText() {
+            super.keyDown(with: event)
+            return
+        }
         if popup.isVisible {
             switch (event.keyCode, mods) {
             case (48, []), (125, []): popup.move(by: 1); return
@@ -245,25 +261,53 @@ final class CommandTextView: NSTextView {
     // MARK: Completion
 
     private func currentCompletion() -> Completion? {
-        guard let context = completionContext(), selectedRange().length == 0 else { return nil }
+        guard let context = popupSources ?? completionContext(), selectedRange().length == 0 else { return nil }
         return CompletionEngine.complete(text: string, cursor: selectedRange().location, directory: context.directory,
                                          home: NSHomeDirectory(), sources: context.sources)
     }
 
     /// Tab: one match is inserted; several insert what they share and open the list.
+    /// Empties the bar and its undo history (undoing into a sent command is meaningless, and the
+    /// direct `string` assignment is not undoable).
+    private func clearText() {
+        string = ""
+        ownUndoManager.removeAllActions()
+        didChangeText()
+    }
+
+    /// Typing that reaches the text system without a key the engine saw (a dead key's committed
+    /// character, the emoji picker, dictation) is a vi command in normal mode, not text.
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        guard vi.mode == .normal, !insertingProgrammatically else {
+            super.insertText(string, replacementRange: replacementRange)
+            return
+        }
+        let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
+        if hasMarkedText() { unmarkText() }
+        for ch in text { applyVi(.char(ch)) }
+    }
+
+    /// Inserts on the app's behalf (completions, suggestions), in any mode.
+    private func insertProgrammatically(_ text: String, replacing range: NSRange) {
+        insertingProgrammatically = true
+        defer { insertingProgrammatically = false }
+        insertText(text, replacementRange: range)
+    }
+
     private func complete() {
+        popupSources = completionContext()
         guard let completion = currentCompletion(), completion.candidates.count <= 500 else {
             NSSound.beep()
             return
         }
         let range = NSRange(location: completion.replacement.lowerBound, length: completion.replacement.count)
         if let single = completion.singleInsertion {
-            insertText(single, replacementRange: range)
+            insertProgrammatically(single, replacing: range)
             return
         }
         let typed = (string as NSString).substring(with: range)
         if (completion.commonPrefix as NSString).length > (typed as NSString).length {
-            insertText(completion.commonPrefix, replacementRange: range)
+            insertProgrammatically(completion.commonPrefix, replacing: range)
         }
         guard let window else { return }
         let anchor = firstRect(forCharacterRange: NSRange(location: range.location, length: 0), actualRange: nil)
@@ -282,7 +326,7 @@ final class CommandTextView: NSTextView {
         defer { popup.close() }
         guard let item = popup.selectedItem, let completion = currentCompletion() else { return }
         let range = NSRange(location: completion.replacement.lowerBound, length: completion.replacement.count)
-        insertText(item.hasSuffix("/") ? item : item + " ", replacementRange: range)
+        insertProgrammatically(item.hasSuffix("/") ? item : item + " ", replacing: range)
     }
 
     // MARK: Suggestions
@@ -303,7 +347,7 @@ final class CommandTextView: NSTextView {
         guard let suggestion else { return false }
         let text = wordOnly ? Autosuggester.firstWord(of: suggestion) : suggestion
         let end = (string as NSString).length
-        insertText(text, replacementRange: NSRange(location: end, length: 0))
+        insertProgrammatically(text, replacing: NSRange(location: end, length: 0))
         return true
     }
 
@@ -382,10 +426,9 @@ final class CommandTextView: NSTextView {
             if mods == .shift {
                 insertNewlineIgnoringFieldEditor(nil)
             } else if mods.isEmpty {
-                let command = string
-                string = ""
-                didChangeText()
-                onSubmit?(command)
+                // The shell session decides: run now, at the next prompt, or not at all. It clears
+                // the text once the command is sent.
+                onSubmit?(string)
             } else {
                 return false
             }
@@ -394,16 +437,15 @@ final class CommandTextView: NSTextView {
         guard mods == .control, let key = event.charactersIgnoringModifiers?.lowercased() else { return false }
         switch key {
         case "c":
-            string = ""
+            clearText()
             navigator = nil
             vi.enterInsert()
             modeChanged()
-            didChangeText()
         case "d":
             guard string.isEmpty else { return false }
-            onShellInput?("\u{04}")
+            onShellControl?("d")
         case "l":
-            onShellInput?("\u{0c}")
+            onShellControl?("l")
         case "u":
             let caret = selectedRange().location
             let lineStart = (string as NSString).lineRange(for: NSRange(location: caret, length: 0)).location

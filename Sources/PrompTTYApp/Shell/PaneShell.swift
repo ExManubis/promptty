@@ -22,6 +22,8 @@ enum ShellIntegration {
         guard ZshIntegration.isZsh(shellPath: loginShell) else { return }
         do {
             zshDirectory = try ZshIntegration.install(in: AppPaths.support.appendingPathComponent("shell/zsh", isDirectory: true))
+            // Files of panes from earlier runs (closed by quitting) are stale.
+            try? FileManager.default.removeItem(at: stateDirectory)
             try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
         } catch {
             zshDirectory = nil
@@ -134,6 +136,9 @@ final class PaneShell {
 
     @ObservationIgnored private var poll: Timer?
     @ObservationIgnored private var historyDate: Date?
+    @ObservationIgnored private var stateFileDate: Date?
+    /// ⏎ was pressed while a quick command still ran: the bar's text runs at the next prompt.
+    @ObservationIgnored private var queuedSubmit = false
     @ObservationIgnored private var gitGeneration = 0
 
     init(pane: PaneID, directory: String, integrated: Bool) {
@@ -145,19 +150,26 @@ final class PaneShell {
 
     // MARK: Events
 
-    /// The shell reported its directory (our precmd does at every prompt).
-    func pwdReported(_ dir: String) {
-        let moved = dir != directory
-        directory = dir
-        if moved { refreshGit() }
-        guard integrated, let pid = surface?.foregroundPID else { return }
-        let wasStarting = state.phase == .starting
-        if state.pwdReported(foregroundPID: pid) {
-            if wasStarting { loadStateFile() }
-            reloadHistoryIfChanged()
-            if !moved { refreshGit() }
-            phaseChanged()
+    /// A directory report from the terminal. Returns true when it was the integration's ready
+    /// signal, which is not a real directory and must not reach the pane's model.
+    func directoryReported(_ path: String) -> Bool {
+        guard integrated, let dir = ZshIntegration.readyDirectory(fromReportedPath: path) else {
+            moveTo(path)
+            return false
         }
+        moveTo(dir)
+        guard let pid = surface?.foregroundPID, state.promptReady(foregroundPID: pid) else { return true }
+        reloadStateFileIfChanged()
+        reloadHistoryIfChanged()
+        refreshGit()
+        phaseChanged()
+        return true
+    }
+
+    private func moveTo(_ dir: String) {
+        guard dir != directory else { return }
+        directory = dir
+        refreshGit()
     }
 
     func commandFinished(code: Int16, durationNs: UInt64) {
@@ -172,7 +184,7 @@ final class PaneShell {
         text.font = EditorStyle.font
         text.styleChanged()
         text.terminal = surface
-        text.onSubmit = { [weak self] in self?.run($0) }
+        text.onSubmit = { [weak self] in self?.submit($0) }
         text.history = { [weak self] in self?.history.newestFirst ?? [] }
         text.isKnownCommand = { [weak self] in self?.isKnownCommand($0) ?? true }
         text.completionContext = { [weak self] in
@@ -184,7 +196,7 @@ final class PaneShell {
             )
             return (sources, self.directory)
         }
-        text.onShellInput = { [weak self] in self?.surface?.sendInput($0) }
+        text.onShellControl = { [weak self] in self?.surface?.sendControl($0) }
         text.onTextChange = { [weak self] in self?.editorTextChanged() }
         return view
     }
@@ -233,15 +245,24 @@ final class PaneShell {
         editorHeight = editor.textView.height()
     }
 
-    /// Runs `command` from the bar: zsh gets it as a paste (so it is one line edit, however many
-    /// lines) followed by Return.
+    /// ⏎ in the bar. At a prompt the command runs; while a quick command still runs (the bar is
+    /// still shown) it runs at the next prompt, so typing ahead of a fast command loses nothing.
+    private func submit(_ command: String) {
+        switch bar {
+        case .active: run(command)
+        case .inactive: queuedSubmit = true
+        case .hidden: break
+        }
+    }
+
+    /// zsh gets the command as a paste (one line edit, however many lines) followed by Return.
     private func run(_ command: String) {
         guard state.phase == .idle, let surface else { return }
         if !command.isEmpty {
             surface.sendText(command)
             history.add(command)
         }
-        surface.sendInput("\r")
+        surface.sendReturn()
         editor.textView.commandRan()
         state.submitted()
         phaseChanged()
@@ -259,6 +280,16 @@ final class PaneShell {
         switch state.phase {
         case .idle:
             bar = .active
+            if queuedSubmit {
+                queuedSubmit = false
+                // After this change is announced, so focus has settled on the bar.
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self, self.bar == .active else { return }
+                        self.run(self.editor.textView.string)
+                    }
+                }
+            }
         case .starting:
             bar = .hidden
         case .running where bar == .active:
@@ -269,10 +300,21 @@ final class PaneShell {
                 MainActor.assumeIsolated {
                     guard let self, self.state.phase == .running, self.bar == .inactive else { return }
                     let fade: Animation? = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .easeOut(duration: 0.12)
+                    // Still running: from here keys belong to the program, and so does what was
+                    // typed in the meantime (an answer to a prompt, a password for sudo).
+                    let typed = self.editor.textView.string
+                    if !typed.isEmpty || self.queuedSubmit, let surface = self.surface {
+                        if !typed.isEmpty { surface.sendText(typed) }
+                        if self.queuedSubmit { surface.sendReturn() }
+                        self.editor.textView.commandRan()
+                    }
+                    self.queuedSubmit = false
                     withAnimation(fade) { self.bar = .hidden }
+                    self.onPhaseChange?(self.state.phase)
                 }
             }
         case .running:
+            queuedSubmit = false
             bar = .hidden
         }
         if state.phase == .idle {
@@ -294,11 +336,18 @@ final class PaneShell {
 
     // MARK: What the shell told us
 
-    private func loadStateFile() {
+    /// The integration rewrites the state file at every prompt (PATH and aliases change: direnv,
+    /// nvm, a new alias); reread it when it changed.
+    private func reloadStateFileIfChanged() {
         let url = ShellIntegration.stateFile(for: pane)
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
-        stateFile = ShellStateFile.parse(text)
-        listCommands()
+        let date = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+        guard let date, date != stateFileDate, let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        stateFileDate = date
+        let parsed = ShellStateFile.parse(text)
+        guard parsed != stateFile else { return }
+        let namesChanged = parsed.path != stateFile?.path || parsed.commandNames != stateFile?.commandNames
+        stateFile = parsed
+        if namesChanged { listCommands() }
     }
 
     private func reloadHistoryIfChanged() {

@@ -142,6 +142,14 @@ extension TerminalSurfaceView {
     public override func rightMouseDown(with event: NSEvent) { sendMouseButton(GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, event) }
     public override func rightMouseUp(with event: NSEvent) { sendMouseButton(GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, event) }
     public override func otherMouseDown(with event: NSEvent) {
+        // Middle-click pastes the selection; at a prompt that belongs in the input bar.
+        if event.buttonNumber == 2, let target = keyRedirect?(), let window {
+            if let text = selectedText() {
+                window.makeFirstResponder(target)
+                (target as? NSTextInputClient)?.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            }
+            return
+        }
         sendMouseButton(GHOSTTY_MOUSE_PRESS, InputTranslation.mouseButton(event.buttonNumber), event)
     }
     public override func otherMouseUp(with event: NSEvent) {
@@ -289,7 +297,13 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
             keyTextAccumulator?.append(text)
             return
         }
-        // Outside keyDown (e.g. IME candidate chosen with the mouse): send as plain text.
+        // Outside keyDown (an IME candidate chosen with the mouse, dictation, the emoji picker):
+        // at a prompt it belongs in the input bar.
+        if let target = keyRedirect?(), let window {
+            window.makeFirstResponder(target)
+            (target as? NSTextInputClient)?.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            return
+        }
         guard let surface else { return }
         text.withCString { ptr in ghostty_surface_text(surface, ptr, UInt(strlen(ptr))) }
     }

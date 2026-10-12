@@ -46,16 +46,24 @@ Our `.zshenv`:
    `.zshrc`, at the first prompt.
 
 `_promptty_init` (first prompt only):
-- Puts `_promptty_precmd` first in `precmd_functions` and `_promptty_preexec` in `preexec_functions`.
+- Puts `_promptty_precmd` in `precmd_functions` and `_promptty_preexec` in `preexec_functions`.
 - `unsetopt HIST_VERIFY`: the bar cannot show a re-loaded line, so `!!` runs directly.
-- Writes the state file, one `<kind> <value>` per line: `histfile <path>` (when `HISTFILE` is set),
-  `path <$PATH>` (the shell's, which includes Homebrew; a GUI app's own `PATH` does not),
-  `alias|function|builtin|reserved <name>` per name, and `export <name>` per exported parameter.
+- Adds `_promptty_line_init` as a zle `line-init` hook (`add-zle-hook-widget`).
 
-`_promptty_precmd` (every prompt): `PROMPT=''`, `RPROMPT=''`, drop type-ahead (keys typed while a
-command ran would otherwise sit invisibly in front of the next command; they are still in the tty
-queue, so they are read and discarded with `read -t 0 -k 1`), hide the cursor (`\e[?25l`), report
-the directory with OSC 7. `_promptty_preexec`: show the cursor (`\e[?25h`).
+`_promptty_precmd` (every prompt): `PROMPT=''`, `RPROMPT=''`; rewrites the state file, one
+`<kind> <value>` per line: `histfile <path>` (when `HISTFILE` is set), `path <$PATH>` (the shell's,
+which includes Homebrew; a GUI app's own `PATH` does not), `alias|function|builtin|reserved <name>`
+per name, and `export <name>` per exported parameter. The app rereads it when it changes (direnv,
+nvm, new aliases).
+
+`_promptty_line_init` (zle starts reading a line, the true "prompt ready" point): clears a prompt a
+theme set after our precmd (`zle reset-prompt`); drops type-ahead (keys typed while a command ran
+are still in the tty queue and would otherwise sit invisibly in front of the next command; read and
+discarded with `read -t 0 -k 1`); hides the cursor (`\e[?25l`); then sends the **ready signal**: an
+OSC 7 directory report under the reserved path `/.promptty-ready<PWD>`, followed by an ordinary
+OSC 7 for `$PWD` so the terminal's own record of the directory stays right. Ordinary directory
+reports (Ghostty's `chpwd` hook, a `cd` inside a command) never count as ready.
+`_promptty_preexec`: shows the cursor. All functions run under `emulate -L zsh`.
 
 **Pane states** (a pure state machine in `CommandEditing`, driven by the controller):
 - `starting`: plain terminal. Every zsh pane begins here; non-zsh panes never leave it.
@@ -63,14 +71,15 @@ the directory with OSC 7. `_promptty_preexec`: show the cursor (`\e[?25h`).
 - `running`: no bar; keys go to the terminal.
 
 Events and transitions:
-- `promptReady(pid)` — a `pwd` action while the foreground pid equals the shell's pid. The shell's
-  pid is the foreground pid seen with the first `pwd` (precmd runs in the shell itself).
+- `promptReady(pid)` — the ready signal while the foreground pid equals the shell's pid. The
+  shell's pid is the foreground pid seen with the first signal (zle runs in the shell itself).
   `starting|running → idle`. A later `promptReady` while idle is ignored.
 - `submitted` — the user pressed ⏎ in the bar: `idle → running`.
 - `commandFinished(code, duration)` — records the header's exit status; does not change state
   (the following `promptReady` does).
 - `foregroundChanged(pid)` — from a 250 ms poll while `idle`: a foreground pid other than the
-  shell's (`fg` of a job, a program started by a hook) means `idle → running`.
+  shell's (`fg` of a job, a program started by a hook), seen at two polls in a row, means
+  `idle → running` (a hook's short-lived helper such as `tput` is gone by the second poll).
 - A pane that never becomes ready stays a plain terminal: a broken `.zshrc` cannot lock anyone out.
 
 **Header data.** Directory from `pwd`. Git: on entering `idle`, a background
@@ -102,6 +111,14 @@ twice for every quick command and made its output jump.)
 **Keys in the bar.** ⏎ runs (on an empty bar: sends Return, a fresh prompt). ⇧⏎ inserts a newline.
 ⌃C clears the bar. ⌃D on an empty bar sends EOF (`\x04`). ⌃L sends `\x0c` (zle clears the
 screen). ⌃U deletes to the line start. ⌘ shortcuts go to the menus as everywhere else.
+
+**Typing ahead.** While the bar is still shown after ⏎ (the first 150 ms), keys go to the bar. If
+the command finishes, ⏎ pressed meanwhile runs the bar's text at once (`ls⏎pwd⏎` works at any
+speed). If it is still running when the bar hides, what was typed (and a ⏎) goes to the program,
+which may be asking for something (`read`, a sudo password).
+
+**Text that is not a key.** While the bar is shown, ⌘V, middle-click paste, the emoji picker,
+dictation and IME commits aimed at the terminal go to the bar instead of zle's hidden line.
 
 **Focus and mouse.** The pane's focus target is the bar while `idle` and the terminal otherwise;
 all existing focus paths (selecting a pane or tab, window key, re-hosting) use it. Clicks and

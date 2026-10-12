@@ -3,11 +3,13 @@ import CommandEditing
 import Observation
 import SwiftUI
 
-/// The bar's completion sources: what the shell reported, the file system, and git.
+/// The bar's completion sources: what the shell reported, the file system, and git. One value
+/// serves one completion list, so git's branches are read once per list, not per keystroke.
 struct ShellCompletionSources: CompletionSources {
     let commands: Set<String>
     let exports: Set<String>
     let git: String
+    private let branches = BranchCache()
 
     func commandNames() -> Set<String> { commands }
     func exportNames() -> Set<String> { exports }
@@ -22,8 +24,24 @@ struct ShellCompletionSources: CompletionSources {
     }
 
     func gitBranches(in directory: String) -> [String] {
-        let out = PaneShell.run(git, ["-C", directory, "for-each-ref", "--format=%(refname:short)", "refs/heads"], timeout: 1) ?? ""
-        return out.split(separator: "\n").map(String.init)
+        branches.value(for: directory) {
+            let out = PaneShell.run(git, ["-C", directory, "for-each-ref", "--format=%(refname:short)", "refs/heads"], timeout: 1) ?? ""
+            return out.split(separator: "\n").map(String.init)
+        }
+    }
+}
+
+private final class BranchCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cache: [String: [String]] = [:]
+
+    func value(for directory: String, load: () -> [String]) -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached = cache[directory] { return cached }
+        let loaded = load()
+        cache[directory] = loaded
+        return loaded
     }
 }
 
@@ -72,7 +90,10 @@ final class CompletionPopup {
         list.selected = (list.selected + delta + list.items.count) % list.items.count
     }
 
+    var onClose: (() -> Void)?
+
     func close() {
+        onClose?()
         guard let panel else { return }
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)

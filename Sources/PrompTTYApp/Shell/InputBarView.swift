@@ -14,7 +14,6 @@ struct InputBarView: View {
             LongLivedViewHost(view: shell.editor, dark: dark)
                 .frame(height: shell.editorHeight)
                 .opacity(shell.bar == .active ? 1 : 0.45)
-                .allowsHitTesting(shell.bar == .active)
         }
         .padding(.horizontal, 10)
         .padding(.top, 7)

@@ -341,7 +341,8 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             return true
         case .pwd(let dir):
             guard let located else { return false }
-            located.3.shell(for: located.2.id)?.pwdReported(dir)
+            // The integration's ready signal is a report under a reserved path, not a directory.
+            if located.3.shell(for: located.2.id)?.directoryReported(dir) == true { return true }
             located.2.workingDirectory = dir
             located.3.reload()
             modelDidChange()
