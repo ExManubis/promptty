@@ -33,6 +33,7 @@ let package = Package(
             name: "GhosttyBridgeTests",
             dependencies: [
                 "GhosttyBridge",
+                "Preferences",
                 .product(name: "GhosttyKit", package: "libghostty-spm"),
             ]
         ),

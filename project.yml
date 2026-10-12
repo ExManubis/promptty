@@ -26,6 +26,8 @@ targets:
         product: WorkspaceModel
       - package: PrompTTYCore
         product: GhosttyBridge
+      - package: PrompTTYCore
+        product: Preferences
     settings:
       base:
         PRODUCT_NAME: PrompTTY

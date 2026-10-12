@@ -4,16 +4,21 @@ import QuartzCore
 
 public struct TerminalSurfaceConfiguration: Sendable {
     public var workingDirectory: String?
-    public init(workingDirectory: String? = nil) {
+    /// A split's source pane: the new surface inherits its settings (e.g. a zoomed font size).
+    public var inheritFrom: TerminalSurfaceView?
+    public init(workingDirectory: String? = nil, inheritFrom: TerminalSurfaceView? = nil) {
         self.workingDirectory = workingDirectory
+        self.inheritFrom = inheritFrom
     }
 }
 
 /// Hosts one libghostty surface in a Metal layer. Input handling lives in TerminalSurfaceView+Input.swift.
 @MainActor
 public final class TerminalSurfaceView: NSView {
-    /// Opaque handle the app uses to find the owning tab. The bridge never reads it.
+    /// Opaque handle the app uses to find the owning pane. The bridge never reads it.
     public var token: AnyHashable?
+    /// Called when the view becomes first responder (a click or programmatic focus).
+    public var onFocus: (() -> Void)?
 
     /// Size libghostty asked for during `ghostty_surface_new`, before this view had a window.
     public private(set) var pendingInitialSize: CGSize?
@@ -21,7 +26,7 @@ public final class TerminalSurfaceView: NSView {
     public private(set) var hasExited = false
 
     let runtime: GhosttyRuntime
-    private let configuration: TerminalSurfaceConfiguration
+    private var configuration: TerminalSurfaceConfiguration
 
     // Plain raw pointer: `ghostty_surface_t` is already an optional typealias (see Task 5 Step 3 note).
     nonisolated(unsafe) private(set) var surface: UnsafeMutableRawPointer?
@@ -95,14 +100,23 @@ public final class TerminalSurfaceView: NSView {
 
     private func createSurfaceIfNeeded() {
         guard surface == nil, !isFreed else { return }
-        var cfg = ghostty_surface_config_new()
+        var cfg: ghostty_surface_config_s
+        if let source = configuration.inheritFrom?.surface {
+            cfg = ghostty_surface_inherited_config(source, GHOSTTY_SURFACE_CONTEXT_SPLIT)
+            cfg.context = GHOSTTY_SURFACE_CONTEXT_SPLIT
+        } else {
+            cfg = ghostty_surface_config_new()
+            cfg.context = GHOSTTY_SURFACE_CONTEXT_TAB
+        }
         cfg.platform_tag = GHOSTTY_PLATFORM_MACOS
         cfg.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: Unmanaged.passUnretained(self).toOpaque()))
         cfg.userdata = Unmanaged.passUnretained(self).toOpaque()
         cfg.scale_factor = Double(window?.backingScaleFactor ?? 2.0)
-        cfg.context = GHOSTTY_SURFACE_CONTEXT_TAB
+        let inheritedDirectory = cfg.working_directory
+        // The source is only needed for creation; do not keep it alive.
+        configuration.inheritFrom = nil
         let created: UnsafeMutableRawPointer? = withOptionalCString(configuration.workingDirectory) { dir in
-            cfg.working_directory = dir
+            cfg.working_directory = dir ?? inheritedDirectory
             return ghostty_surface_new(runtime.app, &cfg)
         }
         surface = created
@@ -137,6 +151,19 @@ public final class TerminalSurfaceView: NSView {
 
     public func markExited() { hasExited = true }
 
+    /// Runs a libghostty binding action such as `copy_to_clipboard` or `increase_font_size:1`.
+    /// PrompTTY binds no keys in libghostty, so menu commands reach terminal actions this way.
+    @discardableResult
+    public func performBindingAction(_ action: String) -> Bool {
+        guard let surface else { return false }
+        return action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
+    }
+
+    public var hasSelection: Bool {
+        guard let surface else { return false }
+        return ghostty_surface_has_selection(surface)
+    }
+
     // MARK: Geometry
 
     public override func setFrameSize(_ newSize: NSSize) {
@@ -169,6 +196,7 @@ public final class TerminalSurfaceView: NSView {
         if let surface {
             ghostty_surface_set_focus(surface, ok && (window?.isKeyWindow ?? false))
         }
+        if ok { onFocus?() }
         return ok
     }
 

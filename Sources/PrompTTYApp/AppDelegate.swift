@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyBridge
+import Preferences
 import WorkspaceModel
 
 @main
@@ -25,7 +26,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build()
         do {
-            runtime = try GhosttyRuntime()
+            // Interim until settings are wired: default settings only.
+            let conf = AppPaths.support.appendingPathComponent("terminal.conf")
+            try FileManager.default.createDirectory(at: AppPaths.support, withIntermediateDirectories: true)
+            try TerminalConfigWriter.render(Settings(), knownThemes: nil).write(to: conf, atomically: true, encoding: .utf8)
+            runtime = try GhosttyRuntime(configURL: conf)
         } catch {
             let alert = NSAlert()
             alert.messageText = "PrompTTY could not start the terminal engine"
@@ -115,7 +120,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func toggleTabLayout(_ sender: Any?) { coordinator.toggleTabLayout() }
     @objc func toggleTabListHidden(_ sender: Any?) { coordinator.toggleTabListHidden() }
     @objc func reloadConfig(_ sender: Any?) { runtime.reloadConfig() }
-    @objc func openConfig(_ sender: Any?) { runtime.openConfig() }
 
     private func syncColorScheme() {
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua

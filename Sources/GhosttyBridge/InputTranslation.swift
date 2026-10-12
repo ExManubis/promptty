@@ -1,6 +1,14 @@
 import AppKit
 import GhosttyKit
 
+/// Who gets a key press first. PrompTTY's shortcuts all contain ⌘ and live in the menu; every
+/// other key belongs to the terminal, including Control and Option combinations.
+public enum KeyRouting {
+    public static func terminalHandlesKeyEquivalent(flags: NSEvent.ModifierFlags) -> Bool {
+        !flags.contains(.command)
+    }
+}
+
 /// Pure NSEvent → libghostty input conversions. No surface access, fully testable.
 enum InputTranslation {
     // Device-dependent modifier bits from IOKit's IOLLEvent.h (NX_DEVICER*KEYMASK).

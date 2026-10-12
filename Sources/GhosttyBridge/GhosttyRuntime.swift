@@ -1,6 +1,5 @@
 import AppKit
 import GhosttyKit
-import GhosttyKitResources
 
 public struct GhosttyRuntimeError: Error, CustomStringConvertible {
     public let message: String
@@ -26,22 +25,13 @@ public final class GhosttyRuntime {
     /// Called when `ghostty_surface_new` fails for a view.
     public var onSurfaceCreationFailed: ((TerminalSurfaceView) -> Void)?
 
-    public init() throws {
-        // libghostty expects GHOSTTY_RESOURCES_DIR to be the `share/ghostty` equivalent: it reads
-        // `{dir}/shell-integration` and themes from there and sets TERMINFO to `dirname(dir)/terminfo`.
-        let root = GhosttyKitResources.directoryURL
-        let resources = root.appendingPathComponent("ghostty")
-        let terminfoEntry = root.appendingPathComponent("terminfo/78/xterm-ghostty")
-        let shellIntegration = resources.appendingPathComponent("shell-integration")
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: terminfoEntry.path), fm.fileExists(atPath: shellIntegration.path) else {
-            throw GhosttyRuntimeError(message: "libghostty resources missing (checked \(terminfoEntry.path) and \(shellIntegration.path)); this is a packaging bug")
-        }
-        setenv("GHOSTTY_RESOURCES_DIR", resources.path, 1)
-        guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0 else {
-            throw GhosttyRuntimeError(message: "ghostty_init failed")
-        }
-        let (cfg, diags) = Self.loadConfig()
+    /// The only config file libghostty reads. `~/.config/ghostty` is never consulted.
+    public let configURL: URL
+
+    public init(configURL: URL) throws {
+        self.configURL = configURL
+        try GhosttyLibrary.initialize()
+        let (cfg, diags) = GhosttyConfigFile.load(configURL)
         config = cfg
         configDiagnostics = diags
 
@@ -71,8 +61,9 @@ public final class GhosttyRuntime {
 
     public func tick() { ghostty_app_tick(app) }
 
+    /// Re-reads `configURL` and applies it to every surface.
     public func reloadConfig() {
-        let (cfg, diags) = Self.loadConfig()
+        let (cfg, diags) = GhosttyConfigFile.load(configURL)
         // Order matters. Store `cfg` *before* updating: `ghostty_app_update_config` ends by
         // emitting an app-level CONFIG_CHANGE carrying the conditional-state-applied config
         // (e.g. the light/dark `theme` variant), and `dispatch` replaces `config` with a clone of
@@ -85,8 +76,6 @@ public final class GhosttyRuntime {
         configDiagnostics = diags
         onConfigDiagnostics?(diags)
     }
-
-    public func openConfig() { ghostty_app_open_config(app) }
 
     public func setFocus(_ focused: Bool) { ghostty_app_set_focus(app, focused) }
 
@@ -151,27 +140,13 @@ public final class GhosttyRuntime {
             reloadConfig()
             return true
         case .openConfig:
-            openConfig()
-            return true
+            // There is no Ghostty config file to open; PrompTTY's settings live in its Settings window.
+            return false
         case .mouseShape, .mouseVisibility:
             return true
         default:
             return sink?.handle(action, target: target) ?? false
         }
-    }
-
-    private static func loadConfig() -> (UnsafeMutableRawPointer, [String]) {
-        let cfg = ghostty_config_new()!
-        ghostty_config_load_default_files(cfg)
-        ghostty_config_load_recursive_files(cfg)
-        ghostty_config_finalize(cfg)
-        var diags: [String] = []
-        let count = ghostty_config_diagnostics_count(cfg)
-        for i in 0..<count {
-            let d = ghostty_config_get_diagnostic(cfg, i)
-            if let m = d.message { diags.append(String(cString: m)) }
-        }
-        return (cfg, diags)
     }
 }
 

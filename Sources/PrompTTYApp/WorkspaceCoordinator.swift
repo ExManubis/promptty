@@ -66,9 +66,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             controller.chrome.setBanner(nil)
             return
         }
-        controller.chrome.setBanner(BannerView(message: message, actionTitle: "Open config") { [weak self] in
-            self?.runtime.openConfig()
-        })
+        controller.chrome.setBanner(BannerView(message: message, actionTitle: nil, action: nil))
     }
 
     /// Shows `message` in every window for a few seconds, then restores the config banner (if any).

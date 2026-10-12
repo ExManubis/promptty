@@ -4,6 +4,20 @@ import GhosttyKit
 extension TerminalSurfaceView {
     // MARK: Keyboard
 
+    /// AppKit offers key equivalents to every view before the menu, and delivers some Control
+    /// combinations (Ctrl+Return, Ctrl+/, Ctrl+Tab, …) only this way, never as `keyDown`. Keys
+    /// without ⌘ belong to the terminal, so take them here; ⌘ keys go on to the menu, and reach
+    /// `keyDown` only if no menu item claims them.
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+              window?.firstResponder === self,
+              KeyRouting.terminalHandlesKeyEquivalent(flags: event.modifierFlags) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        keyDown(with: event)
+        return true
+    }
+
     public override func keyDown(with event: NSEvent) {
         guard let surface else { return }
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS

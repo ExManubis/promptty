@@ -8,7 +8,6 @@ enum MainMenu {
         app.addItem(withTitle: "About PrompTTY", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         app.addItem(.separator())
         app.addItem(withTitle: "Reload Configuration", action: #selector(AppDelegate.reloadConfig(_:)), keyEquivalent: ",").keyEquivalentModifierMask = [.command, .shift]
-        app.addItem(withTitle: "Open Configuration", action: #selector(AppDelegate.openConfig(_:)), keyEquivalent: ",")
         app.addItem(.separator())
         app.addItem(withTitle: "Hide PrompTTY", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         app.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h").keyEquivalentModifierMask = [.command, .option]

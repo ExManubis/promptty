@@ -3,6 +3,22 @@ import AppKit
 import GhosttyKit
 @testable import GhosttyBridge
 
+final class KeyRoutingTests: XCTestCase {
+    func testKeysWithoutCommandGoToTheTerminal() {
+        XCTAssertTrue(KeyRouting.terminalHandlesKeyEquivalent(flags: []))
+        XCTAssertTrue(KeyRouting.terminalHandlesKeyEquivalent(flags: [.control]))
+        XCTAssertTrue(KeyRouting.terminalHandlesKeyEquivalent(flags: [.control, .shift]))
+        XCTAssertTrue(KeyRouting.terminalHandlesKeyEquivalent(flags: [.option]))
+        XCTAssertTrue(KeyRouting.terminalHandlesKeyEquivalent(flags: [.control, .option, .shift]))
+    }
+
+    func testKeysWithCommandGoToTheMenuFirst() {
+        XCTAssertFalse(KeyRouting.terminalHandlesKeyEquivalent(flags: [.command]))
+        XCTAssertFalse(KeyRouting.terminalHandlesKeyEquivalent(flags: [.command, .control]))
+        XCTAssertFalse(KeyRouting.terminalHandlesKeyEquivalent(flags: [.command, .shift, .option]))
+    }
+}
+
 final class InputTranslationTests: XCTestCase {
     func testBasicModifiers() {
         XCTAssertEqual(InputTranslation.mods([]).rawValue, GHOSTTY_MODS_NONE.rawValue)
