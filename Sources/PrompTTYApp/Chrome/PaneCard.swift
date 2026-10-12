@@ -14,6 +14,12 @@ struct PaneCard: View {
     @State private var pointerOverHeader = false
 
     private var focused: Bool { tab.focusedPaneID == pane.id }
+
+    /// A hairline edge; in a split tab the focused pane's edge is brighter so it stands out.
+    private var borderOpacity: Double {
+        guard tab.hasSplits, focused else { return 0.10 }
+        return chrome.panelIsDark ? 0.35 : 0.30
+    }
     private var showHeader: Bool { visible && (pointerNearTop || pointerOverHeader || chrome.forceHeaders) }
 
     var body: some View {
@@ -48,7 +54,7 @@ struct PaneCard: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
-                .strokeBorder(Color.primary.opacity(chrome.panelIsDark ? 0.10 : 0.10), lineWidth: 1)
+                .strokeBorder(Color.primary.opacity(borderOpacity), lineWidth: 1)
                 .allowsHitTesting(false)
         }
         .environment(\.colorScheme, chrome.panelIsDark ? .dark : .light)
