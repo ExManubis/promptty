@@ -93,3 +93,69 @@ struct ActivityIndicator: View {
         }
     }
 }
+
+/// A split tab's panes as a stack of tiles, like Rex's: the focused pane's logo on a light card in
+/// front, the other panes' cards peeking out behind it, each edge in the color of its activity.
+struct ProgramStack: View {
+    struct Card: Identifiable {
+        let id: AnyHashable
+        let program: Program?
+        let display: PaneActivity.Display
+    }
+
+    /// The focused pane first, then the others in order.
+    let cards: [Card]
+    var fallbackSymbol = "terminal"
+
+    static let tile: CGFloat = 16
+    /// How far each card behind shows past the one in front.
+    static let step: CGFloat = 4
+    static let maxCards = 3
+
+    var body: some View {
+        let shown = Array(cards.prefix(Self.maxCards))
+        ZStack(alignment: .leading) {
+            ForEach(Array(shown.enumerated().reversed()), id: \.element.id) { depth, card in
+                if depth == 0 {
+                    front(card)
+                } else {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(Self.color(for: card.display))
+                        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(.black.opacity(0.25), lineWidth: 0.5))
+                        .frame(width: Self.tile, height: Self.tile - CGFloat(depth) * 1.5)
+                        .offset(x: CGFloat(depth) * Self.step)
+                }
+            }
+        }
+        .frame(width: Self.tile + CGFloat(max(shown.count - 1, 0)) * Self.step, height: Self.tile, alignment: .leading)
+        .accessibilityElement()
+        .accessibilityLabel(Self.label(for: shown))
+    }
+
+    private func front(_ card: Card) -> some View {
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .fill(Color(white: 0.96))
+            .shadow(color: .black.opacity(0.3), radius: 1, x: 0.5)
+            .overlay {
+                // The logo as on a light background, whatever the window's appearance.
+                ProgramIcon(program: card.program, size: 11, fallbackSymbol: fallbackSymbol)
+                    .environment(\.colorScheme, .light)
+            }
+            .frame(width: Self.tile, height: Self.tile)
+    }
+
+    static func color(for display: PaneActivity.Display) -> Color {
+        switch display {
+        case .idle: Color(white: 0.55)
+        case .running: .green
+        case .finished: .blue
+        case .failed: .red
+        case .attention: .orange
+        }
+    }
+
+    private static func label(for cards: [Card]) -> String {
+        let names = cards.map { $0.program?.name ?? "Terminal" }
+        return "\(cards.count) panes: " + names.joined(separator: ", ")
+    }
+}

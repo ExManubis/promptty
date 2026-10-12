@@ -21,20 +21,38 @@ struct TabRow: View {
     private var renaming: Bool { chrome.renamingTab == tab.id }
     private var paneDropTarget: Bool { chrome.dropTargetTab == tab.id }
 
-    /// The tab's most urgent pane: what the indicator shows.
+    /// What the leading mark shows: the pane alone, or in a split tab the front (focused) pane's
+    /// and any panes too many for the stack; the cards behind show the others' in their colors.
     private var display: PaneActivity.Display {
-        tab.orderedPanes.map { actions.activity(for: $0.id).display }.max() ?? .idle
+        let cards = stackCards
+        let unstacked = [cards.first] + cards.dropFirst(ProgramStack.maxCards).map { $0 }
+        return unstacked.compactMap { $0?.display }.max() ?? .idle
+    }
+
+    /// For VoiceOver: every pane's activity, not only the leading mark's.
+    private var mostUrgent: PaneActivity.Display {
+        stackCards.map(\.display).max() ?? .idle
+    }
+
+    private var stackCards: [ProgramStack.Card] {
+        let ordered = tab.orderedPanes
+        let panes = ordered.filter { $0.id == tab.focusedPaneID } + ordered.filter { $0.id != tab.focusedPaneID }
+        return panes.map { pane in
+            let activity = actions.activity(for: pane.id)
+            return ProgramStack.Card(id: pane.id, program: activity.program, display: activity.display)
+        }
     }
 
     var body: some View {
         HStack(spacing: 8) {
-            // The focused pane's program; a split tab with none shows the split symbol.
-            ProgramIcon(
-                program: actions.activity(for: tab.focusedPaneID).program,
-                size: 14,
-                fallbackSymbol: tab.hasSplits ? "rectangle.split.2x1" : "terminal"
-            )
-            .frame(width: 18)
+            // The focused pane's program; a split tab stacks its panes, the focused one in front.
+            if tab.hasSplits {
+                ProgramStack(cards: stackCards)
+                    .frame(minWidth: 18, alignment: .leading)
+            } else {
+                ProgramIcon(program: actions.activity(for: tab.focusedPaneID).program, size: 14)
+                    .frame(width: 18)
+            }
             if renaming {
                 TextField("Tab name", text: $draft)
                     .textFieldStyle(.plain)
@@ -102,7 +120,7 @@ struct TabRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityLabel([tab.listTitle, tab.listSubtitle, ActivityIndicator.label(for: display)]
+        .accessibilityLabel([tab.listTitle, tab.listSubtitle, ActivityIndicator.label(for: mostUrgent)]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", "))
         .accessibilityAction(named: "Rename", beginRename)
         .accessibilityAction(named: "Close") { actions.requestCloseTab(tab.id) }
