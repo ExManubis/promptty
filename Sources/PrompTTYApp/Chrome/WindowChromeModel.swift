@@ -32,6 +32,8 @@ final class WindowChromeModel {
     var draggingPane: PaneID?
     /// Debug driver: the tab whose preview shows without hovering.
     var forcedPreview: TabID?
+    /// Debug driver: the collapsed sidebar peeks in without hovering.
+    var forcedPeek = false
     /// A split divider is being dragged: panes follow it without animating.
     var resizingSplit = false
     /// Panes just closed whose terminals stay alive while their cards shrink away.

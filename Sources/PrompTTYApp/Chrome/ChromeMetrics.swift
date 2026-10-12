@@ -8,6 +8,12 @@ enum ChromeMetrics {
     static let titlebarHeight: CGFloat = 52
     /// Width reserved for the traffic lights from the window's leading edge.
     static let trafficLightsWidth: CGFloat = 84
+    /// With the sidebar collapsed the window drops its tall titlebar: the traffic lights sit in a
+    /// thin band above the panes, closer to the corner.
+    static let collapsedBandHeight: CGFloat = 30
+    static let collapsedTrafficLightsWidth: CGFloat = 70
+    /// The strip at the window's left edge that peeks the collapsed sidebar in.
+    static let peekEdgeWidth: CGFloat = 6
 
     /// Each pane is its own rounded card.
     static let paneCornerRadius: CGFloat = 10

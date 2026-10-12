@@ -46,6 +46,11 @@ enum DebugHooks {
             }
             return ""
         }
+        // eval peek on|off — the collapsed sidebar peeks in without hovering.
+        driver.hooks["peek"] = { args in
+            for c in coordinator.allControllers { c.chrome.forcedPeek = args.first == "on" }
+            return ""
+        }
         // eval headers on|off — show every pane header without hovering.
         driver.hooks["headers"] = { args in
             for c in coordinator.allControllers { c.chrome.forceHeaders = args.first == "on" }

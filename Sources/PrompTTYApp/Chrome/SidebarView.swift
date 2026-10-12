@@ -7,10 +7,29 @@ struct SidebarView: View {
     let state: WindowState
     let chrome: WindowChromeModel
     let actions: ChromeActions
+    /// Shown as a peek over the panes while the sidebar is collapsed.
+    var collapsed = false
 
     var body: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: ChromeMetrics.titlebarHeight)
+            // The traffic lights' band, with Dia's sidebar button just right of them.
+            // Peeking, the panel is inset from the window's corner and the traffic lights sit in the
+            // collapsed band: the button lands on the collapsed band's own.
+            HStack(spacing: 0) {
+                Color.clear.frame(width: collapsed
+                    ? ChromeMetrics.collapsedTrafficLightsWidth - ChromeMetrics.inset
+                    : ChromeMetrics.trafficLightsWidth)
+                ChromeIconButton(symbol: "sidebar.left", help: collapsed ? "Keep Sidebar Open" : "Hide Sidebar", action: actions.toggleSidebar)
+                    // Centered on the collapsed band's midline, not this shorter band's.
+                    .offset(y: collapsed ? ChromeMetrics.collapsedBandHeight / 2 - ChromeMetrics.inset - (ChromeMetrics.collapsedBandHeight - ChromeMetrics.inset) / 2 : 0)
+                Spacer(minLength: 0)
+            }
+            .frame(height: collapsed
+                ? ChromeMetrics.collapsedBandHeight - ChromeMetrics.inset
+                : ChromeMetrics.titlebarHeight)
+            // Above the tab list, whose scroll view reaches up under the titlebar and would take
+            // the button's clicks.
+            .zIndex(1)
 
             ScrollView(.vertical) {
                 LazyVStack(spacing: 2) {

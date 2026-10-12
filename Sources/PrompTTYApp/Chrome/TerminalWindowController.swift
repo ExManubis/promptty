@@ -23,6 +23,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     private var appliedInitialSize = false
     /// The tab shown by the last `reload()`; a change resets any OSC 11 tint to the configured one.
     private var shownTabID: TabID?
+    /// The empty toolbar that makes the titlebar tall; taken away while the sidebar is collapsed.
+    private var toolbar: NSToolbar?
 
     #if DEBUG
     /// Live controllers, for leak checks in the debug driver.
@@ -50,6 +52,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         let toolbar = NSToolbar(identifier: "PrompTTYWindow")
         toolbar.showsBaselineSeparator = false
         window.toolbar = toolbar
+        self.toolbar = toolbar
         window.toolbarStyle = .unified
         window.isMovableByWindowBackground = true
         // See-through so the backdrop can blur the desktop behind the window.
@@ -305,12 +308,24 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         if !settings.tabListHidden, coordinator.workspace.tabLayout == .sidebar {
             chromeW = settings.sidebarWidth + inset
             chromeH = inset * 2
+        } else if coordinator.workspace.tabLayout == .sidebar {
+            chromeW = inset * 2
+            chromeH = ChromeMetrics.collapsedBandHeight + inset
         } else {
             chromeW = inset * 2
             chromeH = ChromeMetrics.titlebarHeight + inset
         }
         window.setContentSize(NSSize(width: size.width + chromeW, height: size.height + chromeH))
         window.center()
+    }
+
+    /// With the sidebar collapsed the titlebar is the standard thin one, so the traffic lights sit
+    /// in the band above the panes; otherwise the empty toolbar makes it tall, as the sidebar's
+    /// top band expects.
+    func setCollapsedTitlebar(_ collapsed: Bool) {
+        guard let window else { return }
+        let wanted = collapsed ? nil : toolbar
+        if window.toolbar !== wanted { window.toolbar = wanted }
     }
 
     // MARK: ChromeActions
