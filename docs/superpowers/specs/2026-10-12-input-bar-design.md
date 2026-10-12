@@ -48,13 +48,13 @@ Our `.zshenv`:
 `_promptty_init` (first prompt only):
 - Puts `_promptty_precmd` first in `precmd_functions` and `_promptty_preexec` in `preexec_functions`.
 - `unsetopt HIST_VERIFY`: the bar cannot show a re-loaded line, so `!!` runs directly.
-- Adds a `line-init` zle hook (via `add-zle-hook-widget`) that empties `BUFFER`: keys typed while
-  a command ran (type-ahead) would otherwise sit invisibly in front of the next command.
 - Writes the state file, one `<kind> <value>` per line: `histfile <path>` (when `HISTFILE` is set),
   `path <$PATH>` (the shell's, which includes Homebrew; a GUI app's own `PATH` does not),
   `alias|function|builtin|reserved <name>` per name, and `export <name>` per exported parameter.
 
-`_promptty_precmd` (every prompt): `PROMPT=''`, `RPROMPT=''`, hide the cursor (`\e[?25l`), report
+`_promptty_precmd` (every prompt): `PROMPT=''`, `RPROMPT=''`, drop type-ahead (keys typed while a
+command ran would otherwise sit invisibly in front of the next command; they are still in the tty
+queue, so they are read and discarded with `read -t 0 -k 1`), hide the cursor (`\e[?25l`), report
 the directory with OSC 7. `_promptty_preexec`: show the cursor (`\e[?25h`).
 
 **Pane states** (a pure state machine in `CommandEditing`, driven by the controller):
@@ -86,16 +86,18 @@ dot when dirty, `checkmark`/`xmark` + exit code, duration), then the input in th
 family and size, 1–8 lines then scrolling. The bar uses the card's panel color.
 
 **Running a command.**
-1. ⏎: the state goes `running`, the bar leaves the layout (the terminal grows to the full card)
-   but stays drawn on top for 150 ms, then fades out over 120 ms. A command that finishes within
-   150 ms never makes the bar blink.
-2. The command is sent once the terminal has taken its new size (the surface reports its size
-   change) or after 50 ms, whichever comes first; programs start at their real size.
-3. The text goes to zsh as a paste (`ghostty_surface_text`, bracketed because zle enables
-   bracketed paste), followed by a Return sent as key input. zsh runs it: history, aliases, `$?`
-   all behave as before.
+1. ⏎: the text goes to zsh at once, as a paste (`ghostty_surface_text`, bracketed because zle
+   enables bracketed paste) followed by a Return sent as key input. zsh runs it: history, aliases,
+   `$?` all behave as before. The terminal takes the keys.
+2. The bar stays in the layout, dimmed, for 150 ms. A command that finishes by then (most do)
+   never makes the bar or the terminal move.
+3. Still running after 150 ms: the bar fades out (120 ms) and leaves the layout; the terminal grows
+   to the full card, so a full-screen program gets one resize shortly after it starts.
 4. Back at `idle`, the bar rejoins the layout and the terminal shrinks above it while the shell is
    idle; Ghostty keeps the bottom rows and pushes the top into scrollback.
+
+(Ruled during implementation: the first draft grew the terminal before sending, which resized it
+twice for every quick command and made its output jump.)
 
 **Keys in the bar.** ⏎ runs (on an empty bar: sends Return, a fresh prompt). ⇧⏎ inserts a newline.
 ⌃C clears the bar. ⌃D on an empty bar sends EOF (`\x04`). ⌃L sends `\x0c` (zle clears the
