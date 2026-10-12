@@ -78,6 +78,18 @@ final class CompletionEngineTests: XCTestCase {
         XCTAssertEqual(complete(#"cat My\ F|"#)?.candidates, [#"My\ File.txt"#])
     }
 
+    func testNamesWithControlCharactersAreQuotedSoTheyCannotRunAsCommands() {
+        var sources = FakeSources()
+        sources.tree["/repo"] = [("evil\nrm -rf ~", false), ("tab\there", false), ("bell\u{7}", false)]
+        let candidates = complete("cat e|", sources: sources)?.candidates
+        XCTAssertEqual(candidates, [#"$'evil\nrm -rf ~'"#])
+        XCTAssertEqual(complete("cat t|", sources: sources)?.candidates, [#"$'tab\there'"#])
+        XCTAssertEqual(complete("cat b|", sources: sources)?.candidates, [#"$'bell\x07'"#])
+        for candidate in [candidates, complete("cat t|", sources: sources)?.candidates].compactMap({ $0 }).flatMap({ $0 }) {
+            XCTAssertFalse(candidate.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }, candidate)
+        }
+    }
+
     func testCompletesTheWordUpToTheCursorOnly() {
         let c = complete("mak| foo")
         XCTAssertEqual(c?.replacement, 0..<3)
