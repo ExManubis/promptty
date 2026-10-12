@@ -4,7 +4,7 @@ import XCTest
 final class SettingsTests: XCTestCase {
     func testDefaultsMatchTheSpec() {
         let s = Settings()
-        XCTAssertEqual(s.version, 1)
+        XCTAssertEqual(s.version, 2)
         XCTAssertEqual(s.fontFamily, "SF Mono")
         XCTAssertEqual(s.fontSize, 13)
         XCTAssertTrue(s.followSystemAppearance)
@@ -69,6 +69,24 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(n.fontSize, 6)
         XCTAssertEqual(n.sidebarWidth, 320)
         XCTAssertEqual(n.tintStrength, 0)
+    }
+
+    /// Version 1 files saved every value, defaults included, so the old Frame color default (0.5)
+    /// was frozen into them. It moves to the new neutral default; a value the user chose stays.
+    func testVersion1FileWithOldFrameDefaultMovesToNeutral() throws {
+        let decoded = try JSONDecoder().decode(Settings.self, from: Data(#"{"version": 1, "tintStrength": 0.5}"#.utf8))
+        XCTAssertEqual(decoded.tintStrength, 0)
+        XCTAssertEqual(decoded.version, Settings.currentVersion)
+    }
+
+    func testVersion1FileWithChosenFrameColorKeepsIt() throws {
+        let decoded = try JSONDecoder().decode(Settings.self, from: Data(#"{"version": 1, "tintStrength": 0.8}"#.utf8))
+        XCTAssertEqual(decoded.tintStrength, 0.8)
+    }
+
+    func testCurrentVersionFileKeepsHalfFrameColor() throws {
+        let decoded = try JSONDecoder().decode(Settings.self, from: Data(#"{"version": 2, "tintStrength": 0.5}"#.utf8))
+        XCTAssertEqual(decoded.tintStrength, 0.5)
     }
 
     func testMigrationCarriesLayoutAndHiddenState() {

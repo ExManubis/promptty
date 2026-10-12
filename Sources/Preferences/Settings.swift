@@ -20,7 +20,8 @@ public enum TabLayoutSetting: String, Codable, CaseIterable, Sendable {
 /// Everything the user can change in Settings. Decoding tolerates missing keys, unknown enum
 /// values and out-of-range numbers: each falls back to its default or is clamped.
 public struct Settings: Equatable, Sendable {
-    public static let currentVersion = 1
+    /// 2: Frame color default moved from 0.5 to 0 (neutral, Dia-style).
+    public static let currentVersion = 2
     public static let fontSizeRange: ClosedRange<Double> = 6...72
     public static let sidebarWidthRange: ClosedRange<Double> = 180...320
 
@@ -105,6 +106,12 @@ extension Settings: Codable {
         // Decode shortcuts one by one so a single bad entry does not drop the rest.
         if let raw = try? c.decodeIfPresent([String: String].self, forKey: .shortcuts) {
             s.shortcuts = raw.compactMapValues(Shortcut.init(string:))
+        }
+        // Older files saved every value, defaults included; carry them forward. A newer file
+        // keeps its version so the store can reject it.
+        if s.version < Self.currentVersion {
+            if s.version < 2, s.tintStrength == 0.5 { s.tintStrength = 0 }
+            s.version = Self.currentVersion
         }
         self = s.normalized()
     }

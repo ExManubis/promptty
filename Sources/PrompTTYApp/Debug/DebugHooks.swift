@@ -187,6 +187,22 @@ enum DebugHooks {
             return ""
         }
         driver.hooks["live"] = { _ in "controllers=\(TerminalWindowController.liveCount)" }
+        // eval backdrop — window transparency and the blur view's state, for checking the chrome.
+        driver.hooks["backdrop"] = { _ in
+            guard let window = coordinator.allControllers.first?.window else { return "error: no window" }
+            var lines = ["window opaque=\(window.isOpaque) bg=\(window.backgroundColor.description.prefix(60)) appearance=\(window.effectiveAppearance.name.rawValue)"]
+            func walk(_ view: NSView, depth: Int) {
+                if let fx = view as? NSVisualEffectView {
+                    lines.append("blur frame=\(NSStringFromRect(fx.frame)) material=\(fx.material.rawValue) blending=\(fx.blendingMode.rawValue) state=\(fx.state.rawValue) hidden=\(fx.isHiddenOrHasHiddenAncestor) inWindow=\(fx.window != nil)")
+                }
+                if depth < 3, let layer = view.layer, let bg = layer.backgroundColor, bg.alpha > 0 {
+                    lines.append("\(String(repeating: " ", count: depth))opaque-ish layer bg alpha=\(bg.alpha) on \(type(of: view)) frame=\(NSStringFromRect(view.frame))")
+                }
+                for sub in view.subviews { walk(sub, depth: depth + 1) }
+            }
+            if let frameView = window.contentView?.superview { walk(frameView, depth: 0) }
+            return lines.joined(separator: "\n")
+        }
         driver.hooks["banner"] = { args in
             coordinator.showTransientBanner(args.joined(separator: " "))
             return ""
