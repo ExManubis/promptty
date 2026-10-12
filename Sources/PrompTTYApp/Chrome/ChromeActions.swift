@@ -27,6 +27,8 @@ protocol ChromeActions: AnyObject {
     func endRenaming()
     func moveTab(_ id: TabID, to index: Int)
     func toggleSidebar()
+    /// The window's traffic lights, which go with the sidebar when it collapses.
+    func setTrafficLightsShown(_ shown: Bool)
     func split(_ pane: PaneID, direction: SplitDirection)
     func requestClosePane(_ pane: PaneID)
     func focusPane(_ pane: PaneID)

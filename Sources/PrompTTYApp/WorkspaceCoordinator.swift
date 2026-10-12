@@ -226,11 +226,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             lastTintStrength = settings.tintStrength
             configDidReload()
         }
-        let collapsed = settings.tabListHidden && layout == .sidebar
-        for c in controllers.values {
-            c.setCollapsedTitlebar(collapsed)
-            c.focusSelectedPane()
-        }
+        for c in controllers.values { c.focusSelectedPane() }
     }
 
     // MARK: Windows and tabs
@@ -297,7 +293,6 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     private func open(_ state: WindowState) {
         let controller = TerminalWindowController(state: state, coordinator: self, runtime: runtime)
         controllers[state.id] = controller
-        controller.setCollapsedTitlebar(preferences.settings.tabListHidden && workspace.tabLayout == .sidebar)
         controller.chrome.banner = transientBanner ?? configBanner
         applyConfiguredTint(to: controller)
         controller.reload()

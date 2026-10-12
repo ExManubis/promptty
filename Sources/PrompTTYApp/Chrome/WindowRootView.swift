@@ -58,23 +58,17 @@ struct WindowRootView: View {
         .animation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.1), value: layout)
         .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0.08), value: hidden)
         .onChange(of: hidden) { _, _ in peeking = false }
+        .onChange(of: trafficLightsShown, initial: true) { _, shown in actions.setTrafficLightsShown(shown) }
         .environment(\.windowChrome, chrome)
     }
 
-    /// Dia's collapsed sidebar: the panes take the window below a thin band holding the traffic
-    /// lights and the sidebar button; the sidebar peeks in over them from the left edge.
+    /// Dia's collapsed sidebar: the panes take the whole window, the traffic lights and the sidebar
+    /// button go with the sidebar, and the sidebar (with them) peeks in over the panes from the
+    /// left edge.
     private var collapsedSidebar: some View {
         ZStack(alignment: .topLeading) {
-            VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    Color.clear.frame(width: ChromeMetrics.collapsedTrafficLightsWidth)
-                    ChromeIconButton(symbol: "sidebar.left", help: "Show Sidebar", action: actions.toggleSidebar)
-                    Spacer(minLength: 0)
-                }
-                .frame(height: ChromeMetrics.collapsedBandHeight)
-                paneArea
-                    .padding([.horizontal, .bottom], ChromeMetrics.inset)
-            }
+            paneArea
+                .padding(ChromeMetrics.inset)
 
             // Resting at the left edge peeks the sidebar in.
             Color.clear
@@ -84,7 +78,7 @@ struct WindowRootView: View {
                 .onHover { inside in setPeek(inside, after: .milliseconds(150)) }
                 .accessibilityHidden(true)
 
-            if peeking || chrome.forcedPeek {
+            if showsPeek {
                 SidebarView(state: state, chrome: chrome, actions: actions, collapsed: true)
                     .frame(width: settings.settings.sidebarWidth)
                     .frame(maxHeight: .infinity)
@@ -97,7 +91,14 @@ struct WindowRootView: View {
                     .zIndex(1)
             }
         }
-        .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.08), value: peeking)
+        .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.08), value: showsPeek)
+    }
+
+    private var showsPeek: Bool { peeking || chrome.forcedPeek }
+
+    /// The traffic lights belong to the sidebar: hidden while it is collapsed, back while it peeks.
+    private var trafficLightsShown: Bool {
+        !(hidden && layout == .sidebar) || showsPeek
     }
 
     /// Peeks the collapsed sidebar in or out after a moment, so a pointer passing the edge (or

@@ -12,21 +12,15 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // The traffic lights' band, with Dia's sidebar button just right of them.
-            // Peeking, the panel is inset from the window's corner and the traffic lights sit in the
-            // collapsed band: the button lands on the collapsed band's own.
+            // The traffic lights' band, with Dia's sidebar button just right of them. Peeking, the
+            // panel is inset from the window's corner, so the band is narrower by the inset and
+            // shorter by twice it: its midline stays on the traffic lights'.
             HStack(spacing: 0) {
-                Color.clear.frame(width: collapsed
-                    ? ChromeMetrics.collapsedTrafficLightsWidth - ChromeMetrics.inset
-                    : ChromeMetrics.trafficLightsWidth)
+                Color.clear.frame(width: ChromeMetrics.trafficLightsWidth - (collapsed ? ChromeMetrics.inset : 0))
                 ChromeIconButton(symbol: "sidebar.left", help: collapsed ? "Keep Sidebar Open" : "Hide Sidebar", action: actions.toggleSidebar)
-                    // Centered on the collapsed band's midline, not this shorter band's.
-                    .offset(y: collapsed ? ChromeMetrics.collapsedBandHeight / 2 - ChromeMetrics.inset - (ChromeMetrics.collapsedBandHeight - ChromeMetrics.inset) / 2 : 0)
                 Spacer(minLength: 0)
             }
-            .frame(height: collapsed
-                ? ChromeMetrics.collapsedBandHeight - ChromeMetrics.inset
-                : ChromeMetrics.titlebarHeight)
+            .frame(height: ChromeMetrics.titlebarHeight - (collapsed ? 2 * ChromeMetrics.inset : 0))
             // Above the tab list, whose scroll view reaches up under the titlebar and would take
             // the button's clicks.
             .zIndex(1)
