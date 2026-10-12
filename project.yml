@@ -45,6 +45,8 @@ targets:
         product: GhosttyBridge
       - package: PrompTTYCore
         product: Preferences
+      - package: PrompTTYCore
+        product: CommandEditing
     settings:
       base:
         PRODUCT_NAME: PrompTTY
