@@ -53,6 +53,10 @@ final class CommandTextView: NSTextView {
     private var replacingFromHistory = false
     /// The ghost text after the caret.
     private(set) var suggestion: String?
+    /// Where Tab completion looks: the shell's names and the pane's directory.
+    var completionContext: () -> (sources: CompletionSources, directory: String)? = { nil }
+    private let popup = CompletionPopup()
+    var isShowingCompletions: Bool { popup.isVisible }
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
@@ -102,8 +106,14 @@ final class CommandTextView: NSTextView {
         updateSuggestion()
     }
 
+    override func resignFirstResponder() -> Bool {
+        popup.close()
+        return super.resignFirstResponder()
+    }
+
     /// The command was sent: start the next one fresh, in insert mode.
     func commandRan() {
+        popup.close()
         navigator = nil
         vi.enterInsert()
         modeChanged()
@@ -120,8 +130,22 @@ final class CommandTextView: NSTextView {
     // MARK: Keys
 
     override func keyDown(with event: NSEvent) {
-        if handleShellKey(event) { return }
         let mods = event.modifierFlags.intersection([.shift, .control, .option, .command])
+        if popup.isVisible {
+            switch (event.keyCode, mods) {
+            case (48, []), (125, []): popup.move(by: 1); return
+            case (48, .shift), (126, []): popup.move(by: -1); return
+            case (36, []), (76, []): acceptCompletion(); return
+            case (53, []): popup.close(); return
+            default:
+                break
+            }
+        }
+        if handleShellKey(event) { return }
+        if event.keyCode == 48, mods.isEmpty {
+            if vi.mode == .insert { complete() }
+            return
+        }
         switch (event.keyCode, mods) {
         case (53, []): // Escape
             applyVi(.escape)
@@ -149,6 +173,7 @@ final class CommandTextView: NSTextView {
             return
         }
         super.keyDown(with: event)
+        if popup.isVisible { refilterCompletions() }
     }
 
     private var isOnFirstLine: Bool {
@@ -215,6 +240,49 @@ final class CommandTextView: NSTextView {
         var end = (next as NSString).length
         if vi.mode == .normal, end > 0 { end -= 1 }
         setSelectedRange(NSRange(location: end, length: 0))
+    }
+
+    // MARK: Completion
+
+    private func currentCompletion() -> Completion? {
+        guard let context = completionContext(), selectedRange().length == 0 else { return nil }
+        return CompletionEngine.complete(text: string, cursor: selectedRange().location, directory: context.directory,
+                                         home: NSHomeDirectory(), sources: context.sources)
+    }
+
+    /// Tab: one match is inserted; several insert what they share and open the list.
+    private func complete() {
+        guard let completion = currentCompletion(), completion.candidates.count <= 500 else {
+            NSSound.beep()
+            return
+        }
+        let range = NSRange(location: completion.replacement.lowerBound, length: completion.replacement.count)
+        if let single = completion.singleInsertion {
+            insertText(single, replacementRange: range)
+            return
+        }
+        let typed = (string as NSString).substring(with: range)
+        if (completion.commonPrefix as NSString).length > (typed as NSString).length {
+            insertText(completion.commonPrefix, replacementRange: range)
+        }
+        guard let window else { return }
+        let anchor = firstRect(forCharacterRange: NSRange(location: range.location, length: 0), actualRange: nil)
+        popup.show(completion.candidates, anchor: anchor, in: window, font: font ?? EditorStyle.font)
+    }
+
+    private func refilterCompletions() {
+        guard let completion = currentCompletion(), completion.candidates.count <= 500 else {
+            popup.close()
+            return
+        }
+        popup.update(completion.candidates)
+    }
+
+    private func acceptCompletion() {
+        defer { popup.close() }
+        guard let item = popup.selectedItem, let completion = currentCompletion() else { return }
+        let range = NSRange(location: completion.replacement.lowerBound, length: completion.replacement.count)
+        insertText(item.hasSuffix("/") ? item : item + " ", replacementRange: range)
     }
 
     // MARK: Suggestions

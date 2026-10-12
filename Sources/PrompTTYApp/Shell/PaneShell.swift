@@ -175,6 +175,15 @@ final class PaneShell {
         text.onSubmit = { [weak self] in self?.run($0) }
         text.history = { [weak self] in self?.history.newestFirst ?? [] }
         text.isKnownCommand = { [weak self] in self?.isKnownCommand($0) ?? true }
+        text.completionContext = { [weak self] in
+            guard let self else { return nil }
+            let sources = ShellCompletionSources(
+                commands: self.knownCommands.union(self.stateFile?.commandNames ?? []),
+                exports: self.stateFile?.exports ?? [],
+                git: Self.executable("git", in: self.stateFile?.path ?? []) ?? "/usr/bin/git"
+            )
+            return (sources, self.directory)
+        }
         text.onShellInput = { [weak self] in self?.surface?.sendInput($0) }
         text.onTextChange = { [weak self] in self?.editorTextChanged() }
         return view

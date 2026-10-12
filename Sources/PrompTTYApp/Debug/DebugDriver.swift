@@ -263,7 +263,8 @@ final class DebugDriver {
     private func snapshot(name: String, in directory: URL) -> String {
         guard let createImage = Self.createImage else { return "error: CGWindowListCreateImage unavailable" }
         var lines: [String] = []
-        let windows = NSApp.orderedWindows.filter(\.isVisible)
+        // Child panels (the bar's completion list) are not in `orderedWindows`.
+        let windows = NSApp.orderedWindows.filter(\.isVisible) + NSApp.windows.filter { $0.isVisible && $0.parent != nil }
         for (i, window) in windows.enumerated() {
             // kCGWindowListOptionIncludingWindow = 1 << 3; boundsIgnoreFraming = 1 << 0, bestResolution = 1 << 3
             guard let image = createImage(.null, 1 << 3, UInt32(window.windowNumber), (1 << 0) | (1 << 3))?.takeRetainedValue() else {
