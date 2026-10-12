@@ -110,8 +110,8 @@ struct ProgramStack: View {
 
     static let width: CGFloat = 18
     static let height: CGFloat = 15
-    /// How far each card behind shows past the one in front.
-    static let step: CGFloat = 4
+    /// How far each card behind shows past the one in front: enough for its logo.
+    static let step: CGFloat = 8
     static let maxCards = 3
     /// The front card's tilt; each card behind turns a little less.
     static let tilt: Double = -5
@@ -121,42 +121,45 @@ struct ProgramStack: View {
         ZStack(alignment: .leading) {
             ForEach(Array(shown.enumerated().reversed()), id: \.element.id) { depth, card in
                 let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
-                Group {
-                    if depth == 0 {
-                        shape.fill(Self.background(for: card.program))
-                            .overlay {
-                                if card.program?.logo != nil {
-                                    // On a brand tile in the brand's pairing; on the dark tile in the
-                                    // brand's color, as on a dark background.
-                                    ProgramIcon(program: card.program, size: 11, tint: card.program?.tile.map { Self.color($0.foreground) })
-                                        .environment(\.colorScheme, .dark)
-                                } else {
-                                    // A shell or an unknown program: the prompt itself, as Rex shows it.
-                                    Text(">_")
-                                        .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                        .foregroundStyle(Color(white: 0.85))
-                                        .accessibilityHidden(true)
-                                }
-                            }
-                            // A faint rim, so a dark tile stands out on a dark sidebar.
-                            .overlay(shape.strokeBorder(Color.white.opacity(0.16), lineWidth: 0.5).padding(0.75))
-                    } else {
-                        shape.fill(Self.color(for: card.display))
+                // Every card is its program's tile; on the cards behind, the logo sits where the
+                // card shows, at its right edge.
+                shape.fill(Self.background(for: card.program))
+                    .overlay(alignment: depth == 0 ? .center : .trailing) {
+                        logo(of: card.program, size: depth == 0 ? 11 : 9)
+                            .padding(.trailing, depth == 0 ? 0 : 1.5)
                     }
-                }
+                    // A faint rim, so a dark tile stands out on a dark sidebar.
+                    .overlay(shape.strokeBorder(Color.white.opacity(0.16), lineWidth: 0.5).padding(0.75))
                 .overlay {
                     if depth == 0, card.display == .working { WorkingShimmer(shape: shape) }
                 }
                 .overlay(shape.strokeBorder(.black.opacity(0.55), lineWidth: 1))
                 .frame(width: Self.width, height: Self.height)
                 .rotationEffect(.degrees(Self.tilt + Double(depth) * 2.5))
-                .shadow(color: .black.opacity(depth == 0 ? 0.25 : 0), radius: 1, x: 0.5)
+                // Each card shades the one behind it.
+                .shadow(color: .black.opacity(0.3), radius: 1, x: 0.5)
                 .offset(x: CGFloat(depth) * Self.step)
             }
         }
         .frame(width: Self.width + CGFloat(max(shown.count - 1, 0)) * Self.step + 2, height: Self.height + 3, alignment: .leading)
         .accessibilityElement()
         .accessibilityLabel(Self.label(for: shown))
+    }
+
+    @ViewBuilder
+    private func logo(of program: Program?, size: CGFloat) -> some View {
+        if program?.logo != nil {
+            // On a brand tile in the brand's pairing; on the dark tile in the brand's color, as on
+            // a dark background.
+            ProgramIcon(program: program, size: size, tint: program?.tile.map { Self.color($0.foreground) })
+                .environment(\.colorScheme, .dark)
+        } else {
+            // A shell or an unknown program: the prompt itself, as Rex shows it.
+            Text(">_")
+                .font(.system(size: size * 0.73, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color(white: 0.85))
+                .accessibilityHidden(true)
+        }
     }
 
     /// The default tile: dark, like a terminal.
