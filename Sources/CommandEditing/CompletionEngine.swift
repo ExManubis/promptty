@@ -120,42 +120,10 @@ public enum CompletionEngine {
         if lookup.hasPrefix("~") { lookup = home + lookup.dropFirst() }
         if !lookup.hasPrefix("/") { lookup = (directory as NSString).appendingPathComponent(lookup) }
         lookup = (lookup as NSString).standardizingPath
-        let shownDir = escape(typedDir)
+        let shownDir = ShellQuoting.escape(typedDir)
         return sources.entries(inDirectory: lookup)
             .filter { $0.name.hasPrefix(namePrefix) && (namePrefix.hasPrefix(".") || !$0.name.hasPrefix(".")) }
-            .map { shownDir + escape($0.name) + ($0.isDirectory ? "/" : "") }
-    }
-
-    private static let special = Set(" \t'\"\\$&;|()<>*?[]#~`!{}")
-
-    /// Makes a name safe to put in a command line. A name with control characters (a newline in a
-    /// file name would end the command and start another) is written in zsh's `$'…'` form.
-    private static func escape(_ s: String) -> String {
-        if s.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) {
-            var out = "$'"
-            for u in s.unicodeScalars {
-                switch u {
-                case "\n": out += "\\n"
-                case "\r": out += "\\r"
-                case "\t": out += "\\t"
-                case "'", "\\": out += "\\" + String(u)
-                default:
-                    if u.value < 0x20 || u.value == 0x7F {
-                        out += String(format: "\\x%02x", u.value)
-                    } else {
-                        out.unicodeScalars.append(u)
-                    }
-                }
-            }
-            return out + "'"
-        }
-        var out = ""
-        for (i, ch) in s.enumerated() {
-            // A leading ~ is the home shorthand, kept as typed.
-            if special.contains(ch), !(ch == "~" && i == 0) { out.append("\\") }
-            out.append(ch)
-        }
-        return out
+            .map { shownDir + ShellQuoting.escape($0.name) + ($0.isDirectory ? "/" : "") }
     }
 
     private static func unescape(_ s: String) -> String {
