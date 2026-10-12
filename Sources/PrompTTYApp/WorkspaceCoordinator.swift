@@ -288,3 +288,20 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         }
     }
 }
+
+#if DEBUG
+extension WorkspaceCoordinator {
+    /// One line per window and tab, for the debug driver.
+    func debugState() -> String {
+        var lines = ["layout=\(workspace.tabLayout.rawValue) windows=\(workspace.windows.count)"]
+        for (wi, w) in workspace.windows.enumerated() {
+            lines.append("window \(wi) tabs=\(w.tabs.count) selected=\(w.selectedTabID.flatMap(w.index(of:)).map(String.init) ?? "-")")
+            for (ti, t) in w.tabs.enumerated() {
+                lines.append("  tab \(ti) title=\"\(t.displayTitle)\" dir=\(t.abbreviatedDirectory)")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+#endif
+

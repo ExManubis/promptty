@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Debug automation. Usage:
+#   script/drive start <dir>          launch the Debug build with PROMPTTY_DEBUG_DIR=<dir>
+#   script/drive run <dir> <file>     run the commands in <file>, wait, print results
+#   script/drive stop <dir>
+set -euo pipefail
+cd "$(dirname "$0")/.."
+APP=.build/DerivedData/Build/Products/Debug/PrompTTY.app/Contents/MacOS/PrompTTY
+cmd=$1; dir=$2
+case "$cmd" in
+  start)
+    mkdir -p "$dir"
+    rm -f "$dir/pid" "$dir/done"
+    PROMPTTY_DEBUG_DIR="$dir" nohup "$APP" >"$dir/app.log" 2>&1 &
+    for _ in $(seq 1 50); do [ -f "$dir/pid" ] && break; sleep 0.1; done
+    sleep 1
+    cat "$dir/pid"; echo
+    ;;
+  run)
+    cp "$3" "$dir/commands.txt"
+    rm -f "$dir/done"
+    kill -USR1 "$(cat "$dir/pid")"
+    for _ in $(seq 1 600); do [ -f "$dir/done" ] && break; sleep 0.1; done
+    [ -f "$dir/done" ] || { echo "timed out"; exit 1; }
+    cat "$dir/results.txt"
+    ;;
+  stop)
+    if [ -f "$dir/pid" ]; then kill "$(cat "$dir/pid")" 2>/dev/null || true; fi
+    ;;
+esac
