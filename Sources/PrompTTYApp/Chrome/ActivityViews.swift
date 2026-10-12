@@ -59,6 +59,10 @@ struct ActivityIndicator: View {
             case .attention:
                 Circle().fill(ProgramStack.color(for: display)).frame(width: 7, height: 7)
                     .scaleEffect(pulse ? 1.15 : 0.85)
+            case .working:
+                // Breathes while the agent works.
+                Circle().fill(ProgramStack.color(for: display)).frame(width: 7, height: 7)
+                    .opacity(pulse ? 0.35 : 1)
             default:
                 Circle().fill(ProgramStack.color(for: display)).frame(width: 7, height: 7)
             }
@@ -73,7 +77,7 @@ struct ActivityIndicator: View {
 
     private func startPulse() {
         pulse = false
-        guard !reduceMotion, display == .attention else { return }
+        guard !reduceMotion, display == .attention || display == .working else { return }
         withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true }
     }
 
@@ -81,6 +85,7 @@ struct ActivityIndicator: View {
         switch display {
         case .idle: ""
         case .running: "Running"
+        case .working: "Working"
         case .finished: "Finished"
         case .failed(let code): "Failed with exit code \(code)"
         case .attention: "Needs attention"
@@ -134,6 +139,9 @@ struct ProgramStack: View {
                         shape.fill(Self.color(for: card.display))
                     }
                 }
+                .overlay {
+                    if depth == 0, card.display == .working { WorkingShimmer(shape: shape) }
+                }
                 .overlay(shape.strokeBorder(.black.opacity(0.55), lineWidth: 1))
                 .frame(width: Self.width, height: Self.height)
                 .rotationEffect(.degrees(Self.tilt + Double(depth) * 2.5))
@@ -149,7 +157,7 @@ struct ProgramStack: View {
     static func color(for display: PaneActivity.Display) -> Color {
         switch display {
         case .idle: Color(white: 0.55)
-        case .running: .green
+        case .running, .working: .green
         case .finished: .blue
         case .failed: .red
         case .attention: .orange
@@ -159,5 +167,30 @@ struct ProgramStack: View {
     private static func label(for cards: [Card]) -> String {
         let names = cards.map { $0.program?.name ?? "Terminal" }
         return cards.count == 1 ? names[0] : "\(cards.count) panes: " + names.joined(separator: ", ")
+    }
+}
+
+/// A soft green light sweeping across an agent's tile while it works; a still green rim when
+/// motion is reduced.
+private struct WorkingShimmer: View {
+    let shape: RoundedRectangle
+    @State private var phase: CGFloat = -1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if reduceMotion {
+            shape.strokeBorder(Color.green, lineWidth: 1.5)
+        } else {
+            GeometryReader { proxy in
+                LinearGradient(colors: [.clear, Color.green.opacity(0.45), .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: proxy.size.width * 0.7)
+                    .offset(x: phase * proxy.size.width)
+            }
+            .clipShape(shape)
+            .allowsHitTesting(false)
+            .onAppear {
+                withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { phase = 1.2 }
+            }
+        }
     }
 }

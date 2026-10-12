@@ -16,6 +16,8 @@ final class ActivityTracker {
         let foregroundPID: Int?
         let shellPID: Int?
         let seen: Bool
+        /// The pane's visible text, read only for agents (to tell working from waiting).
+        let screen: () -> String?
     }
 
     /// The panes to watch right now; set by the coordinator.
@@ -30,6 +32,8 @@ final class ActivityTracker {
     /// The last foreground pid read per pane, and what it was: the arguments are read once per pid.
     @ObservationIgnored private var identified: [PaneID: (pid: Int, foreground: PaneActivity.Foreground)] = [:]
     @ObservationIgnored private var timer: Timer?
+    /// The last screen seen per agent pane, as a hash.
+    @ObservationIgnored private var screens: [PaneID: Int] = [:]
 
     func start() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
@@ -53,6 +57,16 @@ final class ActivityTracker {
                     onNotice(watched.pane, notice)
                 }
             }
+            if activity.program?.isAgent == true, let text = watched.screen() {
+                let hash = text.hashValue
+                let changed = screens[watched.pane].map { $0 != hash } ?? false
+                screens[watched.pane] = hash
+                if let notice = activity.agentScreen(changed: changed, at: now, seen: watched.seen) {
+                    onNotice(watched.pane, notice)
+                }
+            } else {
+                screens[watched.pane] = nil
+            }
             if watched.seen, activity.hasUnseen {
                 activity.seen()
                 onSeen(watched.pane)
@@ -63,6 +77,7 @@ final class ActivityTracker {
             activities[gone] = nil
             shellPIDs[gone] = nil
             identified[gone] = nil
+            screens[gone] = nil
         }
     }
 

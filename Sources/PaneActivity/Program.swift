@@ -10,13 +10,16 @@ public struct Program: Equatable, Hashable, Sendable {
     /// The brand color, 0xRRGGBB.
     public let color: UInt32?
     public let isShell: Bool
+    /// A coding agent: PrompTTY tells when it works and when it waits for the user.
+    public let isAgent: Bool
 
-    public init(id: String, name: String, logo: String? = nil, color: UInt32? = nil, isShell: Bool = false) {
+    public init(id: String, name: String, logo: String? = nil, color: UInt32? = nil, isShell: Bool = false, isAgent: Bool = false) {
         self.id = id
         self.name = name
         self.logo = logo
         self.color = color
         self.isShell = isShell
+        self.isAgent = isAgent
     }
 }
 
@@ -36,17 +39,17 @@ public enum ProgramCatalog {
 
     private static func entry(_ id: String, _ name: String, logo: String?, _ color: UInt32?, _ executables: [String],
                               interpreter: Bool = false, markers: [String] = [], scriptable: Bool = false,
-                              shell: Bool = false) -> Entry {
-        Entry(program: Program(id: id, name: name, logo: logo, color: color, isShell: shell),
+                              shell: Bool = false, agent: Bool = false) -> Entry {
+        Entry(program: Program(id: id, name: name, logo: logo, color: color, isShell: shell, isAgent: agent),
               executables: executables, interpreter: interpreter, scriptMarkers: markers, scriptable: scriptable)
     }
 
     private static let entries: [Entry] = [
         // Agents
-        entry("claude", "Claude Code", logo: "claude", 0xD97757, ["claude"], markers: ["@anthropic-ai/claude-code/"], scriptable: true),
-        entry("codex", "Codex", logo: "codex", 0x000000, ["codex"], markers: ["@openai/codex/"], scriptable: true),
-        entry("gemini", "Gemini CLI", logo: "googlegemini", 0x8E75B2, ["gemini"], markers: ["@google/gemini-cli/"], scriptable: true),
-        entry("copilot", "Copilot", logo: "githubcopilot", 0x000000, ["copilot"], markers: ["@github/copilot/"], scriptable: true),
+        entry("claude", "Claude Code", logo: "claude", 0xD97757, ["claude"], markers: ["@anthropic-ai/claude-code/"], scriptable: true, agent: true),
+        entry("codex", "Codex", logo: "codex", 0x000000, ["codex"], markers: ["@openai/codex/"], scriptable: true, agent: true),
+        entry("gemini", "Gemini CLI", logo: "googlegemini", 0x8E75B2, ["gemini"], markers: ["@google/gemini-cli/"], scriptable: true, agent: true),
+        entry("copilot", "Copilot", logo: "githubcopilot", 0x000000, ["copilot"], markers: ["@github/copilot/"], scriptable: true, agent: true),
         entry("ollama", "Ollama", logo: "ollama", 0x000000, ["ollama"]),
         // Languages and runtimes
         entry("node", "Node.js", logo: "nodedotjs", 0x5FA04E, ["node", "nodejs"], interpreter: true),

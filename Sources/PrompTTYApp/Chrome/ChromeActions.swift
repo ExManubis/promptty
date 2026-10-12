@@ -9,6 +9,10 @@ protocol ChromeActions: AnyObject {
     func shell(for pane: PaneID) -> PaneShell?
     /// What runs in a pane and what happened there unseen (observable).
     func activity(for pane: PaneID) -> PaneActivity
+    /// Every pane running an agent, in every window.
+    func agents() -> [AgentEntry]
+    /// Brings a pane forward, in whichever window it is.
+    func reveal(_ pane: PaneID)
     func selectTab(_ id: TabID)
     func requestCloseTab(_ id: TabID)
     func newTab()
@@ -22,4 +26,13 @@ protocol ChromeActions: AnyObject {
     func setRatio(in tab: TabID, at path: SplitPath, _ ratio: Double)
     func movePane(_ pane: PaneID, to target: PaneID, edge: PaneEdge)
     func movePane(_ pane: PaneID, intoTab tab: TabID)
+}
+
+/// An agent pane, for the sidebar's Agents section.
+struct AgentEntry: Identifiable {
+    let pane: PaneID
+    let program: Program
+    let title: String
+    let activity: PaneActivity
+    var id: PaneID { pane }
 }

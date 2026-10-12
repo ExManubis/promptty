@@ -59,7 +59,8 @@ final class WorkspaceCoordinator: GhosttyActionSink {
                         pane: pane.id,
                         foregroundPID: surface.foregroundPID,
                         shellPID: controller.shell(for: pane.id)?.state.shellPID,
-                        seen: tabSeen
+                        seen: tabSeen,
+                        screen: { [weak surface] in surface?.visibleText() }
                     ))
                 }
             }
@@ -88,6 +89,21 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     /// Notices posted, for the debug driver.
     var postedNotices: [String] = []
     #endif
+
+    /// Every pane running an agent, window by window, tab by tab.
+    func agents() -> [AgentEntry] {
+        workspace.windows.flatMap { window in
+            window.tabs.flatMap { tab in
+                tab.orderedPanes.compactMap { pane -> AgentEntry? in
+                    let state = activity.activity(for: pane.id)
+                    guard let program = state.program, program.isAgent else { return nil }
+                    let own = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let title = own.isEmpty || own == pane.workingDirectory ? program.name : own
+                    return AgentEntry(pane: pane.id, program: program, title: title, activity: state)
+                }
+            }
+        }
+    }
 
     /// A notification was clicked: its pane comes forward, focused.
     func reveal(_ pane: PaneID) {

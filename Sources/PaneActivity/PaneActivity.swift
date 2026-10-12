@@ -7,6 +7,8 @@ public struct PaneActivity: Equatable, Sendable {
     public enum Display: Equatable, Comparable, Sendable {
         case idle
         case running
+        /// An agent at work: its screen keeps changing.
+        case working
         case finished
         case failed(Int)
         case attention
@@ -15,9 +17,10 @@ public struct PaneActivity: Equatable, Sendable {
             switch self {
             case .idle: 0
             case .running: 1
-            case .finished: 2
-            case .failed: 3
-            case .attention: 4
+            case .working: 2
+            case .finished: 3
+            case .failed: 4
+            case .attention: 5
             }
         }
 
@@ -50,6 +53,15 @@ public struct PaneActivity: Equatable, Sendable {
     private var shellSince: Date?
     private var shellObservations = 0
 
+    /// An agent in front works while its screen changes, and waits once it has been still.
+    public private(set) var isWorking = false
+    /// When the agent started working, or waiting.
+    public private(set) var agentSince: Date?
+    private var lastScreenChange: Date?
+    private var workStarted: Date?
+    /// An agent is waiting once its screen has been still this long.
+    static let agentQuiet: TimeInterval = 3
+
     /// Commands that take at least this long notify when they finish unseen.
     public static let notifyAfter: TimeInterval = 10
     /// With exit reports: how long the shell may be in front without one before the command is
@@ -63,7 +75,7 @@ public struct PaneActivity: Equatable, Sendable {
         case .attention: .attention
         case .failed(let code): .failed(code)
         case .finished: .finished
-        case nil: isRunning ? .running : .idle
+        case nil: isWorking ? .working : isRunning ? .running : .idle
         }
     }
 
@@ -90,6 +102,7 @@ public struct PaneActivity: Equatable, Sendable {
             return finish(code: 0, at: since, seen: seen)
         case .command, .program:
             if case .program(let p) = foreground { program = p } else { program = nil }
+            if program?.isAgent != true { resetAgent() }
             shellSince = nil
             shellObservations = 0
             if !isRunning {
@@ -113,6 +126,7 @@ public struct PaneActivity: Equatable, Sendable {
     private mutating func finish(code: Int, at end: Date, seen: Bool) -> Notice? {
         let ran = program
         let duration = startedAt.map { end.timeIntervalSince($0) } ?? 0
+        resetAgent()
         isRunning = false
         program = nil
         startedAt = nil
@@ -122,6 +136,44 @@ public struct PaneActivity: Equatable, Sendable {
         if unseen != .attention { unseen = code == 0 ? .finished : .failed(code) }
         guard duration >= Self.notifyAfter else { return nil }
         return Notice(kind: code == 0 ? .finished : .failed(code), program: ran, duration: duration)
+    }
+
+    /// An agent's screen, checked about once a second: whether it changed since the last check.
+    /// Returns the notice to post when the agent finished a long turn where the user was not
+    /// looking.
+    @discardableResult
+    public mutating func agentScreen(changed: Bool, at now: Date, seen: Bool) -> Notice? {
+        guard program?.isAgent == true else {
+            resetAgent()
+            return nil
+        }
+        if agentSince == nil { agentSince = now }
+        if changed {
+            lastScreenChange = now
+            if !isWorking {
+                isWorking = true
+                workStarted = now
+                agentSince = now
+            }
+            return nil
+        }
+        guard isWorking, let lastScreenChange, now.timeIntervalSince(lastScreenChange) >= Self.agentQuiet else { return nil }
+        isWorking = false
+        agentSince = lastScreenChange
+        let duration = workStarted.map { lastScreenChange.timeIntervalSince($0) } ?? 0
+        workStarted = nil
+        // The agent's turn is over: the user's, where they were not looking.
+        guard !seen, unseen != .attention else { return nil }
+        unseen = .attention
+        guard duration >= Self.notifyAfter else { return nil }
+        return Notice(kind: .waiting, program: program, duration: duration)
+    }
+
+    private mutating func resetAgent() {
+        isWorking = false
+        agentSince = nil
+        lastScreenChange = nil
+        workStarted = nil
     }
 
     /// A bell, or a program's notification (an agent waiting for the user). Notifies once until
@@ -145,6 +197,8 @@ public struct Notice: Equatable, Sendable {
         case finished
         case failed(Int)
         case attention(String?)
+        /// An agent finished its turn.
+        case waiting
     }
 
     public let kind: Kind
@@ -170,6 +224,7 @@ public struct Notice: Equatable, Sendable {
         case .finished: "Finished in \(Self.format(duration ?? 0))"
         case .failed(let code): "Failed (exit \(code)) after \(Self.format(duration ?? 0))"
         case .attention(let message): message.flatMap { $0.isEmpty ? nil : $0 } ?? "Needs your attention"
+        case .waiting: "Waiting for you after \(Self.format(duration ?? 0))"
         }
     }
 

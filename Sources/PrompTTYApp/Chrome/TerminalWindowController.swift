@@ -140,6 +140,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     func shell(for pane: PaneID) -> PaneShell? { shells[pane] }
     func activity(for pane: PaneID) -> PaneActivity { coordinator.activity.activity(for: pane) }
+    func agents() -> [AgentEntry] { coordinator.agents() }
+    func reveal(_ pane: PaneID) { coordinator.reveal(pane) }
     func allShells() -> [PaneShell] { Array(shells.values) }
 
     private func bind(_ view: TerminalSurfaceView, to pane: PaneID) {

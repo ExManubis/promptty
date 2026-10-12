@@ -14,6 +14,7 @@ struct SidebarView: View {
 
             ScrollView(.vertical) {
                 LazyVStack(spacing: 2) {
+                    AgentsSection(actions: actions)
                     ForEach(Array(state.tabs.enumerated()), id: \.element.id) { index, tab in
                         TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .full, chrome: chrome, actions: actions)
                     }
