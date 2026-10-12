@@ -43,13 +43,7 @@ struct ShellHeaderView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Label {
-                Text(Tab.abbreviate(shell.directory))
-                    .lineLimit(1)
-                    .truncationMode(.head)
-            } icon: {
-                Image(systemName: "folder")
-            }
+            FolderButton(shell: shell)
             if let git = shell.git {
                 Label {
                     HStack(spacing: 3) {
@@ -87,6 +81,55 @@ struct ShellHeaderView: View {
         let m = Int(seconds) / 60
         let s = Int(seconds) % 60
         return m < 60 ? "\(m)m \(s)s" : "\(m / 60)h \(m % 60)m"
+    }
+}
+
+/// The header's folder: a button that opens the folder picker and changes to the folder chosen.
+private struct FolderButton: View {
+    let shell: PaneShell
+    @State private var picking = false
+    @State private var hovering = false
+
+    var body: some View {
+        Button { picking = true } label: {
+            Label {
+                Text(Tab.abbreviate(shell.directory))
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            } icon: {
+                Image(systemName: "folder")
+            }
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background {
+                if hovering || picking {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.primary.opacity(0.08))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // Flush with the editor's text below, as the plain label was.
+        .padding(.horizontal, -5)
+        .disabled(shell.bar != .active)
+        .onHover { hovering = $0 }
+        .help("Change Folder")
+        .accessibilityLabel("Folder \(Tab.abbreviate(shell.directory))")
+        .accessibilityHint("Opens a list of folders to change to")
+        .popover(isPresented: $picking, arrowEdge: .top) {
+            FolderPickerView(directory: shell.directory, choose: { path in
+                picking = false
+                shell.changeDirectory(to: path)
+            }, cancel: { picking = false })
+        }
+        .onChange(of: picking) { _, open in
+            guard !open else { return }
+            // The keys go back to the bar.
+            DispatchQueue.main.async {
+                let editor = shell.editor.textView
+                editor.window?.makeFirstResponder(editor)
+            }
+        }
     }
 }
 

@@ -139,6 +139,9 @@ final class PaneShell {
     @ObservationIgnored private var stateFileDate: Date?
     /// ⏎ was pressed while a quick command still ran: the bar's text runs at the next prompt.
     @ObservationIgnored private var queuedSubmit = false
+    /// The running command is a `cd` from the folder picker: the bar's draft is the user's, not
+    /// input for it.
+    @ObservationIgnored private var changingDirectory = false
     @ObservationIgnored private var gitGeneration = 0
 
     init(pane: PaneID, directory: String, integrated: Bool) {
@@ -268,6 +271,19 @@ final class PaneShell {
         phaseChanged()
     }
 
+    /// The folder picker's choice: runs `cd` like a typed command (in the scrollback and the
+    /// history) and leaves whatever is half-typed in the bar where it is.
+    func changeDirectory(to path: String) {
+        guard bar == .active, state.phase == .idle, let surface else { return }
+        let command = ShellQuoting.cdCommand(to: path, home: NSHomeDirectory())
+        surface.sendText(command)
+        history.add(command)
+        surface.sendReturn()
+        changingDirectory = true
+        state.submitted()
+        phaseChanged()
+    }
+
     func stop() {
         poll?.invalidate()
         poll = nil
@@ -280,6 +296,7 @@ final class PaneShell {
         switch state.phase {
         case .idle:
             bar = .active
+            changingDirectory = false
             if queuedSubmit {
                 queuedSubmit = false
                 // After this change is announced, so focus has settled on the bar.
@@ -303,7 +320,7 @@ final class PaneShell {
                     // Still running: from here keys belong to the program, and so does what was
                     // typed in the meantime (an answer to a prompt, a password for sudo).
                     let typed = self.editor.textView.string
-                    if !typed.isEmpty || self.queuedSubmit, let surface = self.surface {
+                    if !self.changingDirectory, !typed.isEmpty || self.queuedSubmit, let surface = self.surface {
                         if !typed.isEmpty { surface.sendText(typed) }
                         if self.queuedSubmit { surface.sendReturn() }
                         self.editor.textView.commandRan()

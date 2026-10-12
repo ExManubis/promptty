@@ -168,6 +168,11 @@ final class DebugDriver {
             let args = arg.split(separator: " ").map(String.init)
             guard let name = args.first, let hook = hooks[name] else { return "error: no hook \(arg)" }
             return hook(Array(args.dropFirst()))
+        case "activate":
+            // As when the user switches to the app: active, with its window key.
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.orderedWindows.first { $0.windowController != nil }?.makeKeyAndOrderFront(nil)
+            return ""
         case "quit":
             quitRequested = true
             return ""
@@ -239,7 +244,14 @@ final class DebugDriver {
     /// The window commands act on: the key window, else the frontmost of PrompTTY's own windows
     /// (system panels such as the input-source indicator can be frontmost while the app is inactive).
     static var targetWindow: NSWindow? {
-        NSApp.keyWindow ?? NSApp.orderedWindows.first { $0.windowController != nil } ?? NSApp.orderedWindows.first
+        // An open popover (the folder picker) takes the keys in a real run; the driven app is
+        // often not active, so it may not be key. System windows (the input-source indicator) can
+        // be key in our process and are never the target.
+        if let popover = NSApp.windows.first(where: { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }) {
+            return popover
+        }
+        if let key = NSApp.keyWindow, key.windowController != nil { return key }
+        return NSApp.orderedWindows.first { $0.windowController != nil } ?? NSApp.orderedWindows.first
     }
 
     /// The focused pane's terminal, also when its input bar has the keys.

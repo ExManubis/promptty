@@ -225,7 +225,7 @@ enum DebugHooks {
         }
         // eval windows — every window: class, frame, visibility, title.
         driver.hooks["windows"] = { _ in
-            NSApp.windows.map { "\(type(of: $0)) \(NSStringFromRect($0.frame)) visible=\($0.isVisible) \"\($0.title)\"" }.joined(separator: "\n")
+            NSApp.windows.map { "\(type(of: $0)) \(NSStringFromRect($0.frame)) visible=\($0.isVisible) key=\($0.isKeyWindow) \"\($0.title)\"" }.joined(separator: "\n")
         }
         driver.hooks["live"] = { _ in "controllers=\(TerminalWindowController.liveCount)" }
         // eval backdrop — window transparency and the blur view's state, for checking the chrome.
