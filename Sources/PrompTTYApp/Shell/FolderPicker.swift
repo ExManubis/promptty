@@ -10,13 +10,21 @@ final class FolderPickerModel {
     var browser: FolderBrowser
 
     init(directory: String) {
-        browser = FolderBrowser(directory: directory, list: Self.folders(in:))
+        browser = FolderBrowser(directory: directory)
     }
 
-    /// The names of the folders in `path`, symlinks to folders included.
-    nonisolated static func folders(in path: String) -> [String] {
+    /// Lists the browsed folder off the main thread: a folder on a stalled network share must not
+    /// hang the app.
+    func load() async {
+        let directory = browser.directory
+        let names = await Task.detached(priority: .userInitiated) { Self.folders(in: directory) }.value
+        browser.loaded(names, for: directory)
+    }
+
+    /// The names of the folders in `path`, symlinks to folders included; nil when it cannot be read.
+    nonisolated static func folders(in path: String) -> [String]? {
         let fm = FileManager.default
-        let names = (try? fm.contentsOfDirectory(atPath: path)) ?? []
+        guard let names = try? fm.contentsOfDirectory(atPath: path) else { return nil }
         return names.filter { name in
             var isDirectory: ObjCBool = false
             return fm.fileExists(atPath: (path as NSString).appendingPathComponent(name), isDirectory: &isDirectory) && isDirectory.boolValue
@@ -28,18 +36,12 @@ final class FolderPickerModel {
 /// ↑↓ select, → steps into a folder, ← goes up, ⏎ changes to the selection (or to the folder
 /// being browsed), ⎋ closes.
 struct FolderPickerView: View {
+    let model: FolderPickerModel
     let choose: (String) -> Void
     let cancel: () -> Void
-    @State private var model: FolderPickerModel
 
     private static let rowHeight: CGFloat = 24
     private static let maxRows = 10
-
-    init(directory: String, choose: @escaping (String) -> Void, cancel: @escaping () -> Void) {
-        self.choose = choose
-        self.cancel = cancel
-        _model = State(initialValue: FolderPickerModel(directory: directory))
-    }
 
     var body: some View {
         let browser = model.browser
@@ -65,8 +67,8 @@ struct FolderPickerView: View {
 
             ScrollViewReader { proxy in
                 ScrollView(.vertical) {
-                    VStack(spacing: 0) {
-                        ForEach(Array(browser.rows.enumerated()), id: \.offset) { index, row in
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(browser.rows.enumerated()), id: \.element) { index, row in
                             FolderRowView(
                                 row: row,
                                 selected: browser.selection == index,
@@ -74,10 +76,10 @@ struct FolderPickerView: View {
                                 open: { choose(model.browser.target(row: index)) },
                                 stepIn: { model.browser.stepIn(row: index) }
                             )
-                            .id(index)
+                            .id(row)
                         }
-                        if browser.rows.isEmpty {
-                            Text(browser.query.isEmpty ? "No folders" : "No matching folders")
+                        if let note = Self.note(for: browser) {
+                            Text(note)
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, minHeight: Self.rowHeight)
@@ -86,12 +88,13 @@ struct FolderPickerView: View {
                     .padding(5)
                 }
                 .scrollIndicators(.never)
-                .frame(height: CGFloat(min(max(browser.rows.count, 1), Self.maxRows)) * Self.rowHeight + 10)
+                .frame(height: CGFloat(min(browser.rows.count + (Self.note(for: browser) == nil ? 0 : 1), Self.maxRows)) * Self.rowHeight + 10)
                 .onChange(of: browser.selection) { _, new in
-                    if let new { proxy.scrollTo(new) }
+                    let rows = model.browser.rows
+                    if let new, rows.indices.contains(new) { proxy.scrollTo(rows[new]) }
                 }
                 .onChange(of: browser.directory) { _, _ in
-                    proxy.scrollTo(model.browser.selection ?? 0)
+                    if let first = model.browser.rows.first { proxy.scrollTo(first) }
                 }
             }
 
@@ -108,6 +111,18 @@ struct FolderPickerView: View {
             .padding(.vertical, 7)
         }
         .frame(width: 320)
+        .task(id: browser.directory) { await model.load() }
+    }
+
+    /// Below the rows: why there are no folders to show.
+    private static func note(for browser: FolderBrowser) -> String? {
+        switch browser.listing {
+        case .unreadable: return "Can’t read this folder"
+        case .loading: return browser.rows.count > 1 ? nil : "Loading…"
+        case .loaded:
+            guard browser.rows.filter({ $0 != .parent }).isEmpty else { return nil }
+            return browser.query.isEmpty ? "No folders" : "No matching folders"
+        }
     }
 
     private func hint(_ key: String, _ label: String) -> some View {
@@ -127,7 +142,8 @@ struct FolderPickerView: View {
         case .left:
             guard model.browser.query.isEmpty else { return false }
             model.browser.goUp()
-        case .enter: choose(model.browser.target)
+        case .enter:
+            if let choice = model.browser.choice { choose(choice) }
         case .escape: cancel()
         }
         return true
@@ -209,7 +225,7 @@ struct FolderFilterField: NSViewRepresentable {
     let onCommand: (Command) -> Bool
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
+        let field = FocusingTextField()
         field.placeholderString = "Filter folders"
         field.isBordered = false
         field.drawsBackground = false
@@ -217,11 +233,6 @@ struct FolderFilterField: NSViewRepresentable {
         field.font = .systemFont(ofSize: 13)
         field.delegate = context.coordinator
         field.cell?.lineBreakMode = .byTruncatingTail
-        // The popover takes the keys and the first click from the bar's window.
-        DispatchQueue.main.async {
-            field.window?.makeKey()
-            field.window?.makeFirstResponder(field)
-        }
         return field
     }
 
@@ -254,5 +265,16 @@ struct FolderFilterField: NSViewRepresentable {
             default: false
             }
         }
+    }
+}
+
+/// Takes the keys as soon as it is in the popover's window, and the window with it: the popover
+/// then has the keys and the first click, not the bar's window behind it.
+private final class FocusingTextField: NSTextField {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        window.makeKey()
+        window.makeFirstResponder(self)
     }
 }

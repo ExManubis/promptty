@@ -142,6 +142,8 @@ final class PaneShell {
     /// The running command is a `cd` from the folder picker: the bar's draft is the user's, not
     /// input for it.
     @ObservationIgnored private var changingDirectory = false
+    /// A program other than the shell in the foreground during that `cd`, and for how many polls.
+    @ObservationIgnored private var hookForeground: (pid: Int, polls: Int) = (0, 0)
     @ObservationIgnored private var gitGeneration = 0
 
     init(pane: PaneID, directory: String, integrated: Bool) {
@@ -316,6 +318,16 @@ final class PaneShell {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self, self.state.phase == .running, self.bar == .inactive else { return }
+                    // A `cd` from the picker runs the shell's own hooks (direnv, a prompt's git
+                    // status) and can take longer; the bar keeps the draft and a queued ⏎ unless
+                    // a program takes the terminal.
+                    if self.changingDirectory {
+                        self.hookForeground = (0, 0)
+                        self.poll = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+                            MainActor.assumeIsolated { self?.checkForegroundDuringChange() }
+                        }
+                        return
+                    }
                     let fade: Animation? = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .easeOut(duration: 0.12)
                     // Still running: from here keys belong to the program, and so does what was
                     // typed in the meantime (an answer to a prompt, a password for sudo).
@@ -341,6 +353,29 @@ final class PaneShell {
                 MainActor.assumeIsolated { self?.checkForeground() }
             }
         }
+        onPhaseChange?(state.phase)
+    }
+
+    /// While a picker's `cd` runs: a program other than the shell that keeps the foreground for a
+    /// second (a hook that asks something, not one that runs `git` for a moment) gets the terminal
+    /// and the keys, the draft staying in the hidden bar.
+    private func checkForegroundDuringChange() {
+        guard state.phase == .running, bar == .inactive, changingDirectory else {
+            poll?.invalidate()
+            poll = nil
+            return
+        }
+        guard let pid = surface?.foregroundPID, pid > 0, let shellPID = state.shellPID, pid != shellPID else {
+            hookForeground = (0, 0)
+            return
+        }
+        hookForeground = hookForeground.pid == pid ? (pid, hookForeground.polls + 1) : (pid, 1)
+        guard hookForeground.polls >= 4 else { return }
+        hookForeground = (0, 0)
+        poll?.invalidate()
+        poll = nil
+        queuedSubmit = false
+        bar = .hidden
         onPhaseChange?(state.phase)
     }
 

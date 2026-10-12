@@ -88,10 +88,15 @@ struct ShellHeaderView: View {
 private struct FolderButton: View {
     let shell: PaneShell
     @State private var picking = false
+    @State private var picker: FolderPickerModel?
     @State private var hovering = false
 
     var body: some View {
-        Button { picking = true } label: {
+        Button {
+            // One model per opening: it lists the folder once, however often the header redraws.
+            picker = FolderPickerModel(directory: shell.directory)
+            picking = true
+        } label: {
             Label {
                 Text(Tab.abbreviate(shell.directory))
                     .lineLimit(1)
@@ -117,18 +122,22 @@ private struct FolderButton: View {
         .accessibilityLabel("Folder \(Tab.abbreviate(shell.directory))")
         .accessibilityHint("Opens a list of folders to change to")
         .popover(isPresented: $picking, arrowEdge: .top) {
-            FolderPickerView(directory: shell.directory, choose: { path in
-                picking = false
-                shell.changeDirectory(to: path)
-            }, cancel: { picking = false })
-        }
-        .onChange(of: picking) { _, open in
-            guard !open else { return }
-            // The keys go back to the bar.
-            DispatchQueue.main.async {
-                let editor = shell.editor.textView
-                editor.window?.makeFirstResponder(editor)
+            if let picker {
+                FolderPickerView(model: picker, choose: { path in
+                    close()
+                    shell.changeDirectory(to: path)
+                }, cancel: close)
             }
+        }
+    }
+
+    /// Closed from the picker (⏎, ⎋, a click on a folder): the keys go back to the bar. Closed by a
+    /// click elsewhere, the keys stay where that click put them.
+    private func close() {
+        picking = false
+        DispatchQueue.main.async {
+            let editor = shell.editor.textView
+            editor.window?.makeFirstResponder(editor)
         }
     }
 }

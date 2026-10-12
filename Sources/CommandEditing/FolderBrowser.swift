@@ -1,16 +1,24 @@
 import Foundation
 
 /// The input bar's folder picker: the folders of one directory, filtered by what was typed, with
-/// a selection to change to or step into.
-public struct FolderBrowser {
-    public enum Row: Equatable, Sendable {
+/// a selection to change to or step into. Reading the disk is the caller's job (it can be slow: a
+/// network share, a huge folder); listings arrive through `loaded(_:for:)`.
+public struct FolderBrowser: Sendable {
+    public enum Row: Hashable, Sendable {
         /// `..`: the browsed folder's parent.
         case parent
         case folder(String)
     }
 
+    public enum Listing: Equatable, Sendable {
+        case loading
+        case loaded
+        case unreadable
+    }
+
     /// The folder being browsed.
     public private(set) var directory: String
+    public private(set) var listing: Listing = .loading
     /// Typing filters the folders and selects the best match.
     public var query = "" {
         didSet { refilter() }
@@ -19,19 +27,33 @@ public struct FolderBrowser {
     /// An index into `rows`; nil means the browsed folder itself.
     public private(set) var selection: Int?
 
-    private let list: (String) -> [String]
     private var folders: [String] = []
+    /// After going up: the folder just left, selected once the parent is listed.
+    private var selectWhenLoaded: String?
 
-    /// `list` gives the names of the folders in a directory.
-    public init(directory: String, list: @escaping (String) -> [String]) {
+    public init(directory: String) {
         self.directory = directory
-        self.list = list
-        load()
+        refilter()
     }
 
-    /// Where ⏎ changes to: the selected row, or the browsed folder when nothing is selected.
-    public var target: String {
-        selection.map { target(row: $0) } ?? directory
+    /// The names of the folders in `directory`, or nil when it could not be read. Ignored when
+    /// another folder is browsed by now.
+    public mutating func loaded(_ names: [String]?, for directory: String) {
+        guard directory == self.directory else { return }
+        folders = (names ?? []).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        listing = names == nil ? .unreadable : .loaded
+        refilter()
+        if let name = selectWhenLoaded, query.isEmpty {
+            selection = rows.firstIndex(of: .folder(name))
+        }
+        selectWhenLoaded = nil
+    }
+
+    /// Where ⏎ changes to: the selected row, or the browsed folder when nothing is selected. Nil
+    /// when the filter matches nothing: a typo is not a request to stay put.
+    public var choice: String? {
+        if let selection { return target(row: selection) }
+        return query.isEmpty ? directory : nil
     }
 
     public func target(row: Int) -> String {
@@ -66,13 +88,13 @@ public struct FolderBrowser {
         return true
     }
 
-    /// Browses the parent, with the folder just left selected. False at the root.
+    /// Browses the parent, with the folder just left selected once listed. False at the root.
     @discardableResult
     public mutating func goUp() -> Bool {
         guard let parent else { return false }
         let left = (directory as NSString).lastPathComponent
         browse(parent)
-        selection = rows.firstIndex(of: .folder(left))
+        selectWhenLoaded = left
         return true
     }
 
@@ -82,11 +104,9 @@ public struct FolderBrowser {
 
     private mutating func browse(_ path: String) {
         directory = path
-        load()
-    }
-
-    private mutating func load() {
-        folders = list(directory).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        folders = []
+        listing = .loading
+        selectWhenLoaded = nil
         if query.isEmpty { refilter() } else { query = "" }
     }
 
@@ -96,9 +116,12 @@ public struct FolderBrowser {
             selection = nil
             return
         }
-        let candidates = query.hasPrefix(".") ? folders : folders.filter { !$0.hasPrefix(".") }
-        let prefix = candidates.filter { $0.range(of: query, options: [.caseInsensitive, .anchored]) != nil }
-        let other = candidates.filter { !prefix.contains($0) && $0.range(of: query, options: .caseInsensitive) != nil }
+        var prefix: [String] = []
+        var other: [String] = []
+        for name in folders where query.hasPrefix(".") || !name.hasPrefix(".") {
+            guard let range = name.range(of: query, options: .caseInsensitive) else { continue }
+            if range.lowerBound == name.startIndex { prefix.append(name) } else { other.append(name) }
+        }
         rows = (prefix + other).map(Row.folder)
         selection = rows.isEmpty ? nil : 0
     }

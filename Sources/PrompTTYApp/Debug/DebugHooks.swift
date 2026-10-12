@@ -96,7 +96,7 @@ enum DebugHooks {
         // eval hit x y — the AppKit view under a window point (top-left origin).
         driver.hooks["hit"] = { args in
             guard args.count == 2, let x = Double(args[0]), let y = Double(args[1]),
-                  let window = DebugDriver.targetWindow,
+                  let window = DebugDriver.inputWindow,
                   let content = window.contentView,
                   let root = content.superview else { return "error: hit x y" }
             let point = NSPoint(x: x, y: window.frame.height - y)

@@ -58,23 +58,50 @@ final class FolderBrowserTests: XCTestCase {
         "/Users/me/Developer": ["promptty", "other"],
     ]
 
+    /// Delivers the browsed folder's listing, as the picker does once it has read the disk; a
+    /// folder missing from `tree` cannot be read.
+    private func load(_ b: inout FolderBrowser) {
+        b.loaded(tree[b.directory], for: b.directory)
+    }
+
     private func browser(at directory: String = "/Users/me") -> FolderBrowser {
-        let tree = self.tree
-        return FolderBrowser(directory: directory) { tree[$0] ?? [] }
+        var b = FolderBrowser(directory: directory)
+        load(&b)
+        return b
     }
 
     func testListsTheParentThenVisibleFoldersInFinderOrder() {
         let b = browser()
+        XCTAssertEqual(b.listing, .loaded)
         XCTAssertEqual(b.rows, [.parent, .folder("Desktop"), .folder("Developer"), .folder("docs"), .folder("downloads")])
         XCTAssertNil(b.selection)
+    }
+
+    func testUntilTheListingArrivesOnlyTheParentIsShown() {
+        let b = FolderBrowser(directory: "/Users/me")
+        XCTAssertEqual(b.listing, .loading)
+        XCTAssertEqual(b.rows, [.parent])
+    }
+
+    func testAListingForAFolderNoLongerBrowsedIsIgnored() {
+        var b = FolderBrowser(directory: "/Users/me")
+        b.loaded(["stale"], for: "/somewhere/else")
+        XCTAssertEqual(b.listing, .loading)
+        XCTAssertEqual(b.rows, [.parent])
+    }
+
+    func testAnUnreadableFolderSaysSo() {
+        let b = browser(at: "/private")
+        XCTAssertEqual(b.listing, .unreadable)
+        XCTAssertEqual(b.rows, [.parent])
     }
 
     func testTheRootHasNoParentRow() {
         XCTAssertEqual(browser(at: "/").rows, [.folder("tmp"), .folder("Users")])
     }
 
-    func testWithNothingSelectedTheTargetIsTheBrowsedFolder() {
-        XCTAssertEqual(browser().target, "/Users/me")
+    func testWithNothingSelectedTheChoiceIsTheBrowsedFolder() {
+        XCTAssertEqual(browser().choice, "/Users/me")
     }
 
     func testFilteringPutsPrefixMatchesFirstIgnoresCaseAndSelectsTheBest() {
@@ -86,12 +113,12 @@ final class FolderBrowserTests: XCTestCase {
         b.query = "OWN"
         XCTAssertEqual(b.rows, [.folder("downloads")])
         XCTAssertEqual(b.selection, 0)
-        XCTAssertEqual(b.target, "/Users/me/downloads")
+        XCTAssertEqual(b.choice, "/Users/me/downloads")
     }
 
     func testPrefixMatchesComeBeforeOtherMatches() {
-        let b0 = FolderBrowser(directory: "/x") { _ in ["abc", "cab", "b"] }
-        var b = b0
+        var b = FolderBrowser(directory: "/x")
+        b.loaded(["abc", "cab", "b"], for: "/x")
         b.query = "b"
         XCTAssertEqual(b.rows, [.folder("b"), .folder("abc"), .folder("cab")])
     }
@@ -104,12 +131,13 @@ final class FolderBrowserTests: XCTestCase {
         XCTAssertEqual(b.rows, [.folder(".config")])
     }
 
-    func testNoMatchesMeansNoSelectionAndTheBrowsedFolder() {
+    /// A typo and ⏎ must not run a `cd` to where the pane already is.
+    func testNoMatchesMeansNothingToChoose() {
         var b = browser()
         b.query = "zzz"
         XCTAssertEqual(b.rows, [])
         XCTAssertNil(b.selection)
-        XCTAssertEqual(b.target, "/Users/me")
+        XCTAssertNil(b.choice)
     }
 
     func testClearingTheFilterClearsTheSelection() {
@@ -123,10 +151,10 @@ final class FolderBrowserTests: XCTestCase {
         var b = browser()
         b.moveSelection(by: 1)
         XCTAssertEqual(b.selection, 0)
-        XCTAssertEqual(b.target, "/Users")
+        XCTAssertEqual(b.choice, "/Users")
         b.moveSelection(by: -1)
         XCTAssertEqual(b.selection, 4)
-        XCTAssertEqual(b.target, "/Users/me/downloads")
+        XCTAssertEqual(b.choice, "/Users/me/downloads")
         b.moveSelection(by: 1)
         XCTAssertEqual(b.selection, 0)
     }
@@ -138,17 +166,20 @@ final class FolderBrowserTests: XCTestCase {
     }
 
     func testMovingInAnEmptyListDoesNothing() {
-        var b = FolderBrowser(directory: "/") { _ in [] }
+        var b = FolderBrowser(directory: "/")
+        b.loaded([], for: "/")
         b.moveSelection(by: 1)
         XCTAssertNil(b.selection)
     }
 
-    func testSteppingIntoTheSelectedFolderListsItAndClearsTheFilter() {
+    func testSteppingIntoTheSelectedFolderBrowsesItAndClearsTheFilter() {
         var b = browser()
         b.query = "dev"
         XCTAssertTrue(b.stepIn())
         XCTAssertEqual(b.directory, "/Users/me/Developer")
         XCTAssertEqual(b.query, "")
+        XCTAssertEqual(b.listing, .loading)
+        load(&b)
         XCTAssertNil(b.selection)
         XCTAssertEqual(b.rows, [.parent, .folder("other"), .folder("promptty")])
     }
@@ -166,11 +197,12 @@ final class FolderBrowserTests: XCTestCase {
         XCTAssertEqual(b.directory, "/Users/me")
     }
 
-    func testGoingUpSelectsTheFolderYouCameFrom() {
+    func testGoingUpSelectsTheFolderYouCameFromOnceListed() {
         var b = browser(at: "/Users/me/Developer")
         XCTAssertTrue(b.goUp())
         XCTAssertEqual(b.directory, "/Users/me")
-        XCTAssertEqual(b.target, "/Users/me/Developer")
+        load(&b)
+        XCTAssertEqual(b.choice, "/Users/me/Developer")
         XCTAssertEqual(b.rows[b.selection ?? -1], .folder("Developer"))
     }
 
@@ -186,5 +218,12 @@ final class FolderBrowserTests: XCTestCase {
         XCTAssertEqual(b.directory, "/Users/me/Developer")
         XCTAssertEqual(browser().target(row: 3), "/Users/me/docs")
         XCTAssertEqual(browser().target(row: 0), "/Users")
+    }
+
+    func testFilteringManyFoldersIsQuick() {
+        var b = FolderBrowser(directory: "/big")
+        b.loaded((0..<20_000).map { "folder-\($0)" }, for: "/big")
+        measure { b.query = b.query == "1" ? "2" : "1" }
+        XCTAssertFalse(b.rows.isEmpty)
     }
 }

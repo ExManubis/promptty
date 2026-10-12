@@ -87,13 +87,13 @@ final class DebugDriver {
             NSApp.sendAction(selector, to: target, from: nil)
             return ""
         case "key":
-            let window = DebugDriver.targetWindow
+            let window = DebugDriver.inputWindow
             guard let events = KeySpec.events(arg, window: window) else { return "error: bad key \(arg)" }
             for e in events { Self.dispatch(e, to: window) }
             return ""
         case "keys":
             // Types `arg` as individual key presses into whatever has focus (text fields too).
-            let window = DebugDriver.targetWindow
+            let window = DebugDriver.inputWindow
             for ch in arg {
                 let s = String(ch)
                 let spec = s == " " ? "space" : s.lowercased()
@@ -124,7 +124,8 @@ final class DebugDriver {
         case "click", "dclick", "rclick":
             // x y in window points, top-left origin.
             let nums = arg.split(separator: " ").compactMap { Double($0) }
-            guard nums.count == 2, let window = DebugDriver.targetWindow else { return "error: click x y" }
+            // In the open popover, if any (see `inputWindow`).
+            guard nums.count == 2, let window = DebugDriver.inputWindow else { return "error: click x y" }
             let p = NSPoint(x: nums[0], y: window.frame.height - nums[1])
             let clicks = command == "dclick" ? 2 : 1
             for n in 1...clicks {
@@ -170,7 +171,7 @@ final class DebugDriver {
             return hook(Array(args.dropFirst()))
         case "activate":
             // As when the user switches to the app: active, with its window key.
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
             NSApp.orderedWindows.first { $0.windowController != nil }?.makeKeyAndOrderFront(nil)
             return ""
         case "quit":
@@ -243,15 +244,22 @@ final class DebugDriver {
 
     /// The window commands act on: the key window, else the frontmost of PrompTTY's own windows
     /// (system panels such as the input-source indicator can be frontmost while the app is inactive).
+    /// The window that commands act on: ours, not a system window (the input-source indicator)
+    /// that can be key in our process.
     static var targetWindow: NSWindow? {
-        // An open popover (the folder picker) takes the keys in a real run; the driven app is
-        // often not active, so it may not be key. System windows (the input-source indicator) can
-        // be key in our process and are never the target.
-        if let popover = NSApp.windows.first(where: { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }) {
-            return popover
-        }
         if let key = NSApp.keyWindow, key.windowController != nil { return key }
         return NSApp.orderedWindows.first { $0.windowController != nil } ?? NSApp.orderedWindows.first
+    }
+
+    /// Where keys and clicks go: an open popover of the target window (the folder picker) has
+    /// them in a real run, also when the driven app is not active and so has no key window.
+    static var inputWindow: NSWindow? {
+        let target = targetWindow
+        // Child windows are not in `orderedWindows`.
+        return NSApp.windows.first { window in
+            window.isVisible && String(describing: type(of: window)).contains("Popover")
+                && (window.parent == nil || window.parent === target)
+        } ?? target
     }
 
     /// The focused pane's terminal, also when its input bar has the keys.
