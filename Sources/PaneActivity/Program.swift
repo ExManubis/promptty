@@ -12,14 +12,42 @@ public struct Program: Equatable, Hashable, Sendable {
     public let isShell: Bool
     /// A coding agent: PrompTTY tells when it works and when it waits for the user.
     public let isAgent: Bool
+    /// The tab tile in the brand's colors; nil for the default dark tile.
+    public let tile: Tile?
 
-    public init(id: String, name: String, logo: String? = nil, color: UInt32? = nil, isShell: Bool = false, isAgent: Bool = false) {
+    /// A tile's colors, 0xRRGGBB.
+    public struct Tile: Equatable, Hashable, Sendable {
+        public let background: UInt32
+        public let foreground: UInt32
+
+        public init(background: UInt32, foreground: UInt32) {
+            self.background = background
+            self.foreground = foreground
+        }
+
+        /// The WCAG contrast ratio of two colors.
+        public static func contrast(_ a: UInt32, _ b: UInt32) -> Double {
+            let la = luminance(a), lb = luminance(b)
+            return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+        }
+
+        public static func luminance(_ hex: UInt32) -> Double {
+            func linear(_ c: UInt32) -> Double {
+                let v = Double(c) / 255
+                return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * linear((hex >> 16) & 0xFF) + 0.7152 * linear((hex >> 8) & 0xFF) + 0.0722 * linear(hex & 0xFF)
+        }
+    }
+
+    public init(id: String, name: String, logo: String? = nil, color: UInt32? = nil, isShell: Bool = false, isAgent: Bool = false, tile: Tile? = nil) {
         self.id = id
         self.name = name
         self.logo = logo
         self.color = color
         self.isShell = isShell
         self.isAgent = isAgent
+        self.tile = tile
     }
 }
 
@@ -40,9 +68,54 @@ public enum ProgramCatalog {
     private static func entry(_ id: String, _ name: String, logo: String?, _ color: UInt32?, _ executables: [String],
                               interpreter: Bool = false, markers: [String] = [], scriptable: Bool = false,
                               shell: Bool = false, agent: Bool = false) -> Entry {
-        Entry(program: Program(id: id, name: name, logo: logo, color: color, isShell: shell, isAgent: agent),
+        Entry(program: Program(id: id, name: name, logo: logo, color: color, isShell: shell, isAgent: agent, tile: tiles[id]),
               executables: executables, interpreter: interpreter, scriptMarkers: markers, scriptable: scriptable)
     }
+
+    private static let white: UInt32 = 0xFFFFFF
+
+    /// Each logo's tile: the brand's own color behind the logo in white, or the brand's pairing
+    /// where it has one (Python's yellow on blue, Bun on its cream).
+    private static let tiles: [String: Program.Tile] = [
+        "claude": .init(background: 0xD97757, foreground: white),
+        "codex": .init(background: 0x000000, foreground: white),
+        "gemini": .init(background: 0x8E75B2, foreground: white),
+        "copilot": .init(background: 0x000000, foreground: white),
+        "ollama": .init(background: 0x000000, foreground: white),
+        "node": .init(background: 0x5FA04E, foreground: white),
+        "bun": .init(background: 0xFBF0DF, foreground: 0x14151A),
+        "deno": .init(background: 0x000000, foreground: white),
+        "python": .init(background: 0x3776AB, foreground: 0xFFD43B),
+        "ruby": .init(background: 0xCC342D, foreground: white),
+        "go": .init(background: 0x00ADD8, foreground: white),
+        "rust": .init(background: 0xB7410E, foreground: white),
+        "swift": .init(background: 0xF05138, foreground: white),
+        "lua": .init(background: 0x000080, foreground: white),
+        "php": .init(background: 0x777BB4, foreground: white),
+        "elixir": .init(background: 0x4B275F, foreground: white),
+        "kotlin": .init(background: 0x7F52FF, foreground: white),
+        "gradle": .init(background: 0x02303A, foreground: white),
+        "neovim": .init(background: 0x57A143, foreground: white),
+        "vim": .init(background: 0x019733, foreground: white),
+        "emacs": .init(background: 0x7F5AB6, foreground: white),
+        "helix": .init(background: 0x281733, foreground: white),
+        "git": .init(background: 0xF03C2E, foreground: white),
+        "lazygit": .init(background: 0xF03C2E, foreground: white),
+        "tmux": .init(background: 0x1BB91F, foreground: white),
+        "docker": .init(background: 0x2496ED, foreground: white),
+        "kubernetes": .init(background: 0x326CE5, foreground: white),
+        "htop": .init(background: 0x009020, foreground: white),
+        "postgresql": .init(background: 0x4169E1, foreground: white),
+        "mysql": .init(background: 0x4479A1, foreground: white),
+        "redis": .init(background: 0xFF4438, foreground: white),
+        "sqlite": .init(background: 0x003B57, foreground: white),
+        "terraform": .init(background: 0x844FBA, foreground: white),
+        "ansible": .init(background: 0xEE0000, foreground: white),
+        "homebrew": .init(background: 0xFBB040, foreground: 0x2E2A24),
+        "npm": .init(background: 0xCB3837, foreground: white),
+        "pnpm": .init(background: 0xF69220, foreground: 0x2B2B2B),
+        "yarn": .init(background: 0x2C8EBB, foreground: white),
+    ]
 
     private static let entries: [Entry] = [
         // Agents

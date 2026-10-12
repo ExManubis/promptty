@@ -67,6 +67,20 @@ final class ProgramCatalogTests: XCTestCase {
         XCTAssertNil(ProgramCatalog.identify(executable: "/bin/sh", arguments: ["sh", "build.sh"]))
     }
 
+    /// Programs with a logo have a tile in their brand's colors, the logo readable on it.
+    func testBrandTiles() {
+        let claude = ProgramCatalog.all.first { $0.id == "claude" }
+        XCTAssertEqual(claude?.tile, Program.Tile(background: 0xD97757, foreground: 0xFFFFFF))
+        XCTAssertEqual(ProgramCatalog.all.first { $0.id == "python" }?.tile, Program.Tile(background: 0x3776AB, foreground: 0xFFD43B))
+        XCTAssertEqual(ProgramCatalog.all.first { $0.id == "bun" }?.tile, Program.Tile(background: 0xFBF0DF, foreground: 0x14151A))
+        for program in ProgramCatalog.all where program.logo != nil {
+            let tile = try! XCTUnwrap(program.tile, program.id)
+            XCTAssertGreaterThanOrEqual(Program.Tile.contrast(tile.background, tile.foreground), 2.5, program.id)
+        }
+        // Shells and unknown programs: the default dark tile.
+        XCTAssertNil(ProgramCatalog.all.first { $0.id == "zsh" }?.tile)
+    }
+
     func testEveryLogoHasAColor() {
         for program in ProgramCatalog.all where program.logo != nil {
             XCTAssertNotNil(program.color, program.id)

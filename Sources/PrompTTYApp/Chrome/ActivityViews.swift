@@ -8,6 +8,8 @@ struct ProgramIcon: View {
     var size: CGFloat = 14
     /// Shown when no program is recognised.
     var fallbackSymbol = "terminal"
+    /// The logo's color, in place of the brand's (on a brand-colored tile).
+    var tint: Color?
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -18,7 +20,7 @@ struct ProgramIcon: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: size, height: size)
-                .foregroundStyle(color(for: program))
+                .foregroundStyle(tint ?? color(for: program))
                 .accessibilityLabel(program.name)
         } else {
             Image(systemName: fallbackSymbol)
@@ -121,20 +123,23 @@ struct ProgramStack: View {
                 let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
                 Group {
                     if depth == 0 {
-                        shape.fill(Color(white: 0.96))
+                        shape.fill(Self.background(for: card.program))
                             .overlay {
                                 if card.program?.logo != nil {
-                                    // The logo as on a light background, whatever the window's appearance.
-                                    ProgramIcon(program: card.program, size: 11)
-                                        .environment(\.colorScheme, .light)
+                                    // On a brand tile in the brand's pairing; on the dark tile in the
+                                    // brand's color, as on a dark background.
+                                    ProgramIcon(program: card.program, size: 11, tint: card.program?.tile.map { Self.color($0.foreground) })
+                                        .environment(\.colorScheme, .dark)
                                 } else {
                                     // A shell or an unknown program: the prompt itself, as Rex shows it.
                                     Text(">_")
                                         .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                        .foregroundStyle(Color(white: 0.25))
+                                        .foregroundStyle(Color(white: 0.85))
                                         .accessibilityHidden(true)
                                 }
                             }
+                            // A faint rim, so a dark tile stands out on a dark sidebar.
+                            .overlay(shape.strokeBorder(Color.white.opacity(0.16), lineWidth: 0.5).padding(0.75))
                     } else {
                         shape.fill(Self.color(for: card.display))
                     }
@@ -152,6 +157,17 @@ struct ProgramStack: View {
         .frame(width: Self.width + CGFloat(max(shown.count - 1, 0)) * Self.step + 2, height: Self.height + 3, alignment: .leading)
         .accessibilityElement()
         .accessibilityLabel(Self.label(for: shown))
+    }
+
+    /// The default tile: dark, like a terminal.
+    static let darkTile = Color(red: 0.13, green: 0.13, blue: 0.145)
+
+    static func background(for program: Program?) -> Color {
+        program?.tile.map { color($0.background) } ?? darkTile
+    }
+
+    static func color(_ hex: UInt32) -> Color {
+        Color(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
     }
 
     static func color(for display: PaneActivity.Display) -> Color {
