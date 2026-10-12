@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 xcodegen generate
-xcodebuild -project PrompTTY.xcodeproj -scheme PrompTTYApp -configuration Debug \
+xcodebuild -project PrompTTY.xcodeproj -scheme PrompTTYApp -configuration Debug -destination "platform=macOS,arch=arm64" \
   -derivedDataPath .build/DerivedData CURRENT_PROJECT_VERSION="$(git rev-list --count HEAD)" build | tail -20
 APP=.build/DerivedData/Build/Products/Debug/PrompTTY.app
 # `open` only brings an already-running copy to the front; it does not start the new build.
