@@ -44,6 +44,8 @@ public enum GhosttyAction: Equatable, Sendable {
     case showChildExited(exitCode: UInt32, runtimeMs: UInt64)
     case desktopNotification(title: String, body: String)
     case ringBell
+    /// From shell integration (OSC 133;D): `exitCode` is -1 when the shell gave none.
+    case commandFinished(exitCode: Int16, durationNs: UInt64)
     /// Synthesized from `close_surface_cb`, not a `ghostty_action_tag_e`.
     case closeSurface(processAlive: Bool)
     case unhandled(tag: UInt32)
@@ -99,6 +101,8 @@ public enum GhosttyAction: Equatable, Sendable {
             self = .reloadConfig(soft: c.action.reload_config.soft)
         case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
             self = .showChildExited(exitCode: c.action.child_exited.exit_code, runtimeMs: c.action.child_exited.timetime_ms)
+        case GHOSTTY_ACTION_COMMAND_FINISHED:
+            self = .commandFinished(exitCode: c.action.command_finished.exit_code, durationNs: c.action.command_finished.duration)
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             let n = c.action.desktop_notification
             self = .desktopNotification(title: Self.string(n.title), body: Self.string(n.body))

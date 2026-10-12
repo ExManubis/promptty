@@ -116,6 +116,14 @@ final class GhosttyActionTests: XCTestCase {
         XCTAssertEqual(decoded, .desktopNotification(title: "T", body: "B"))
     }
 
+    func testCommandFinished() {
+        var a = action(GHOSTTY_ACTION_COMMAND_FINISHED)
+        a.action.command_finished = ghostty_action_command_finished_s(exit_code: 1, duration: 2_500_000_000)
+        XCTAssertEqual(GhosttyAction(a), .commandFinished(exitCode: 1, durationNs: 2_500_000_000))
+        a.action.command_finished = ghostty_action_command_finished_s(exit_code: -1, duration: 0)
+        XCTAssertEqual(GhosttyAction(a), .commandFinished(exitCode: -1, durationNs: 0))
+    }
+
     func testUnknownTagIsUnhandled() {
         let a = action(GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL)
         XCTAssertEqual(GhosttyAction(a), .unhandled(tag: GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL.rawValue))

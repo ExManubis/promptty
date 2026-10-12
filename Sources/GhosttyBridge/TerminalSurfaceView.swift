@@ -6,9 +6,12 @@ public struct TerminalSurfaceConfiguration: Sendable {
     public var workingDirectory: String?
     /// A split's source pane: the new surface inherits its settings (e.g. a zoomed font size).
     public var inheritFrom: TerminalSurfaceView?
-    public init(workingDirectory: String? = nil, inheritFrom: TerminalSurfaceView? = nil) {
+    /// Added to the shell's environment.
+    public var environment: [String: String]
+    public init(workingDirectory: String? = nil, inheritFrom: TerminalSurfaceView? = nil, environment: [String: String] = [:]) {
         self.workingDirectory = workingDirectory
         self.inheritFrom = inheritFrom
+        self.environment = environment
     }
 }
 
@@ -22,6 +25,11 @@ public final class TerminalSurfaceView: NSView {
     /// Called each time the view joins a window. Hosts that move the view between containers use
     /// it to restore focus, which AppKit drops when a first responder leaves the window.
     public var onAttachedToWindow: (() -> Void)?
+    /// Called after the terminal grid was given a new size.
+    public var onSizeChange: (() -> Void)?
+    /// Asked before the terminal takes a key: a responder returned here gets focus and the key
+    /// instead (the input bar while the shell is at a prompt). ⌘ keys still go to the menus.
+    public var keyRedirect: (() -> NSResponder?)?
 
     /// Size libghostty asked for during `ghostty_surface_new`, before this view had a window.
     public private(set) var pendingInitialSize: CGSize?
@@ -119,9 +127,21 @@ public final class TerminalSurfaceView: NSView {
         let inheritedDirectory = cfg.working_directory
         // The source is only needed for creation; do not keep it alive.
         configuration.inheritFrom = nil
-        let created: UnsafeMutableRawPointer? = withOptionalCString(configuration.workingDirectory) { dir in
-            cfg.working_directory = dir ?? inheritedDirectory
-            return ghostty_surface_new(runtime.app, &cfg)
+        // The C strings must outlive `ghostty_surface_new`, which copies them.
+        var cStrings: [UnsafeMutablePointer<CChar>] = []
+        defer { cStrings.forEach { free($0) } }
+        var envVars: [ghostty_env_var_s] = configuration.environment.sorted { $0.key < $1.key }.map { key, value in
+            let k = strdup(key)!, v = strdup(value)!
+            cStrings += [k, v]
+            return ghostty_env_var_s(key: k, value: v)
+        }
+        let created: UnsafeMutableRawPointer? = envVars.withUnsafeMutableBufferPointer { vars in
+            cfg.env_vars = vars.baseAddress
+            cfg.env_var_count = vars.count
+            return withOptionalCString(configuration.workingDirectory) { dir in
+                cfg.working_directory = dir ?? inheritedDirectory
+                return ghostty_surface_new(runtime.app, &cfg)
+            }
         }
         surface = created
         if created != nil { updateColorScheme() }
@@ -162,6 +182,13 @@ public final class TerminalSurfaceView: NSView {
     public func performBindingAction(_ action: String) -> Bool {
         guard let surface else { return false }
         return action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
+    }
+
+    /// The process that owns the terminal now (the shell at a prompt, a program while it runs).
+    public var foregroundPID: Int? {
+        guard let surface else { return nil }
+        let pid = ghostty_surface_foreground_pid(surface)
+        return pid > 0 ? Int(pid) : nil
     }
 
     public var hasSelection: Bool {
@@ -228,6 +255,7 @@ public final class TerminalSurfaceView: NSView {
         Self.sentSizes.append("\(w)x\(h)")
         #endif
         ghostty_surface_set_size(surface, w, h)
+        onSizeChange?()
     }
 
     // MARK: Focus and visibility

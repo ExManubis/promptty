@@ -23,7 +23,16 @@ extension TerminalSurfaceView {
         return true
     }
 
+    /// Hands a key to `keyRedirect`'s responder, focusing it. True when the key was handed over.
+    private func redirect(_ event: NSEvent) -> Bool {
+        guard let target = keyRedirect?(), let window else { return false }
+        window.makeFirstResponder(target)
+        target.keyDown(with: event)
+        return true
+    }
+
     public override func keyDown(with event: NSEvent) {
+        if redirect(event) { return }
         guard let surface else { return }
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
         // Let the text system run first so IME, dead keys, and `insertText` happen; we collect the

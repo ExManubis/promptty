@@ -374,6 +374,8 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         case .ringBell:
             NSSound.beep()
             return true
+        case .commandFinished:
+            return false
         case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .unhandled:
             // Config, mouse-shape and mouse-visibility actions are handled by the runtime.
             return false
