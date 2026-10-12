@@ -61,28 +61,33 @@ public enum ZshHistory {
 public struct CommandHistory: Sendable {
     private var fileEntries: [String]
     private var sessionEntries: [String] = []
+    /// Read on every keystroke (ghost text, history), so kept ready rather than rebuilt.
+    public private(set) var newestFirst: [String] = []
 
     public init(fileEntries: [String]) {
         self.fileEntries = fileEntries
+        rebuild()
     }
 
     public mutating func add(_ command: String) {
         guard !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         sessionEntries.append(command)
+        rebuild()
     }
 
     /// The file changed on disk (zsh appends as commands run).
     public mutating func replaceFileEntries(_ entries: [String]) {
         fileEntries = entries
+        rebuild()
     }
 
-    public var newestFirst: [String] {
+    private mutating func rebuild() {
         var seen = Set<String>()
         var result: [String] = []
         for command in (fileEntries + sessionEntries).reversed() where seen.insert(command).inserted {
             result.append(command)
         }
-        return result
+        newestFirst = result
     }
 }
 

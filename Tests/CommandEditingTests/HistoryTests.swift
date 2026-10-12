@@ -44,6 +44,17 @@ final class CommandHistoryTests: XCTestCase {
         XCTAssertEqual(h.newestFirst, ["git status", "make", "ls"])
     }
 
+    func testLargeHistoriesAreReadyWithoutRecomputing() {
+        let entries = (0..<100_000).map { "command \($0 % 50_000)" }
+        let h = CommandHistory(fileEntries: entries)
+        // Read on every keystroke (ghost text): must not rebuild the list each time.
+        let start = Date()
+        for _ in 0..<100 { _ = h.newestFirst.first }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 0.05)
+        XCTAssertEqual(h.newestFirst.count, 50_000)
+        XCTAssertEqual(h.newestFirst.first, "command 49999")
+    }
+
     func testBlankCommandsAreNotAdded() {
         var h = CommandHistory(fileEntries: [])
         h.add("   ")

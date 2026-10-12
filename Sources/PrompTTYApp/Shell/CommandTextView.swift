@@ -431,7 +431,9 @@ final class CommandTextView: NSTextView {
     /// The height for the text's lines (one to `maxLines`), always a whole number of lines so the
     /// bar, and the terminal above it, keep their size while typing on one line.
     func height(maxLines: Int = 8) -> CGFloat {
-        let lineHeight = Self.lineHeight(for: font ?? EditorStyle.font)
+        // The bar's font, not `font`: that is whatever font is at the caret, and a fallback font
+        // (for → or an emoji) has a different line height.
+        let lineHeight = Self.lineHeight(for: EditorStyle.font)
         guard let layoutManager, let textContainer else { return lineHeight }
         layoutManager.ensureLayout(for: textContainer)
         var lines = 0
@@ -449,7 +451,7 @@ final class CommandTextView: NSTextView {
     /// Every line exactly `lineHeight` tall, so the line count above is the layout's.
     func applyParagraphStyle() {
         let style = NSMutableParagraphStyle()
-        let lineHeight = Self.lineHeight(for: font ?? EditorStyle.font)
+        let lineHeight = Self.lineHeight(for: EditorStyle.font)
         style.minimumLineHeight = lineHeight
         style.maximumLineHeight = lineHeight
         defaultParagraphStyle = style
