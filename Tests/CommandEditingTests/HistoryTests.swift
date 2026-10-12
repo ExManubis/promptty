@@ -55,6 +55,12 @@ final class CommandHistoryTests: XCTestCase {
         XCTAssertEqual(h.newestFirst.first, "command 49999")
     }
 
+    func testCommandsStartingWithASpaceStayOutOfHistory() {
+        var h = CommandHistory(fileEntries: [])
+        h.add(" export TOKEN=secret")
+        XCTAssertTrue(h.newestFirst.isEmpty, "zsh's HIST_IGNORE_SPACE convention, used for secrets")
+    }
+
     func testBlankCommandsAreNotAdded() {
         var h = CommandHistory(fileEntries: [])
         h.add("   ")

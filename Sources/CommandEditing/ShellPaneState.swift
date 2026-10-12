@@ -21,24 +21,27 @@ public struct CommandExit: Equatable, Sendable {
     }
 }
 
-/// A pane's shell, as far as the input bar is concerned. PrompTTY's zsh integration reports the
-/// directory (OSC 7) at every prompt; a report while the shell itself is in the foreground means
+/// A pane's shell, as far as the input bar is concerned. PrompTTY's zsh integration signals each
+/// time zle starts reading a line; that signal while the shell itself is in the foreground means
 /// the prompt is ready.
 public struct ShellPaneState: Equatable, Sendable {
     public private(set) var phase: ShellPhase = .starting
     /// The shell's pid: the foreground pid at its first prompt (precmd runs in the shell itself).
     public private(set) var shellPID: Int?
     public private(set) var lastExit: CommandExit?
+    /// A foreground process other than the shell seen at the last poll, not yet confirmed.
+    private var pendingForeground: Int?
 
     public init() {}
 
-    /// The shell reported its directory while `foregroundPID` owned the terminal. Returns true when
-    /// this made the pane idle.
-    public mutating func pwdReported(foregroundPID: Int) -> Bool {
+    /// The integration signalled a ready prompt while `foregroundPID` owned the terminal. Returns
+    /// true when this made the pane idle.
+    public mutating func promptReady(foregroundPID: Int) -> Bool {
         guard foregroundPID > 0, phase != .idle else { return false }
         if shellPID == nil { shellPID = foregroundPID }
         guard foregroundPID == shellPID else { return false }
         phase = .idle
+        pendingForeground = nil
         return true
     }
 
@@ -54,9 +57,19 @@ public struct ShellPaneState: Equatable, Sendable {
     }
 
     /// The terminal's foreground process, polled while idle: anything but the shell (a job brought
-    /// to the foreground, a program started by a hook) owns the keys.
+    /// to the foreground, a program started by a hook) owns the keys once it is seen at two polls
+    /// in a row; a hook's short-lived helper (`tput`) is gone by the second.
     public mutating func foregroundChanged(to pid: Int) {
-        guard phase == .idle, let shellPID, pid > 0, pid != shellPID else { return }
-        phase = .running
+        guard phase == .idle, let shellPID, pid > 0 else { return }
+        guard pid != shellPID else {
+            pendingForeground = nil
+            return
+        }
+        if pendingForeground == pid {
+            phase = .running
+            pendingForeground = nil
+        } else {
+            pendingForeground = pid
+        }
     }
 }

@@ -48,6 +48,21 @@ final class ZshIntegrationTests: XCTestCase {
         XCTAssertEqual(env["PROMPTTY_ZDOTDIR"], "/Users/me/.config/zsh")
     }
 
+    func testReadyReportsAreToldApartFromDirectoryReports() {
+        XCTAssertEqual(ZshIntegration.readyDirectory(fromReportedPath: "/.promptty-ready/Users/me/x"), "/Users/me/x")
+        XCTAssertEqual(ZshIntegration.readyDirectory(fromReportedPath: "/.promptty-ready/"), "/")
+        XCTAssertEqual(ZshIntegration.readyDirectory(fromReportedPath: "/.promptty-ready"), "/")
+        XCTAssertNil(ZshIntegration.readyDirectory(fromReportedPath: "/Users/me/x"))
+        XCTAssertNil(ZshIntegration.readyDirectory(fromReportedPath: "/.promptty-readyish/x"))
+    }
+
+    func testScriptSignalsReadinessFromZleLineInit() {
+        let s = ZshIntegration.zshenv
+        XCTAssertTrue(s.contains("add-zle-hook-widget line-init _promptty_line_init"))
+        XCTAssertTrue(s.contains("/.promptty-ready${PWD}"))
+        XCTAssertTrue(s.contains("zle' reset-prompt"))
+    }
+
     func testScriptHasTheHooksTheAppRelies() {
         let s = ZshIntegration.zshenv
         for needle in ["_promptty_init", "_promptty_precmd", "_promptty_preexec", "'unsetopt' hist_verify",

@@ -118,6 +118,20 @@ final class ViEngineTests: XCTestCase {
         check("|abC", "3~", "AB|c")
     }
 
+    func testToggleCaseWithCharactersThatChangeLength() {
+        check("|ßa", "2~", "SS|A")
+    }
+
+    func testDeleteToLineEndOnAnEmptyLineDoesNothing() {
+        check("abc\n|\ndef", "d$", "abc\n|\ndef")
+        check("abc\n|\ndef", "D", "abc\n|\ndef")
+    }
+
+    func testHugeCountsAreCapped() {
+        check("|a b", "99999999999999999999w", "a |b")
+        check("|a b c", "d99999999999w", "|")
+    }
+
     func testDeleteAndChangeToLineEnd() {
         check("git |commit -m", "D", "git| ", register: "commit -m")
         check("git |commit\nnext", "C", "git |\nnext", mode: .insert)

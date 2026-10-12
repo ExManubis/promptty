@@ -69,8 +69,10 @@ public struct CommandHistory: Sendable {
         rebuild()
     }
 
+    /// A command starting with a space stays out, as zsh's `HIST_IGNORE_SPACE` keeps it out of the
+    /// history file (people use it for commands with secrets).
     public mutating func add(_ command: String) {
-        guard !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !command.hasPrefix(" "), !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         sessionEntries.append(command)
         rebuild()
     }

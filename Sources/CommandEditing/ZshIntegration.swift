@@ -7,6 +7,17 @@ import Foundation
 /// value it finds (ours), restores it, and sources `$ZDOTDIR/.zshenv`, so the chain is Ghostty →
 /// PrompTTY → the user's files.
 public enum ZshIntegration {
+    /// The path prefix of the directory report the integration sends when zle starts reading a
+    /// line: PrompTTY's "prompt ready" signal. No real directory lives there.
+    public static let readyMarker = "/.promptty-ready"
+
+    /// The directory inside a ready report, or nil when `path` is an ordinary directory report.
+    public static func readyDirectory(fromReportedPath path: String) -> String? {
+        guard path.hasPrefix(readyMarker + "/") || path == readyMarker else { return nil }
+        let rest = String(path.dropFirst(readyMarker.count))
+        return rest.isEmpty ? "/" : rest
+    }
+
     public static func isZsh(shellPath: String) -> Bool {
         (shellPath as NSString).lastPathComponent == "zsh"
     }
@@ -48,29 +59,42 @@ public enum ZshIntegration {
     'builtin' 'unset' '_promptty_file'
 
     if [[ -o 'interactive' ]]; then
-        # The prompt is drawn by PrompTTY's input bar: hide zsh's, hide the cursor while idle, and
-        # report the directory (OSC 7), which tells PrompTTY the prompt is ready. Keys typed while a
-        # command ran (type-ahead) are dropped first: they would otherwise sit, invisible, in front
-        # of the next command from the bar.
+        # Every prompt: hide zsh's own prompt (the input bar replaces it) and refresh what the bar
+        # knows about the shell.
         _promptty_precmd() {
+            'builtin' 'emulate' -L zsh -o no_aliases
             PROMPT='' RPROMPT=''
-            'builtin' 'local' _promptty_c
-            while 'builtin' 'read' -t 0 -k 1 -s _promptty_c 2>/dev/null; do :; done
-            'builtin' 'print' -n '\e[?25l'
-            'builtin' 'print' -n "\e]7;kitty-shell-cwd://${HOST}${PWD}\a"
+            _promptty_write_state
         }
 
         _promptty_preexec() {
-            'builtin' 'print' -n '\e[?25h'
+            'builtin' 'print' -rn -- $'\e[?25h'
+        }
+
+        # zle is about to read a line: the prompt is ready. A theme that set its prompt after our
+        # precmd is cleared here. Keys typed while a command ran (type-ahead) are dropped: they would
+        # sit, invisible, in front of the next command from the bar. Then the cursor is hidden and
+        # PrompTTY is told, with a directory report under a path only this integration uses,
+        # followed by the real directory so the terminal's own record of it stays right.
+        _promptty_line_init() {
+            'builtin' 'emulate' -L zsh -o no_aliases
+            if [[ -n "$PROMPT$RPROMPT" ]]; then
+                PROMPT='' RPROMPT=''
+                'builtin' 'zle' reset-prompt
+            fi
+            'builtin' 'local' _promptty_c
+            while 'builtin' 'read' -t 0 -k 1 -s _promptty_c 2>/dev/null; do :; done
+            'builtin' 'print' -rn -- $'\e[?25l\e]7;kitty-shell-cwd://'"${HOST}/.promptty-ready${PWD}"$'\a\e]7;kitty-shell-cwd://'"${HOST}${PWD}"$'\a'
         }
 
         # Lists what only the shell knows (history file, PATH, aliases, functions, builtins, reserved
         # words, exported names) for the bar's coloring and completion.
         _promptty_write_state() {
-            [[ -n "$PROMPTTY_STATE" ]] || return 0
+            'builtin' 'emulate' -L zsh -o no_aliases
+            [[ -n "${PROMPTTY_STATE-}" ]] || return 0
             'builtin' 'zmodload' zsh/parameter 2>/dev/null
             {
-                [[ -z "$HISTFILE" ]] || 'builtin' 'print' -r -- "histfile $HISTFILE"
+                [[ -z "${HISTFILE-}" ]] || 'builtin' 'print' -r -- "histfile $HISTFILE"
                 'builtin' 'print' -r -- "path $PATH"
                 'builtin' 'print' -rl -- "${(@k)aliases/#/alias }" "${(@k)functions/#/function }" \
                     "${(@k)builtins/#/builtin }" "${(@)reswords/#/reserved }" \
@@ -78,14 +102,14 @@ public enum ZshIntegration {
             } >| "$PROMPTTY_STATE" 2>/dev/null
         }
 
-        # Runs once, at the first prompt, so it comes after .zshrc. Our precmd goes last for now;
-        # Ghostty's deferred init runs after this and appends its own hook behind ours.
+        # Runs once, at the first prompt, so it comes after .zshrc. Ghostty's deferred init runs
+        # after this and puts its own hook behind ours.
         _promptty_init() {
             precmd_functions=(${precmd_functions:#_promptty_*} _promptty_precmd)
             preexec_functions=(${preexec_functions:#_promptty_preexec} _promptty_preexec)
             # The bar cannot show a line zsh loads back for confirmation, so `!!` runs directly.
             'builtin' 'unsetopt' hist_verify
-            _promptty_write_state
+            'builtin' 'autoload' -Uz add-zle-hook-widget && add-zle-hook-widget line-init _promptty_line_init
             _promptty_precmd
         }
 

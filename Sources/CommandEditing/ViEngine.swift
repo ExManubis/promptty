@@ -82,6 +82,13 @@ public struct ViEngine: Sendable {
         }
     }
 
+    /// Counts beyond this are as good as infinite on a command line, and cannot overflow.
+    private static let maxCount = 9999
+
+    private static func appendDigit(_ digit: Int, to count: Int?) -> Int {
+        min(maxCount, (count ?? 0) * 10 + digit)
+    }
+
     private mutating func resetPending() {
         pending = nil
         count = nil
@@ -97,7 +104,7 @@ public struct ViEngine: Sendable {
             return .handled
         }
         if let digit = c.wholeNumberValue, digit > 0 || count != nil {
-            count = (count ?? 0) * 10 + digit
+            count = Self.appendDigit(digit, to: count)
             return .handled
         }
         if let p = pending, case .object(let op, let around) = p {
@@ -137,12 +144,14 @@ public struct ViEngine: Sendable {
         case "r": pending = .replace
         case "~":
             let end = min(t.cursor + n, t.lineEnd(t.cursor))
-            let toggled = t.chars[t.cursor..<end].map { ch -> Character in
+            // Through String: a case change can change the length ("ß" → "SS").
+            let toggled = t.chars[t.cursor..<end].map { ch -> String in
                 let s = String(ch)
-                return Character(s == s.uppercased() ? s.lowercased() : s.uppercased())
-            }
-            t.replace(t.cursor..<end, with: toggled)
-            t.cursor = end
+                return s == s.uppercased() ? s.lowercased() : s.uppercased()
+            }.joined()
+            let new = Array(toggled)
+            t.replace(t.cursor..<end, with: new)
+            t.cursor += new.count
         case "D": apply("d", range: t.cursor..<t.lineEnd(t.cursor), linewise: false, &t)
         case "C": apply("c", range: t.cursor..<t.lineEnd(t.cursor), linewise: false, &t)
         case "s":
@@ -167,11 +176,11 @@ public struct ViEngine: Sendable {
 
     private mutating func operatorKey(_ op: Character, _ c: Character, _ t: inout TextModel) -> ViResult {
         if let digit = c.wholeNumberValue, digit > 0 || count != nil {
-            count = (count ?? 0) * 10 + digit
+            count = Self.appendDigit(digit, to: count)
             return .handled
         }
         defer { if case .object = pending {} else { resetPending() } }
-        let n = (operatorCount ?? 1) * (count ?? 1)
+        let n = min(Self.maxCount, (operatorCount ?? 1) * (count ?? 1))
         if c == op {
             linewise(op, lines: n, &t)
             return .handled
@@ -190,7 +199,11 @@ public struct ViEngine: Sendable {
             t.cursor = t.startOfLine(number: first)
             linewise(op, lines: last - first + 1, &t)
         case .inclusive:
-            let range = min(t.cursor, target)..<min(max(t.cursor, target) + 1, t.chars.count)
+            // Never through a line's newline: `d$` on an empty line has nothing to delete.
+            let last = max(t.cursor, target)
+            let end = t.chars.indices.contains(last) && t.chars[last] != "\n" ? last + 1 : last
+            let range = min(t.cursor, target)..<min(end, t.chars.count)
+            guard !range.isEmpty else { return .handled }
             apply(op, range: range, linewise: false, &t)
         case .exclusive:
             // `dw` on a line's last word stops at the line end instead of joining the next line.

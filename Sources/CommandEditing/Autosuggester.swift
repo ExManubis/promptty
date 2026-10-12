@@ -4,7 +4,10 @@ public enum Autosuggester {
     /// The text to show after `text`, or nil.
     public static func suggestion(for text: String, history newestFirst: [String]) -> String? {
         guard !text.isEmpty, !text.contains("\n") else { return nil }
-        guard let match = newestFirst.first(where: { $0.count > text.count && $0.hasPrefix(text) }) else { return nil }
+        // UTF-16 lengths: `String.count` walks the whole string, and this runs over the whole
+        // history on every keystroke.
+        let length = text.utf16.count
+        guard let match = newestFirst.first(where: { $0.utf16.count > length && $0.hasPrefix(text) }) else { return nil }
         return String(match.dropFirst(text.count))
     }
 

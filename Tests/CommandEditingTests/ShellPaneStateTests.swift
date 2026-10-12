@@ -11,49 +11,60 @@ final class ShellPaneStateTests: XCTestCase {
 
     func testFirstPromptLearnsTheShellAndGoesIdle() {
         var s = ShellPaneState()
-        XCTAssertTrue(s.pwdReported(foregroundPID: 400))
+        XCTAssertTrue(s.promptReady(foregroundPID: 400))
         XCTAssertEqual(s.phase, .idle)
         XCTAssertEqual(s.shellPID, 400)
     }
 
     func testAnUnknownForegroundBeforeTheFirstPromptIsIgnored() {
         var s = ShellPaneState()
-        XCTAssertFalse(s.pwdReported(foregroundPID: 0))
+        XCTAssertFalse(s.promptReady(foregroundPID: 0))
         XCTAssertEqual(s.phase, .starting)
         XCTAssertNil(s.shellPID)
     }
 
     func testSubmittingRunsAndTheNextPromptReturnsToIdle() {
         var s = ShellPaneState()
-        _ = s.pwdReported(foregroundPID: 400)
+        _ = s.promptReady(foregroundPID: 400)
         s.submitted()
         XCTAssertEqual(s.phase, .running)
-        XCTAssertTrue(s.pwdReported(foregroundPID: 400))
+        XCTAssertTrue(s.promptReady(foregroundPID: 400))
         XCTAssertEqual(s.phase, .idle)
     }
 
     func testAPwdReportFromAChildKeepsRunning() {
         var s = ShellPaneState()
-        _ = s.pwdReported(foregroundPID: 400)
+        _ = s.promptReady(foregroundPID: 400)
         s.submitted()
-        XCTAssertFalse(s.pwdReported(foregroundPID: 512), "a nested shell or program reporting its directory")
+        XCTAssertFalse(s.promptReady(foregroundPID: 512), "a nested shell or program reporting its directory")
         XCTAssertEqual(s.phase, .running)
     }
 
     func testPwdWhileIdleIsANoOp() {
         var s = ShellPaneState()
-        _ = s.pwdReported(foregroundPID: 400)
-        XCTAssertFalse(s.pwdReported(foregroundPID: 400))
+        _ = s.promptReady(foregroundPID: 400)
+        XCTAssertFalse(s.promptReady(foregroundPID: 400))
         XCTAssertEqual(s.phase, .idle)
     }
 
-    func testAnotherForegroundProcessWhileIdleMeansRunning() {
+    func testAnotherForegroundProcessSeenTwiceWhileIdleMeansRunning() {
         var s = ShellPaneState()
-        _ = s.pwdReported(foregroundPID: 400)
+        _ = s.promptReady(foregroundPID: 400)
         s.foregroundChanged(to: 400)
         XCTAssertEqual(s.phase, .idle)
         s.foregroundChanged(to: 777)
+        XCTAssertEqual(s.phase, .idle, "one sighting can be a hook's short-lived helper (tput)")
+        s.foregroundChanged(to: 777)
         XCTAssertEqual(s.phase, .running)
+    }
+
+    func testABriefForegroundProcessDoesNotLeaveIdle() {
+        var s = ShellPaneState()
+        _ = s.promptReady(foregroundPID: 400)
+        s.foregroundChanged(to: 777)
+        s.foregroundChanged(to: 400)
+        s.foregroundChanged(to: 778)
+        XCTAssertEqual(s.phase, .idle)
     }
 
     func testForegroundChangesOutsideIdleAreIgnored() {
@@ -70,7 +81,7 @@ final class ShellPaneStateTests: XCTestCase {
 
     func testCommandFinishedRecordsTheExit() {
         var s = ShellPaneState()
-        _ = s.pwdReported(foregroundPID: 400)
+        _ = s.promptReady(foregroundPID: 400)
         s.submitted()
         s.commandFinished(code: 1, durationNanoseconds: 2_500_000_000)
         XCTAssertEqual(s.lastExit, CommandExit(code: 1, duration: 2.5))
