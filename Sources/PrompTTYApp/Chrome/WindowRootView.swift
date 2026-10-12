@@ -65,12 +65,15 @@ struct WindowRootView: View {
                 ForEach(state.tabs, id: \.id) { tab in
                     let visible = tab.id == state.selectedTabID
                     PaneTreeView(node: tab.root, path: SplitPath(steps: []), tab: tab, visible: visible, chrome: chrome, actions: actions)
+                        // Animate this tab's own split changes only. Keyed to the selected tab's
+                        // layout, the spring also ran on every tab switch and faded the new tab
+                        // in over ~300ms.
+                        .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0.06), value: tab.root)
                         .opacity(visible ? 1 : 0)
                         .allowsHitTesting(visible)
                         .accessibilityHidden(!visible)
                 }
             }
-            .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0.06), value: state.selectedTab?.root)
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: chrome.banner?.id)
     }
