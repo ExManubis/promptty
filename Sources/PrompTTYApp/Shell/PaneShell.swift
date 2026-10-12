@@ -124,6 +124,8 @@ final class PaneShell {
     private(set) var stateFile: ShellStateFile?
     private(set) var history = CommandHistory(fileEntries: [])
     private(set) var bar: BarPresentation = .hidden
+    /// The last command run from the bar or a picker, for a notification when it finishes unseen.
+    @ObservationIgnored private(set) var lastCommand: String?
     /// The editor's height for its current text (one to eight lines).
     private(set) var editorHeight: CGFloat = 18
 
@@ -268,6 +270,7 @@ final class PaneShell {
         if !command.isEmpty {
             surface.sendText(command)
             history.add(command)
+            lastCommand = command
         }
         surface.sendReturn()
         editor.textView.commandRan()
@@ -305,6 +308,7 @@ final class PaneShell {
         guard bar == .active, state.phase == .idle, let surface else { return }
         surface.sendText(command)
         history.add(command)
+        lastCommand = command
         surface.sendReturn()
         keepingDraft = true
         handOverPolls = max(1, Int(seconds / 0.25))

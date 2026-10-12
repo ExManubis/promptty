@@ -1,4 +1,5 @@
 import GhosttyBridge
+import PaneActivity
 import WorkspaceModel
 
 /// What the SwiftUI chrome can ask its window to do. Implemented by `TerminalWindowController`.
@@ -6,6 +7,8 @@ import WorkspaceModel
 protocol ChromeActions: AnyObject {
     func surfaceView(for pane: Pane) -> TerminalSurfaceView?
     func shell(for pane: PaneID) -> PaneShell?
+    /// What runs in a pane and what happened there unseen (observable).
+    func activity(for pane: PaneID) -> PaneActivity
     func selectTab(_ id: TabID)
     func requestCloseTab(_ id: TabID)
     func newTab()

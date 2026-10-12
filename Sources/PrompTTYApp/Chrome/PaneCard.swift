@@ -1,3 +1,4 @@
+import PaneActivity
 import SwiftUI
 import WorkspaceModel
 
@@ -80,31 +81,54 @@ struct PaneCard: View {
     }
 }
 
-/// Flat bar along a pane's top edge: drag handle, folder, split and close buttons.
+/// Flat bar along a pane's top edge, shown on hover: drag handle, the program running and its
+/// title, the folder, the pane's activity, split and close buttons.
 struct PaneHeader: View {
     let pane: Pane
     let tab: WorkspaceModel.Tab
     let actions: ChromeActions
 
     var body: some View {
-        HStack(spacing: 2) {
+        let activity = actions.activity(for: pane.id)
+        let folder = WorkspaceModel.Tab.abbreviate(pane.workingDirectory)
+        let title = Self.title(pane: pane, program: activity.program, folder: folder)
+        HStack(spacing: 6) {
             PaneDragHandle(pane: pane)
-            Text(WorkspaceModel.Tab.abbreviate(pane.workingDirectory))
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
+            ProgramIcon(program: activity.program, size: 13)
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
                 .lineLimit(1)
-                .truncationMode(.head)
-                .padding(.trailing, 4)
+                .truncationMode(.tail)
+                .layoutPriority(1)
+            if title != folder {
+                Text(folder)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            }
+            ActivityIndicator(display: activity.display)
             Spacer(minLength: 4)
-            HeaderButton(symbol: "rectangle.split.2x1", help: "Split Right") { actions.split(pane.id, direction: .right) }
-            HeaderButton(symbol: "rectangle.split.1x2", help: "Split Down") { actions.split(pane.id, direction: .down) }
-            HeaderButton(symbol: "xmark", help: tab.hasSplits ? "Close Pane" : "Close Tab") { actions.requestClosePane(pane.id) }
+            HStack(spacing: 2) {
+                HeaderButton(symbol: "rectangle.split.2x1", help: "Split Right") { actions.split(pane.id, direction: .right) }
+                HeaderButton(symbol: "rectangle.split.1x2", help: "Split Down") { actions.split(pane.id, direction: .down) }
+                HeaderButton(symbol: "xmark", help: tab.hasSplits ? "Close Pane" : "Close Tab") { actions.requestClosePane(pane.id) }
+            }
         }
-        .padding(.horizontal, 6)
+        .padding(.leading, 2)
+        .padding(.trailing, 6)
         .frame(height: 28)
         .background(FlatSurface(cornerRadius: 8))
         .padding(.horizontal, 8)
         .padding(.top, 6)
+    }
+
+    /// The program's own title (Claude Code's session, the file nvim edits), else the program's
+    /// name, else the folder.
+    static func title(pane: Pane, program: Program?, folder: String) -> String {
+        let own = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !own.isEmpty, own != folder, own != pane.workingDirectory { return own }
+        return program?.name ?? folder
     }
 }
 

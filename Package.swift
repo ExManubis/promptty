@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "GhosttyBridge", targets: ["GhosttyBridge"]),
         .library(name: "Preferences", targets: ["Preferences"]),
         .library(name: "CommandEditing", targets: ["CommandEditing"]),
+        .library(name: "PaneActivity", targets: ["PaneActivity"]),
     ],
     dependencies: [
         .package(url: "https://github.com/sethdeckard/libghostty-spm", exact: "0.2.0"),
@@ -18,6 +19,8 @@ let package = Package(
         .target(name: "Preferences"),
         .target(name: "CommandEditing"),
         .testTarget(name: "CommandEditingTests", dependencies: ["CommandEditing"]),
+        .target(name: "PaneActivity"),
+        .testTarget(name: "PaneActivityTests", dependencies: ["PaneActivity"]),
         .testTarget(name: "PreferencesTests", dependencies: ["Preferences"]),
         .target(
             name: "GhosttyBridge",

@@ -47,6 +47,8 @@ targets:
         product: Preferences
       - package: PrompTTYCore
         product: CommandEditing
+      - package: PrompTTYCore
+        product: PaneActivity
     settings:
       base:
         PRODUCT_NAME: PrompTTY

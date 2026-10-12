@@ -1,3 +1,4 @@
+import PaneActivity
 import SwiftUI
 import WorkspaceModel
 
@@ -20,12 +21,20 @@ struct TabRow: View {
     private var renaming: Bool { chrome.renamingTab == tab.id }
     private var paneDropTarget: Bool { chrome.dropTargetTab == tab.id }
 
+    /// The tab's most urgent pane: what the indicator shows.
+    private var display: PaneActivity.Display {
+        tab.orderedPanes.map { actions.activity(for: $0.id).display }.max() ?? .idle
+    }
+
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: tab.hasSplits ? "rectangle.split.2x1" : "terminal")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(.secondary)
-                .frame(width: 18)
+            // The focused pane's program; a split tab with none shows the split symbol.
+            ProgramIcon(
+                program: actions.activity(for: tab.focusedPaneID).program,
+                size: 14,
+                fallbackSymbol: tab.hasSplits ? "rectangle.split.2x1" : "terminal"
+            )
+            .frame(width: 18)
             if renaming {
                 TextField("Tab name", text: $draft)
                     .textFieldStyle(.plain)
@@ -58,6 +67,11 @@ struct TabRow: View {
         .padding(.leading, 8)
         .padding(.trailing, 6)
         .frame(height: style == .full ? ChromeMetrics.rowHeight : 28)
+        .overlay(alignment: .leading) {
+            ActivityIndicator(display: display)
+                .padding(.leading, 1)
+                .allowsHitTesting(false)
+        }
         .background {
             RowBackground(selected: selected, hovering: hovering, dropTarget: paneDropTarget)
         }
@@ -88,7 +102,8 @@ struct TabRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityLabel([tab.listTitle, tab.listSubtitle].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityLabel([tab.listTitle, tab.listSubtitle, ActivityIndicator.label(for: display)]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", "))
         .accessibilityAction(named: "Rename", beginRename)
         .accessibilityAction(named: "Close") { actions.requestCloseTab(tab.id) }
     }

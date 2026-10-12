@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyBridge
+import PaneActivity
 import Preferences
 import SwiftUI
 import WorkspaceModel
@@ -137,6 +138,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     }
 
     func shell(for pane: PaneID) -> PaneShell? { shells[pane] }
+    func activity(for pane: PaneID) -> PaneActivity { coordinator.activity.activity(for: pane) }
     func allShells() -> [PaneShell] { Array(shells.values) }
 
     private func bind(_ view: TerminalSurfaceView, to pane: PaneID) {

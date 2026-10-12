@@ -8,6 +8,29 @@ import WorkspaceModel
 @MainActor
 enum DebugHooks {
     static func install(on driver: DebugDriver, coordinator: WorkspaceCoordinator) {
+        // eval activity — each pane's activity in the key window (tab.pane: display program) and
+        // the notices posted since the last call.
+        driver.hooks["activity"] = { _ in
+            var lines: [String] = []
+            for c in coordinator.allControllers {
+                for (ti, tab) in c.state.tabs.enumerated() {
+                    for (pi, pane) in tab.orderedPanes.enumerated() {
+                        let a = coordinator.activity.activity(for: pane.id)
+                        lines.append("\(ti).\(pi): \(a.display) program=\(a.program?.id ?? "-") title=\(pane.title.debugDescription)")
+                    }
+                }
+            }
+            lines += coordinator.postedNotices.map { "notice: \($0)" }
+            coordinator.postedNotices = []
+            return lines.joined(separator: "\n")
+        }
+        // eval reveal <tab> — what clicking a notification about that tab's first pane does.
+        driver.hooks["reveal"] = { args in
+            guard let c = coordinator.allControllers.first, let i = args.first.flatMap(Int.init),
+                  c.state.tabs.indices.contains(i), let pane = c.state.tabs[i].orderedPanes.first else { return "error: reveal <tab>" }
+            coordinator.reveal(pane.id)
+            return ""
+        }
         // eval headers on|off — show every pane header without hovering.
         driver.hooks["headers"] = { args in
             for c in coordinator.allControllers { c.chrome.forceHeaders = args.first == "on" }

@@ -1,4 +1,5 @@
 import AppKit
+import UserNotifications
 import GhosttyBridge
 import Preferences
 import WorkspaceModel
@@ -14,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var saver: DebouncedSaver!
     private var preferences: PreferencesController!
     private var layoutObserver: NSObjectProtocol?
+    private var notificationRouter: NotificationRouter?
 
     /// With no nib, `@main` alone never instantiates the delegate; install it explicitly and keep
     /// it alive for the lifetime of the run loop (`NSApplication.delegate` is weak).
@@ -58,6 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         EditorStyle.update(family: preferences.settings.fontFamily, size: preferences.settings.fontSize)
         EditorStyle.update(foreground: runtime.configuredForeground, palette: runtime.configuredANSIPalette)
         coordinator = WorkspaceCoordinator(runtime: runtime, workspace: workspace, preferences: preferences)
+        let router = NotificationRouter { [weak self] pane in self?.coordinator.reveal(pane) }
+        notificationRouter = router
+        UNUserNotificationCenter.current().delegate = router
         preferences.onTerminalConfigChanged = { [weak self] in self?.runtime.reloadConfig() }
         preferences.onShortcutsChanged = { NSApp.mainMenu = MainMenu.build(shortcuts: $0) }
         // Shifted punctuation shortcuts are declared per keyboard layout; rebuild when it changes.

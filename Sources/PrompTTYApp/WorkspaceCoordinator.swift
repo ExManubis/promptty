@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyBridge
+import PaneActivity
 import Preferences
 import WorkspaceModel
 
@@ -10,6 +11,8 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     let workspace: Workspace
     let preferences: PreferencesController
     private var controllers: [WindowID: TerminalWindowController] = [:]
+    /// What runs in each pane and what happened there unseen.
+    let activity = ActivityTracker()
     /// Schedules a session save.
     var onModelChanged: (() -> Void)?
 
@@ -17,6 +20,8 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         self.runtime = runtime
         self.workspace = workspace
         self.preferences = preferences
+        activity.panes = { [weak self] in self?.watchedPanes() ?? [] }
+        activity.onNotice = { [weak self] pane, notice in self?.post(notice, for: pane) }
     }
 
     /// Opens a controller for every window in the model; creates a default window if none.
@@ -30,6 +35,60 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             open(state)
         }
         controllers.values.first?.window?.makeKeyAndOrderFront(nil)
+        activity.start()
+    }
+
+    // MARK: Activity
+
+    /// Every pane with a terminal, and whether the user sees it: the app in front, its window key
+    /// and on screen, its tab selected.
+    private func watchedPanes() -> [ActivityTracker.Watched] {
+        let active = NSApp.isActive
+        var watched: [ActivityTracker.Watched] = []
+        for controller in controllers.values {
+            let window = controller.window
+            let windowSeen = active && window?.isKeyWindow == true && window?.occlusionState.contains(.visible) == true
+            for tab in controller.state.tabs {
+                let tabSeen = windowSeen && controller.state.selectedTabID == tab.id
+                for pane in tab.orderedPanes {
+                    guard let surface = controller.existingSurface(for: pane.id) else { continue }
+                    watched.append(ActivityTracker.Watched(
+                        pane: pane.id,
+                        foregroundPID: surface.foregroundPID,
+                        shellPID: controller.shell(for: pane.id)?.state.shellPID,
+                        seen: tabSeen
+                    ))
+                }
+            }
+        }
+        return watched
+    }
+
+    private func post(_ notice: Notice, for pane: PaneID) {
+        guard let (state, tab) = workspace.tab(containing: pane) else { return }
+        let fromBar = controllers[state.id]?.shell(for: pane)?.lastCommand
+        let command = fromBar ?? tab.pane(pane)?.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        Notifications.post(title: notice.title(command: command), body: notice.body, pane: pane)
+        #if DEBUG
+        postedNotices.append("\(notice.title(command: command)) — \(notice.body)")
+        #endif
+    }
+
+    #if DEBUG
+    /// Notices posted, for the debug driver.
+    var postedNotices: [String] = []
+    #endif
+
+    /// A notification was clicked: its pane comes forward, focused.
+    func reveal(_ pane: PaneID) {
+        guard let (state, tab) = workspace.tab(containing: pane), let controller = controllers[state.id] else { return }
+        tab.focus(pane)
+        state.select(id: tab.id)
+        NSApp.activate()
+        controller.window?.makeKeyAndOrderFront(nil)
+        controller.reload()
+        activity.tick()
+        modelDidChange()
     }
 
     func controller(for id: WindowID) -> TerminalWindowController? { controllers[id] }
@@ -377,14 +436,22 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             }
             return true
         case .desktopNotification(let title, let body):
-            Notifications.post(title: title.isEmpty ? "PrompTTY" : title, body: body)
+            // A program (an agent waiting for the user) asks for attention: marked and notified
+            // where the user is not looking; where they are, they see it already.
+            guard let located else {
+                Notifications.post(title: title.isEmpty ? "PrompTTY" : title, body: body, pane: nil)
+                return true
+            }
+            activity.attention(located.2.id, message: body.isEmpty ? title : body)
             return true
         case .ringBell:
+            if let located, activity.attention(located.2.id, message: nil) { return true }
             NSSound.beep()
             return true
         case .commandFinished(let code, let duration):
-            guard let located, let shell = located.3.shell(for: located.2.id) else { return false }
-            shell.commandFinished(code: code, durationNs: duration)
+            guard let located else { return false }
+            activity.exitReported(located.2.id, code: Int(code))
+            located.3.shell(for: located.2.id)?.commandFinished(code: code, durationNs: duration)
             return true
         case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .unhandled:
             // Config, mouse-shape and mouse-visibility actions are handled by the runtime.
