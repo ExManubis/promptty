@@ -316,17 +316,34 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         window.center()
     }
 
+    /// Bumped on each change, so a delayed fade-in that a newer change overtook does nothing.
+    private var trafficLightsGeneration = 0
+
     func setTrafficLightsShown(_ shown: Bool) {
         guard let window else { return }
+        trafficLightsGeneration += 1
+        let generation = trafficLightsGeneration
         let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { window.standardWindowButton($0) }
-        if shown { buttons.forEach { $0.isHidden = false } }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.18
-            buttons.forEach { $0.animator().alphaValue = shown ? 1 : 0 }
-        } completionHandler: {
-            // Hidden, not only transparent: an invisible close button must not take clicks.
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        func fade() {
+            if shown { buttons.forEach { $0.isHidden = false } }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = reduceMotion ? 0 : 0.18
+                buttons.forEach { $0.animator().alphaValue = shown ? 1 : 0 }
+            } completionHandler: {
+                // Hidden, not only transparent: an invisible close button must not take clicks.
+                MainActor.assumeIsolated {
+                    if !shown, generation == self.trafficLightsGeneration { buttons.forEach { $0.isHidden = true } }
+                }
+            }
+        }
+        // The buttons cannot slide with the sidebar: they leave at once and come back once it has
+        // mostly slid in, not over it.
+        guard shown, !reduceMotion else { return fade() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
             MainActor.assumeIsolated {
-                if !shown, buttons.first?.alphaValue == 0 { buttons.forEach { $0.isHidden = true } }
+                guard generation == self.trafficLightsGeneration else { return }
+                fade()
             }
         }
     }

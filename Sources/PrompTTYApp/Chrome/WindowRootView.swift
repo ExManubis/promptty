@@ -26,22 +26,14 @@ struct WindowRootView: View {
             WindowBackdrop(tint: chrome.tint)
 
             Group {
-                if hidden, layout == .sidebar {
-                    collapsedSidebar
+                if layout == .sidebar {
+                    sidebarLayout
                 } else if hidden {
                     VStack(spacing: 0) {
                         CompactTitleBar(state: state, actions: actions)
                             .frame(height: ChromeMetrics.titlebarHeight)
                         paneArea
                             .padding([.horizontal, .bottom], ChromeMetrics.inset)
-                    }
-                } else if layout == .sidebar {
-                    HStack(spacing: 0) {
-                        SidebarView(state: state, chrome: chrome, actions: actions)
-                            .frame(width: settings.settings.sidebarWidth)
-                            .transition(.move(edge: .leading).combined(with: .opacity))
-                        paneArea
-                            .padding([.top, .bottom, .trailing], ChromeMetrics.inset)
                     }
                 } else {
                     VStack(spacing: 0) {
@@ -56,31 +48,51 @@ struct WindowRootView: View {
         }
         .ignoresSafeArea()
         .animation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.1), value: layout)
-        .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0.08), value: hidden)
+        // No overshoot: the panes resize with the sidebar, and a spring that went past would
+        // resize the terminals back and forth. Kept open from a peek, the sidebar is already
+        // there: it stays put instead of sliding in again.
+        .animation(reduceMotion || showsPeek ? nil : .spring(duration: 0.3, bounce: 0), value: hidden)
         .onChange(of: hidden) { _, _ in peeking = false }
         .onChange(of: trafficLightsShown, initial: true) { _, shown in actions.setTrafficLightsShown(shown) }
         .environment(\.windowChrome, chrome)
     }
 
-    /// Dia's collapsed sidebar: the panes take the whole window, the traffic lights and the sidebar
-    /// button go with the sidebar, and the sidebar (with them) peeks in over the panes from the
-    /// left edge.
-    private var collapsedSidebar: some View {
-        ZStack(alignment: .topLeading) {
-            paneArea
-                .padding(ChromeMetrics.inset)
+    /// The sidebar beside the panes. Collapsing slides it out to the left while the panes widen
+    /// into its place (one layout throughout, so the change animates); collapsed, the traffic
+    /// lights and the sidebar button go with it, and it peeks in over the panes from the left
+    /// edge.
+    private var sidebarLayout: some View {
+        let collapsed = hidden
+        let width = settings.settings.sidebarWidth
+        return ZStack(alignment: .topLeading) {
+            HStack(spacing: 0) {
+                SidebarView(state: state, chrome: chrome, actions: actions)
+                    .frame(width: width)
+                    // Narrowing to nothing with the sidebar pinned to its trailing edge: it slides
+                    // out to the left.
+                    .frame(width: collapsed ? 0 : width, alignment: .trailing)
+                    .clipped()
+                    .opacity(collapsed ? 0 : 1)
+                    .allowsHitTesting(!collapsed)
+                    .accessibilityHidden(collapsed)
+                paneArea
+                    .padding(.leading, collapsed ? ChromeMetrics.inset : 0)
+                    .padding([.top, .bottom, .trailing], ChromeMetrics.inset)
+            }
 
-            // Resting at the left edge peeks the sidebar in.
-            Color.clear
-                .frame(width: ChromeMetrics.peekEdgeWidth)
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .onHover { inside in setPeek(inside, after: .milliseconds(150)) }
-                .accessibilityHidden(true)
+            if collapsed {
+                // Resting at the left edge peeks the sidebar in.
+                Color.clear
+                    .frame(width: ChromeMetrics.peekEdgeWidth)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onHover { inside in setPeek(inside, after: .milliseconds(150)) }
+                    .accessibilityHidden(true)
+            }
 
-            if showsPeek {
+            if collapsed, showsPeek {
                 SidebarView(state: state, chrome: chrome, actions: actions, collapsed: true)
-                    .frame(width: settings.settings.sidebarWidth)
+                    .frame(width: width)
                     .frame(maxHeight: .infinity)
                     .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     // Lifted off the panes it floats over.
