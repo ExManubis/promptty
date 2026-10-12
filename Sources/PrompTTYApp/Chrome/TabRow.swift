@@ -21,16 +21,9 @@ struct TabRow: View {
     private var renaming: Bool { chrome.renamingTab == tab.id }
     private var paneDropTarget: Bool { chrome.dropTargetTab == tab.id }
 
-    /// What the leading mark shows: the pane alone, or in a split tab the front (focused) pane's
-    /// and any panes too many for the stack; the cards behind show the others' in their colors.
+    /// The dot at the row's end: the tab's most urgent pane. The cards behind the front one tell
+    /// which pane it is by their color.
     private var display: PaneActivity.Display {
-        let cards = stackCards
-        let unstacked = [cards.first] + cards.dropFirst(ProgramStack.maxCards).map { $0 }
-        return unstacked.compactMap { $0?.display }.max() ?? .idle
-    }
-
-    /// For VoiceOver: every pane's activity, not only the leading mark's.
-    private var mostUrgent: PaneActivity.Display {
         stackCards.map(\.display).max() ?? .idle
     }
 
@@ -45,14 +38,9 @@ struct TabRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            // The focused pane's program; a split tab stacks its panes, the focused one in front.
-            if tab.hasSplits {
-                ProgramStack(cards: stackCards)
-                    .frame(minWidth: 18, alignment: .leading)
-            } else {
-                ProgramIcon(program: actions.activity(for: tab.focusedPaneID).program, size: 14)
-                    .frame(width: 18)
-            }
+            // The panes' programs as tiles, the focused one in front.
+            ProgramStack(cards: stackCards)
+                .frame(minWidth: 18, alignment: .leading)
             if renaming {
                 TextField("Tab name", text: $draft)
                     .textFieldStyle(.plain)
@@ -70,26 +58,28 @@ struct TabRow: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: 2)
-            Button { actions.requestCloseTab(tab.id) } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .frame(width: 16, height: 16)
-                    .contentShape(Rectangle())
+            ZStack {
+                // The tab's activity, where the close button appears under the pointer.
+                ActivityIndicator(display: display)
+                    .opacity(hovering && !renaming ? 0 : 1)
+                    .allowsHitTesting(false)
+                Button { actions.requestCloseTab(tab.id) } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .frame(width: 16, height: 16)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .opacity(hovering && !renaming ? 1 : 0)
+                .help("Close Tab")
+                .accessibilityLabel("Close \(tab.listTitle)")
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .opacity(hovering && !renaming ? 1 : 0)
-            .help("Close Tab")
-            .accessibilityLabel("Close \(tab.listTitle)")
         }
         .padding(.leading, 8)
         .padding(.trailing, 6)
         .frame(height: style == .full ? ChromeMetrics.rowHeight : 28)
-        .overlay(alignment: .leading) {
-            ActivityIndicator(display: display)
-                .padding(.leading, 1)
-                .allowsHitTesting(false)
-        }
+
         .background {
             RowBackground(selected: selected, hovering: hovering, dropTarget: paneDropTarget)
         }
@@ -120,7 +110,7 @@ struct TabRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityLabel([tab.listTitle, tab.listSubtitle, ActivityIndicator.label(for: mostUrgent)]
+        .accessibilityLabel([tab.listTitle, tab.listSubtitle, ActivityIndicator.label(for: display)]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", "))
         .accessibilityAction(named: "Rename", beginRename)
         .accessibilityAction(named: "Close") { actions.requestCloseTab(tab.id) }

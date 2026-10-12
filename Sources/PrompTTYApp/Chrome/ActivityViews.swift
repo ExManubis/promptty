@@ -43,8 +43,8 @@ struct ProgramIcon: View {
     }
 }
 
-/// Rex-style activity mark: a green bar while something runs, a blue dot for what finished
-/// unseen, a red diamond for what failed, an orange pulse when a program wants the user.
+/// A pane's or tab's activity as a dot: green while something runs, blue for what finished
+/// unseen, red for what failed, a pulsing orange when a program wants the user.
 struct ActivityIndicator: View {
     let display: PaneActivity.Display
 
@@ -56,20 +56,14 @@ struct ActivityIndicator: View {
             switch display {
             case .idle:
                 Color.clear
-            case .running:
-                // Still: agents and editors run all day, and a pulse would never rest.
-                Capsule().fill(Color.green).frame(width: 3, height: 12)
-            case .finished:
-                Circle().fill(Color.blue).frame(width: 6, height: 6)
-            case .failed:
-                // Not only red: a different shape for those who cannot tell the colors apart.
-                Rectangle().fill(Color.red).frame(width: 5.5, height: 5.5).rotationEffect(.degrees(45))
             case .attention:
-                Circle().fill(Color.orange).frame(width: 6, height: 6)
-                    .scaleEffect(pulse ? 1.2 : 0.9)
+                Circle().fill(ProgramStack.color(for: display)).frame(width: 7, height: 7)
+                    .scaleEffect(pulse ? 1.15 : 0.85)
+            default:
+                Circle().fill(ProgramStack.color(for: display)).frame(width: 7, height: 7)
             }
         }
-        .frame(width: 7, height: 12)
+        .frame(width: 9, height: 9)
         .onAppear(perform: startPulse)
         .onChange(of: display) { _, _ in startPulse() }
         .accessibilityElement()
@@ -94,8 +88,9 @@ struct ActivityIndicator: View {
     }
 }
 
-/// A split tab's panes as a stack of tiles, like Rex's: the focused pane's logo on a light card in
-/// front, the other panes' cards peeking out behind it, each edge in the color of its activity.
+/// A tab's panes as a stack of tiles, like Rex's: the focused pane's logo on a light card in
+/// front, tilted a little, the other panes' cards peeking out behind it, each edge in the color of
+/// its activity. A tab with one pane is one tile.
 struct ProgramStack: View {
     struct Card: Identifiable {
         let id: AnyHashable
@@ -105,43 +100,50 @@ struct ProgramStack: View {
 
     /// The focused pane first, then the others in order.
     let cards: [Card]
-    var fallbackSymbol = "terminal"
 
-    static let tile: CGFloat = 16
+    static let width: CGFloat = 18
+    static let height: CGFloat = 15
     /// How far each card behind shows past the one in front.
     static let step: CGFloat = 4
     static let maxCards = 3
+    /// The front card's tilt; each card behind turns a little less.
+    static let tilt: Double = -5
 
     var body: some View {
         let shown = Array(cards.prefix(Self.maxCards))
         ZStack(alignment: .leading) {
             ForEach(Array(shown.enumerated().reversed()), id: \.element.id) { depth, card in
-                if depth == 0 {
-                    front(card)
-                } else {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(Self.color(for: card.display))
-                        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(.black.opacity(0.25), lineWidth: 0.5))
-                        .frame(width: Self.tile, height: Self.tile - CGFloat(depth) * 1.5)
-                        .offset(x: CGFloat(depth) * Self.step)
+                let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
+                Group {
+                    if depth == 0 {
+                        shape.fill(Color(white: 0.96))
+                            .overlay {
+                                if card.program?.logo != nil {
+                                    // The logo as on a light background, whatever the window's appearance.
+                                    ProgramIcon(program: card.program, size: 11)
+                                        .environment(\.colorScheme, .light)
+                                } else {
+                                    // A shell or an unknown program: the prompt itself, as Rex shows it.
+                                    Text(">_")
+                                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                        .foregroundStyle(Color(white: 0.25))
+                                        .accessibilityHidden(true)
+                                }
+                            }
+                    } else {
+                        shape.fill(Self.color(for: card.display))
+                    }
                 }
+                .overlay(shape.strokeBorder(.black.opacity(0.55), lineWidth: 1))
+                .frame(width: Self.width, height: Self.height)
+                .rotationEffect(.degrees(Self.tilt + Double(depth) * 2.5))
+                .shadow(color: .black.opacity(depth == 0 ? 0.25 : 0), radius: 1, x: 0.5)
+                .offset(x: CGFloat(depth) * Self.step)
             }
         }
-        .frame(width: Self.tile + CGFloat(max(shown.count - 1, 0)) * Self.step, height: Self.tile, alignment: .leading)
+        .frame(width: Self.width + CGFloat(max(shown.count - 1, 0)) * Self.step + 2, height: Self.height + 3, alignment: .leading)
         .accessibilityElement()
         .accessibilityLabel(Self.label(for: shown))
-    }
-
-    private func front(_ card: Card) -> some View {
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(Color(white: 0.96))
-            .shadow(color: .black.opacity(0.3), radius: 1, x: 0.5)
-            .overlay {
-                // The logo as on a light background, whatever the window's appearance.
-                ProgramIcon(program: card.program, size: 11, fallbackSymbol: fallbackSymbol)
-                    .environment(\.colorScheme, .light)
-            }
-            .frame(width: Self.tile, height: Self.tile)
     }
 
     static func color(for display: PaneActivity.Display) -> Color {
@@ -156,6 +158,6 @@ struct ProgramStack: View {
 
     private static func label(for cards: [Card]) -> String {
         let names = cards.map { $0.program?.name ?? "Terminal" }
-        return "\(cards.count) panes: " + names.joined(separator: ", ")
+        return cards.count == 1 ? names[0] : "\(cards.count) panes: " + names.joined(separator: ", ")
     }
 }
