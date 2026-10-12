@@ -195,19 +195,38 @@ public final class TerminalSurfaceView: NSView {
         sizeDidChange()
     }
 
+    /// The content scale last sent. A view drawn through a SwiftUI scale effect is told its backing
+    /// properties changed on every animation frame, even though the screen's scale did not.
+    private var sentScale: CGFloat?
+
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard let surface, let window else { return }
+        guard let surface, let window, window.backingScaleFactor != sentScale else { return }
+        sentScale = window.backingScaleFactor
         let scale = Double(window.backingScaleFactor)
         ghostty_surface_set_content_scale(surface, scale, scale)
-        sizeDidChange()
+        sizeDidChange(force: true)
     }
 
-    private func sizeDidChange() {
+    #if DEBUG
+    /// Pixel sizes sent to libghostty, for the debug driver's one-resize-per-layout-change check.
+    nonisolated(unsafe) public static var sentSizes: [String] = []
+    #endif
+
+    /// The last pixel size sent; AppKit re-sets an unchanged frame often (SwiftUI does on every
+    /// animation frame), and each set would otherwise reach libghostty as a resize.
+    private var sentSize: (width: UInt32, height: UInt32)?
+
+    private func sizeDidChange(force: Bool = false) {
         guard let surface else { return }
         let scale = window?.backingScaleFactor ?? 2.0
         let w = UInt32(max(1, bounds.width * scale))
         let h = UInt32(max(1, bounds.height * scale))
+        if !force, let sent = sentSize, sent.width == w, sent.height == h { return }
+        sentSize = (w, h)
+        #if DEBUG
+        Self.sentSizes.append("\(w)x\(h)")
+        #endif
         ghostty_surface_set_size(surface, w, h)
     }
 

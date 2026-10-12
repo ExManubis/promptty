@@ -13,6 +13,7 @@ struct WindowRootView: View {
     let actions: ChromeActions
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var tabSlide = TabSlideState()
 
     private var hidden: Bool { settings.settings.tabListHidden }
     private var layout: TabLayout { workspace.tabLayout }
@@ -61,20 +62,32 @@ struct WindowRootView: View {
                     .id(banner.id)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
-            ZStack {
-                ForEach(state.tabs, id: \.id) { tab in
-                    let visible = tab.id == state.selectedTabID
-                    PaneTreeView(node: tab.root, path: SplitPath(steps: []), tab: tab, visible: visible, chrome: chrome, actions: actions)
-                        // Animate this tab's own split changes only. Keyed to the selected tab's
-                        // layout, the spring also ran on every tab switch and faded the new tab
-                        // in over ~300ms.
-                        .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0.06), value: tab.root)
-                        .opacity(visible ? 1 : 0)
-                        .allowsHitTesting(visible)
-                        .accessibilityHidden(!visible)
+            GeometryReader { geo in
+                let generation = tabSlide.update(selected: state.selectedTabID, order: state.tabs.map(\.id), animate: !reduceMotion)
+                ZStack {
+                    ForEach(state.tabs, id: \.id) { tab in
+                        TabPanes(tab: tab, selected: tab.id == state.selectedTabID, outgoing: tab.id == tabSlide.outgoing,
+                                 shift: slideShift(in: geo.size), chrome: chrome, actions: actions)
+                    }
+                }
+                .keyframeAnimator(initialValue: CGFloat(1), trigger: generation) { content, progress in
+                    content.environment(\.tabSlideProgress, progress)
+                } keyframes: { _ in
+                    KeyframeTrack {
+                        MoveKeyframe(0)
+                        LinearKeyframe(1, duration: PaneAnimation.tabDuration, timingCurve: PaneAnimation.tabCurve)
+                    }
                 }
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: chrome.banner?.id)
+    }
+
+    /// A tab slides a whole pane area: down the sidebar's list vertically, along a strip sideways.
+    private func slideShift(in size: CGSize) -> CGSize {
+        let vertical = !hidden && layout == .sidebar
+        return vertical
+            ? CGSize(width: 0, height: size.height + ChromeMetrics.paneGap)
+            : CGSize(width: size.width + ChromeMetrics.paneGap, height: 0)
     }
 }

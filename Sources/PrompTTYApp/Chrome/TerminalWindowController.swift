@@ -157,12 +157,26 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         bind(view, to: pane)
     }
 
-    func removeSurface(for pane: PaneID) {
+    /// Frees a pane's surface. When the pane is closing out of `tab` (which stays open) and that
+    /// tab is on screen, the surface lives on for a moment so its card can shrink away.
+    func removeSurface(for pane: PaneID, closingOutOf tab: TabID? = nil) {
         pendingInherit[pane] = nil
         chrome.exitedPanes[pane] = nil
         guard let view = surfaces.removeValue(forKey: pane) else { return }
-        view.removeFromSuperview()
-        view.teardown()
+        guard let tab, tab == state.selectedTabID, window?.isVisible == true,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            view.removeFromSuperview()
+            view.teardown()
+            return
+        }
+        chrome.closingPanes[pane] = ClosingPane(id: pane, tab: tab, surface: view)
+        DispatchQueue.main.asyncAfter(deadline: .now() + PaneAnimation.closeDuration + 0.05) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.chrome.closingPanes[pane] = nil
+                view.removeFromSuperview()
+                view.teardown()
+            }
+        }
     }
 
     func allSurfaces() -> [TerminalSurfaceView] { Array(surfaces.values) }

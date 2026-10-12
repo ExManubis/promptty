@@ -215,7 +215,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             closeTab(tab.id)
             return
         }
-        controller.removeSurface(for: pane)
+        controller.removeSurface(for: pane, closingOutOf: tab.id)
         tab.closePane(pane)
         controller.reload()
         modelDidChange()

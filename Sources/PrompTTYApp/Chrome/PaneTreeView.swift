@@ -1,46 +1,63 @@
 import SwiftUI
 import WorkspaceModel
 
-/// Lays out one tab's split tree: each leaf a `PaneCard`, each split two subtrees with a
-/// draggable gap between them.
+/// Lays out one tab's panes as rounded cards with draggable gaps between them. Every card sits
+/// directly in one container, keyed by pane, so a split or a move never rebuilds a card (and never
+/// re-hosts its terminal); only frames change.
+///
+/// Frame changes are animated Hyprland-style: a card takes its new frame at once (its terminal
+/// resizes once) and is drawn through a scale and offset that carry it there from where it was.
 struct PaneTreeView: View {
-    let node: SplitNode
-    let path: SplitPath
     let tab: WorkspaceModel.Tab
     let visible: Bool
     let chrome: WindowChromeModel
     let actions: ChromeActions
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var motion = PaneMotionState()
+
     var body: some View {
-        switch node {
-        case .leaf(let id):
-            if let pane = tab.pane(id) {
-                PaneCard(pane: pane, tab: tab, visible: visible, chrome: chrome, actions: actions)
-                    .id(id)
-            }
-        case .split(let axis, let ratio, let first, let second):
-            GeometryReader { geo in
-                let total = axis == .horizontal ? geo.size.width : geo.size.height
-                let available = max(0, total - ChromeMetrics.paneGap)
-                let firstLength = (available * ratio).rounded()
-                let layout = axis == .horizontal
-                    ? AnyLayout(HStackLayout(spacing: 0))
-                    : AnyLayout(VStackLayout(spacing: 0))
-                layout {
-                    subtree(first, step: false)
-                        .frame(width: axis == .horizontal ? firstLength : nil,
-                               height: axis == .vertical ? firstLength : nil)
-                    SplitDivider(axis: axis, ratio: ratio, available: available) { newRatio in
-                        actions.setRatio(in: tab.id, at: path, newRatio)
+        GeometryReader { geo in
+            let layout = tab.root.layout(in: CGRect(origin: .zero, size: geo.size), gap: ChromeMetrics.paneGap)
+            let generation = motion.update(layout: layout.panes, size: geo.size, animate: !reduceMotion && !chrome.resizingSplit)
+            ZStack(alignment: .topLeading) {
+                ForEach(layout.dividers, id: \.path) { divider in
+                    SplitDivider(axis: divider.axis, ratio: divider.ratio, available: divider.available) { newRatio in
+                        actions.setRatio(in: tab.id, at: divider.path, newRatio)
+                    } onDragging: { chrome.resizingSplit = $0 }
+                    .frame(width: divider.frame.width, height: divider.frame.height)
+                    .position(x: divider.frame.midX, y: divider.frame.midY)
+                }
+                ForEach(tab.root.leaves, id: \.self) { id in
+                    if let pane = tab.pane(id), let frame = layout.panes[id] {
+                        PaneCard(pane: pane, tab: tab, visible: visible, chrome: chrome, actions: actions)
+                            .frame(width: frame.width, height: frame.height)
+                            .modifier(PaneFlightEffect(flight: motion.flights[id]))
+                            .position(x: frame.midX, y: frame.midY)
                     }
-                    subtree(second, step: true)
+                }
+                ForEach(closingPanes, id: \.id) { closing in
+                    if let frame = motion.departed[closing.id] {
+                        ClosingPaneCard(surface: closing.surface, chrome: chrome)
+                            .frame(width: frame.width, height: frame.height)
+                            .position(x: frame.midX, y: frame.midY)
+                    }
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+            .keyframeAnimator(initialValue: CGFloat(1), trigger: generation) { content, progress in
+                content.environment(\.paneMotionProgress, motion.record(progress))
+            } keyframes: { _ in
+                KeyframeTrack {
+                    MoveKeyframe(0)
+                    LinearKeyframe(1, duration: PaneAnimation.paneDuration, timingCurve: PaneAnimation.paneCurve)
                 }
             }
         }
     }
 
-    private func subtree(_ node: SplitNode, step: Bool) -> PaneTreeView {
-        PaneTreeView(node: node, path: SplitPath(steps: path.steps + [step]), tab: tab, visible: visible, chrome: chrome, actions: actions)
+    private var closingPanes: [ClosingPane] {
+        chrome.closingPanes.values.filter { $0.tab == tab.id }.sorted { $0.id.rawValue.uuidString < $1.id.rawValue.uuidString }
     }
 }
 
@@ -52,6 +69,8 @@ struct SplitDivider: NSViewRepresentable {
     let ratio: Double
     let available: CGFloat
     let onChange: (Double) -> Void
+    /// True while the divider is being dragged: the panes follow the pointer without animating.
+    let onDragging: (Bool) -> Void
 
     func makeNSView(context: Context) -> SplitDividerView { SplitDividerView() }
 
@@ -60,6 +79,7 @@ struct SplitDivider: NSViewRepresentable {
         view.ratio = ratio
         view.available = available
         view.onChange = onChange
+        view.onDragging = onDragging
         view.window?.invalidateCursorRects(for: view)
     }
 
@@ -75,6 +95,7 @@ final class SplitDividerView: NSView {
     var ratio: Double = 0.5
     var available: CGFloat = 0
     var onChange: ((Double) -> Void)?
+    var onDragging: ((Bool) -> Void)?
 
     private var dragStart: (point: NSPoint, ratio: Double)?
 
@@ -92,6 +113,7 @@ final class SplitDividerView: NSView {
             return
         }
         dragStart = (event.locationInWindow, ratio)
+        onDragging?(true)
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -102,7 +124,10 @@ final class SplitDividerView: NSView {
         onChange?(start.ratio + Double(delta / available))
     }
 
-    override func mouseUp(with event: NSEvent) { dragStart = nil }
+    override func mouseUp(with event: NSEvent) {
+        if dragStart != nil { onDragging?(false) }
+        dragStart = nil
+    }
 
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .splitter }

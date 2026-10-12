@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import SwiftUI
+import GhosttyBridge
 import WorkspaceModel
 
 /// Named hooks for `eval` in the debug driver: things a test needs that no menu item offers.
@@ -185,6 +186,11 @@ enum DebugHooks {
             item.target = SystemItemSink.shared
             NSApp.mainMenu?.items.last?.submenu?.addItem(item)
             return ""
+        }
+        // eval resizes — terminal resizes since the last call (each layout change should cost one per pane).
+        driver.hooks["resizes"] = { _ in
+            defer { TerminalSurfaceView.sentSizes = [] }
+            return "resizes=\(TerminalSurfaceView.sentSizes.count) \(TerminalSurfaceView.sentSizes.joined(separator: " "))"
         }
         driver.hooks["live"] = { _ in "controllers=\(TerminalWindowController.liveCount)" }
         // eval backdrop — window transparency and the blur view's state, for checking the chrome.

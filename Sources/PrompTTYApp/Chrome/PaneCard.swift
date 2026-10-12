@@ -26,13 +26,13 @@ struct PaneCard: View {
         ZStack(alignment: .top) {
             PaneHost(surface: actions.surfaceView(for: pane), visible: visible)
 
-            if tab.hasSplits, !focused {
-                // Dia-style focus: the other panes fade slightly toward the panel color, in the
-                // card's own shape so the dimming stays inside its rounded corners.
-                RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
-                    .fill(Color(nsColor: chrome.panelColor).opacity(0.38))
-                    .allowsHitTesting(false)
-            }
+            // Dia-style focus: the other panes fade slightly toward the panel color, in the
+            // card's own shape so the dimming stays inside its rounded corners.
+            RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
+                .fill(Color(nsColor: chrome.panelColor).opacity(0.38))
+                .opacity(tab.hasSplits && !focused ? 1 : 0)
+                .animation(PaneAnimation.focusFade, value: focused)
+                .allowsHitTesting(false)
 
             if let code = chrome.exitedPanes[pane.id] {
                 ExitedOverlay(exitCode: code) { actions.requestClosePane(pane.id) }
@@ -55,6 +55,7 @@ struct PaneCard: View {
         .overlay {
             RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
                 .strokeBorder(Color.primary.opacity(borderOpacity), lineWidth: 1)
+                .animation(PaneAnimation.focusFade, value: borderOpacity)
                 .allowsHitTesting(false)
         }
         .environment(\.colorScheme, chrome.panelIsDark ? .dark : .light)
