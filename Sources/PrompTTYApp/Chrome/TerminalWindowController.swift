@@ -205,21 +205,14 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         appliedInitialSize = true
         let settings = coordinator.preferences.settings
         let inset = ChromeMetrics.inset
-        let pane = ChromeMetrics.paneInset
-        // Panel chrome around the grid: toolbar on top, pane inset on the other sides.
-        let panelW = pane * 2
-        let panelH = ChromeMetrics.toolbarHeight + pane
         let chromeW: CGFloat
         let chromeH: CGFloat
-        if settings.tabListHidden {
-            chromeW = inset * 2 + panelW
-            chromeH = inset * 2 + panelH
-        } else if coordinator.workspace.tabLayout == .sidebar {
-            chromeW = settings.sidebarWidth + inset + panelW
-            chromeH = inset * 2 + panelH
+        if !settings.tabListHidden, coordinator.workspace.tabLayout == .sidebar {
+            chromeW = settings.sidebarWidth + inset
+            chromeH = inset * 2
         } else {
-            chromeW = inset * 2 + panelW
-            chromeH = ChromeMetrics.titlebarHeight + inset + panelH
+            chromeW = inset * 2
+            chromeH = ChromeMetrics.titlebarHeight + inset
         }
         window.setContentSize(NSSize(width: size.width + chromeW, height: size.height + chromeH))
         window.center()

@@ -1,8 +1,8 @@
 # PrompTTY 2
 
 A native macOS terminal built on [libghostty](https://ghostty.org), the engine behind Ghostty,
-with a SwiftUI interface in the style of the Dia browser: a flush sidebar (or a tab strip), one
-rounded content panel with a slim toolbar, splits divided by hairlines, and a Settings window.
+with a SwiftUI interface in the style of the Dia browser: a flush sidebar (or a tab strip), each
+pane in its own rounded card, and a Settings window.
 The default theme is [Flexoki](https://github.com/kepano/flexoki), following the system's light
 and dark appearance.
 

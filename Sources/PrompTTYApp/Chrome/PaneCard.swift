@@ -1,7 +1,7 @@
 import SwiftUI
 import WorkspaceModel
 
-/// One pane: its terminal, dimmed when another pane of a split tab has focus, a header that
+/// One pane: its terminal in a rounded card, dimmed when another pane of a split tab has focus, a header that
 /// appears when the pointer nears the top edge, and the "process exited" panel.
 struct PaneCard: View {
     let pane: Pane
@@ -38,6 +38,19 @@ struct PaneCard: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .background {
+            // The card: the terminal theme's color, a hairline edge and a soft shadow, so each
+            // pane stands apart from the window background and from its neighbours.
+            let shape = RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
+            shape.fill(Color(nsColor: chrome.panelColor))
+                .shadow(color: .black.opacity(chrome.panelIsDark ? 0.25 : 0.08), radius: 2.5, y: 1)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
+                .strokeBorder(Color.primary.opacity(chrome.panelIsDark ? 0.10 : 0.10), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .environment(\.colorScheme, chrome.panelIsDark ? .dark : .light)
         .modifier(PaneDropTarget(pane: pane, chrome: chrome, actions: actions))
         .animation(.easeOut(duration: 0.15), value: showHeader)
         .onContinuousHover(coordinateSpace: .local) { phase in

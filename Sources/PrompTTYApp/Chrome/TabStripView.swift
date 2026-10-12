@@ -28,35 +28,23 @@ struct TabStripView: View {
     }
 }
 
-/// The toolbar row at the top of the content panel: sidebar toggle, then the focused pane's
-/// title and folder. Its center lines up with the traffic lights.
-struct PanelToolbar: View {
+/// The titlebar band when the tab list is hidden: a way back to the tabs, the title, new tab.
+struct CompactTitleBar: View {
     let state: WindowState
-    let sidebarHidden: Bool
     let actions: ChromeActions
 
     var body: some View {
-        HStack(spacing: 8) {
-            ChromeIconButton(symbol: "sidebar.left", help: sidebarHidden ? "Show Tabs" : "Hide Tabs", action: actions.toggleSidebar)
-            if let tab = state.selectedTab {
-                HStack(spacing: 6) {
-                    Text(tab.listTitle)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.primary)
-                    if let folder = tab.listSubtitle {
-                        Text(folder)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .truncationMode(.head)
-                    }
-                }
+        HStack(spacing: 4) {
+            ChromeIconButton(symbol: "sidebar.left", help: "Show Tabs", action: actions.toggleSidebar)
+            Spacer()
+            Text(state.selectedTab?.listTitle ?? "")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .accessibilityElement(children: .combine)
-            }
-            Spacer(minLength: 0)
+            Spacer()
+            ChromeIconButton(symbol: "plus", help: "New Tab", action: actions.newTab)
         }
-        .padding(.leading, 8)
-        .padding(.trailing, 10)
-        .frame(height: ChromeMetrics.toolbarHeight)
+        .padding(.leading, ChromeMetrics.trafficLightsWidth)
+        .padding(.trailing, ChromeMetrics.inset)
     }
 }
