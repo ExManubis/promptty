@@ -36,8 +36,9 @@ public struct Settings: Equatable, Sendable {
     public var theme = "Flexoki Dark"
     public var cursorStyle = CursorStyle.block
     public var cursorBlink = true
-    /// 0…1: how strongly the window backdrop follows the theme background.
-    public var tintStrength: Double = 0.5
+    /// 0…1: how strongly the window backdrop follows the theme background. 0 is the system's
+    /// neutral window color (the Dia-style default).
+    public var tintStrength: Double = 0
 
     // Tabs & windows
     public var tabLayout = TabLayoutSetting.sidebar

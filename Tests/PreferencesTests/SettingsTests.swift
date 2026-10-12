@@ -13,7 +13,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(s.theme, "Flexoki Dark")
         XCTAssertEqual(s.cursorStyle, .block)
         XCTAssertTrue(s.cursorBlink)
-        XCTAssertEqual(s.tintStrength, 0.5)
+        XCTAssertEqual(s.tintStrength, 0, "Dia-style neutral frame by default")
         XCTAssertEqual(s.tabLayout, .sidebar)
         XCTAssertEqual(s.sidebarWidth, 220)
         XCTAssertFalse(s.tabListHidden)
