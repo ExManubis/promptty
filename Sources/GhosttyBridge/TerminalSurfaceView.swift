@@ -120,6 +120,7 @@ public final class TerminalSurfaceView: NSView {
             return ghostty_surface_new(runtime.app, &cfg)
         }
         surface = created
+        if created != nil { updateColorScheme() }
         if created == nil {
             // Do not retry on later window moves (and re-fire the failure callback).
             isFreed = true
@@ -162,6 +163,26 @@ public final class TerminalSurfaceView: NSView {
     public var hasSelection: Bool {
         guard let surface else { return false }
         return ghostty_surface_has_selection(surface)
+    }
+
+    // Standard Edit menu actions. libghostty binds no keys, so ⌘C/⌘V/⌘A arrive here from the menu.
+    @objc public func copy(_ sender: Any?) { performBindingAction("copy_to_clipboard") }
+    @objc public func paste(_ sender: Any?) { performBindingAction("paste_from_clipboard") }
+    @objc public override func selectAll(_ sender: Any?) { performBindingAction("select_all") }
+
+    // MARK: Appearance
+
+    /// Conditional config (`theme = light:…,dark:…`) is resolved per surface, so each surface has
+    /// to be told when the system appearance flips.
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColorScheme()
+    }
+
+    private func updateColorScheme() {
+        guard let surface else { return }
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        ghostty_surface_set_color_scheme(surface, dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
     }
 
     // MARK: Geometry

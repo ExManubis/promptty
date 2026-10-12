@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appearanceObservation: NSKeyValueObservation?
     private var sessionStore: SessionStore!
     private var saver: DebouncedSaver!
+    private var preferences: PreferencesController!
 
     /// With no nib, `@main` alone never instantiates the delegate; install it explicitly and keep
     /// it alive for the lifetime of the run loop (`NSApplication.delegate` is weak).
@@ -24,13 +25,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.mainMenu = MainMenu.build()
+        let store = SessionStore(url: AppPaths.session)
+        sessionStore = store
+        let snapshot = store.load()
         do {
-            // Interim until settings are wired: default settings only.
-            let conf = AppPaths.support.appendingPathComponent("terminal.conf")
-            try FileManager.default.createDirectory(at: AppPaths.support, withIntermediateDirectories: true)
-            try TerminalConfigWriter.render(Settings(), knownThemes: nil).write(to: conf, atomically: true, encoding: .utf8)
-            runtime = try GhosttyRuntime(configURL: conf)
+            let prefs = PreferencesController(
+                supportDirectory: AppPaths.support,
+                themesDirectory: try GhosttyLibrary.themesDirectory(),
+                legacyTabLayout: snapshot?.tabLayout
+            )
+            preferences = prefs
+            FontRegistration.ensureSFMono()
+            try prefs.writeTerminalConfig()
+            runtime = try GhosttyRuntime(configURL: prefs.terminalConfigURL)
         } catch {
             let alert = NSAlert()
             alert.messageText = "PrompTTY could not start the terminal engine"
@@ -39,14 +46,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
-        let store = SessionStore(url: AppPaths.session)
-        sessionStore = store
-        if let snapshot = store.load() {
+        NSApp.mainMenu = MainMenu.build(shortcuts: preferences.shortcuts)
+        if let snapshot, preferences.settings.restoreSession {
             workspace = Workspace.restore(from: snapshot)
         } else {
             workspace = Workspace()
         }
-        coordinator = WorkspaceCoordinator(runtime: runtime, workspace: workspace)
+        workspace.tabLayout = TabLayout(preferences.settings.tabLayout)
+        coordinator = WorkspaceCoordinator(runtime: runtime, workspace: workspace, preferences: preferences)
+        preferences.onTerminalConfigChanged = { [weak self] in self?.runtime.reloadConfig() }
+        preferences.onShortcutsChanged = { NSApp.mainMenu = MainMenu.build(shortcuts: $0) }
+        preferences.onAppSettingsChanged = { [weak self] in self?.coordinator.applyAppSettings($0) }
         saver = DebouncedSaver(delay: .seconds(1)) { [weak self] in self?.saveSession() }
         coordinator.onModelChanged = { [weak self] in self?.saver.schedule() }
         runtime.sink = coordinator
@@ -73,6 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugDriver.shared.install()
         #endif
         coordinator.showConfigDiagnostics(runtime.configDiagnostics)
+        if preferences.recoveredFromBadFile {
+            coordinator.showTransientBanner("Settings could not be read and were reset. The old file was kept as settings.json.bak.")
+        }
         NSApp.activate()
     }
 
@@ -102,6 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         guard sessionStore != nil else { return }
+        preferences?.flush()
         saver?.flush()
         saveSession()
     }
@@ -119,7 +133,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func newWindow(_ sender: Any?) { coordinator.newWindow() }
     @objc func toggleTabLayout(_ sender: Any?) { coordinator.toggleTabLayout() }
     @objc func toggleTabListHidden(_ sender: Any?) { coordinator.toggleTabListHidden() }
-    @objc func reloadConfig(_ sender: Any?) { runtime.reloadConfig() }
+    @objc func showSettings(_ sender: Any?) {}
+
+    @objc func biggerFont(_ sender: Any?) { preferences.update { $0.fontSize += 1 } }
+    @objc func smallerFont(_ sender: Any?) { preferences.update { $0.fontSize -= 1 } }
+    /// Back to the default size; Bigger/Smaller change the setting itself so the size persists.
+    @objc func actualSizeFont(_ sender: Any?) { preferences.update { $0.fontSize = Settings().fontSize } }
 
     private func syncColorScheme() {
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua

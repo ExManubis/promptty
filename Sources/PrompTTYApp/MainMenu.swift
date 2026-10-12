@@ -1,57 +1,146 @@
 import AppKit
+import Preferences
 
+/// The menu bar. Every editable shortcut comes from `ShortcutMap`, and every shortcut contains ⌘,
+/// so no menu item ever takes a key the terminal should get.
 enum MainMenu {
-    static func build() -> NSMenu {
+    /// Responder-chain actions, implemented by `AppDelegate` and `TerminalWindowController`.
+    enum Action {
+        static let newWindow = #selector(AppDelegate.newWindow(_:))
+        static let showSettings = #selector(AppDelegate.showSettings(_:))
+        static let toggleTabLayout = #selector(AppDelegate.toggleTabLayout(_:))
+        static let toggleTabListHidden = #selector(AppDelegate.toggleTabListHidden(_:))
+        static let biggerFont = #selector(AppDelegate.biggerFont(_:))
+        static let smallerFont = #selector(AppDelegate.smallerFont(_:))
+        static let actualSizeFont = #selector(AppDelegate.actualSizeFont(_:))
+        static let newTab = #selector(TerminalWindowController.newTab(_:))
+        static let closeTab = #selector(TerminalWindowController.closeTab(_:))
+        static let closePane = #selector(TerminalWindowController.closePane(_:))
+        static let previousTab = #selector(TerminalWindowController.previousTab(_:))
+        static let nextTab = #selector(TerminalWindowController.nextTab(_:))
+        static let gotoTab = #selector(TerminalWindowController.gotoTab(_:))
+        static let splitRight = #selector(TerminalWindowController.splitRight(_:))
+        static let splitDown = #selector(TerminalWindowController.splitDown(_:))
+        static let focusPaneLeft = #selector(TerminalWindowController.focusPaneLeft(_:))
+        static let focusPaneUp = #selector(TerminalWindowController.focusPaneUp(_:))
+        static let focusPaneRight = #selector(TerminalWindowController.focusPaneRight(_:))
+        static let focusPaneDown = #selector(TerminalWindowController.focusPaneDown(_:))
+        static let equalizePanes = #selector(TerminalWindowController.equalizePanes(_:))
+        static let clearTerminal = #selector(TerminalWindowController.clearTerminal(_:))
+    }
+
+    static func build(shortcuts: ShortcutMap) -> NSMenu {
+        func item(_ title: String, _ action: Selector, _ shortcutAction: ShortcutAction? = nil) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            if let shortcutAction { apply(shortcuts.shortcut(for: shortcutAction), to: item) }
+            return item
+        }
+        func fixed(_ title: String, _ action: Selector, _ key: String, _ mask: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = mask
+            return item
+        }
+
         let menu = NSMenu()
 
         let app = NSMenu()
         app.addItem(withTitle: "About PrompTTY", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         app.addItem(.separator())
-        app.addItem(withTitle: "Reload Configuration", action: #selector(AppDelegate.reloadConfig(_:)), keyEquivalent: ",").keyEquivalentModifierMask = [.command, .shift]
+        app.addItem(fixed("Settings…", Action.showSettings, ","))
         app.addItem(.separator())
-        app.addItem(withTitle: "Hide PrompTTY", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        app.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h").keyEquivalentModifierMask = [.command, .option]
+        app.addItem(fixed("Hide PrompTTY", #selector(NSApplication.hide(_:)), "h"))
+        app.addItem(fixed("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]))
         app.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
         app.addItem(.separator())
-        app.addItem(withTitle: "Quit PrompTTY", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        app.addItem(fixed("Quit PrompTTY", #selector(NSApplication.terminate(_:)), "q"))
         menu.addItem(submenu: app, title: "PrompTTY")
 
         let file = NSMenu(title: "File")
-        file.addItem(withTitle: "New Window", action: #selector(AppDelegate.newWindow(_:)), keyEquivalent: "n")
-        file.addItem(withTitle: "New Tab", action: #selector(TerminalWindowController.newTab(_:)), keyEquivalent: "t")
+        file.addItem(item("New Window", Action.newWindow, .newWindow))
+        file.addItem(item("New Tab", Action.newTab, .newTab))
         file.addItem(.separator())
-        file.addItem(withTitle: "Close Tab", action: #selector(TerminalWindowController.closeTab(_:)), keyEquivalent: "w")
-        file.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w").keyEquivalentModifierMask = [.command, .shift]
+        file.addItem(item("Split Right", Action.splitRight, .splitRight))
+        file.addItem(item("Split Down", Action.splitDown, .splitDown))
+        file.addItem(.separator())
+        file.addItem(item("Close Pane", Action.closePane, .closePane))
+        file.addItem(item("Close Tab", Action.closeTab, .closeTab))
+        file.addItem(item("Close Window", #selector(NSWindow.performClose(_:)), .closeWindow))
         menu.addItem(submenu: file, title: "File")
 
-        // ⌘C/⌘V in the terminal never reach these: the surface is first responder and libghostty
-        // consumes them in `keyDown` (its default `super+c`/`super+v` binds). These items serve text
-        // fields such as the inline tab rename.
+        // Standard selectors so text fields (tab rename, Settings) keep working; the terminal view
+        // implements them through libghostty binding actions.
         let edit = NSMenu(title: "Edit")
-        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(item("Copy", #selector(NSText.copy(_:)), .copy))
+        edit.addItem(item("Paste", #selector(NSText.paste(_:)), .paste))
+        edit.addItem(item("Select All", #selector(NSText.selectAll(_:)), .selectAll))
+        edit.addItem(.separator())
+        edit.addItem(item("Clear", Action.clearTerminal, .clear))
         menu.addItem(submenu: edit, title: "Edit")
 
         let view = NSMenu(title: "View")
-        view.addItem(withTitle: "Toggle Tab Layout", action: #selector(AppDelegate.toggleTabLayout(_:)), keyEquivalent: "s").keyEquivalentModifierMask = [.command, .control]
-        view.addItem(withTitle: "Hide Tab List", action: #selector(AppDelegate.toggleTabListHidden(_:)), keyEquivalent: "b")
+        view.addItem(item("Bigger", Action.biggerFont, .biggerFont))
+        view.addItem(item("Smaller", Action.smallerFont, .smallerFont))
+        view.addItem(item("Actual Size", Action.actualSizeFont, .actualSizeFont))
         view.addItem(.separator())
-        view.addItem(withTitle: "Previous Tab", action: #selector(TerminalWindowController.previousTab(_:)), keyEquivalent: "[").keyEquivalentModifierMask = [.command, .shift]
-        view.addItem(withTitle: "Next Tab", action: #selector(TerminalWindowController.nextTab(_:)), keyEquivalent: "]").keyEquivalentModifierMask = [.command, .shift]
+        view.addItem(item("Toggle Sidebar", Action.toggleTabListHidden, .toggleSidebar))
+        view.addItem(item("Toggle Tab Layout", Action.toggleTabLayout, .toggleTabLayout))
         view.addItem(.separator())
-        view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f").keyEquivalentModifierMask = [.command, .control]
+        view.addItem(fixed("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
         menu.addItem(submenu: view, title: "View")
 
         let window = NSMenu(title: "Window")
-        window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        window.addItem(fixed("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"))
         window.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        window.addItem(.separator())
+        window.addItem(item("Previous Tab", Action.previousTab, .previousTab))
+        window.addItem(item("Next Tab", Action.nextTab, .nextTab))
+        let goTo = NSMenu(title: "Go to Tab")
+        for action in ShortcutAction.allCases {
+            guard let n = action.tabNumber else { continue }
+            let it = item("Tab \(n)", Action.gotoTab, action)
+            it.tag = n
+            goTo.addItem(it)
+        }
+        window.addItem(submenu: goTo, title: "Go to Tab")
+        window.addItem(.separator())
+        window.addItem(item("Focus Pane Left", Action.focusPaneLeft, .focusPaneLeft))
+        window.addItem(item("Focus Pane Above", Action.focusPaneUp, .focusPaneUp))
+        window.addItem(item("Focus Pane Right", Action.focusPaneRight, .focusPaneRight))
+        window.addItem(item("Focus Pane Below", Action.focusPaneDown, .focusPaneDown))
+        window.addItem(item("Equalize Panes", Action.equalizePanes, .equalizePanes))
         window.addItem(.separator())
         window.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         menu.addItem(submenu: window, title: "Window")
         NSApp.windowsMenu = window
 
         return menu
+    }
+
+    /// Sets `item`'s key equivalent from a shortcut.
+    static func apply(_ shortcut: Shortcut, to item: NSMenuItem) {
+        item.keyEquivalent = keyEquivalent(for: shortcut.key)
+        var mask: NSEvent.ModifierFlags = []
+        if shortcut.modifiers.contains(.command) { mask.insert(.command) }
+        if shortcut.modifiers.contains(.shift) { mask.insert(.shift) }
+        if shortcut.modifiers.contains(.option) { mask.insert(.option) }
+        if shortcut.modifiers.contains(.control) { mask.insert(.control) }
+        item.keyEquivalentModifierMask = mask
+    }
+
+    static func keyEquivalent(for key: String) -> String {
+        func scalar(_ code: Int) -> String { String(UnicodeScalar(UInt16(code)).map(Character.init) ?? " ") }
+        switch key {
+        case "left": return scalar(NSLeftArrowFunctionKey)
+        case "right": return scalar(NSRightArrowFunctionKey)
+        case "up": return scalar(NSUpArrowFunctionKey)
+        case "down": return scalar(NSDownArrowFunctionKey)
+        case "return": return "\r"
+        case "tab": return "\t"
+        case "delete": return "\u{8}"
+        case "escape": return "\u{1b}"
+        case "space": return " "
+        default: return key
+        }
     }
 }
 

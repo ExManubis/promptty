@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyBridge
+import Preferences
 import WorkspaceModel
 
 /// Owns the mapping between the model, window controllers, and surfaces, and is libghostty's action sink.
@@ -7,13 +8,15 @@ import WorkspaceModel
 final class WorkspaceCoordinator: GhosttyActionSink {
     let runtime: GhosttyRuntime
     let workspace: Workspace
+    let preferences: PreferencesController
     private var controllers: [WindowID: TerminalWindowController] = [:]
     /// Set by Task 10 to schedule a session save.
     var onModelChanged: (() -> Void)?
 
-    init(runtime: GhosttyRuntime, workspace: Workspace) {
+    init(runtime: GhosttyRuntime, workspace: Workspace, preferences: PreferencesController) {
         self.runtime = runtime
         self.workspace = workspace
+        self.preferences = preferences
     }
 
     /// Opens a controller for every window in the model; creates a default window if none.
@@ -96,7 +99,8 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     }
 
     func newTab(in state: WindowState, workingDirectory: String? = nil) {
-        let dir = workingDirectory ?? state.selectedTab?.workingDirectory ?? NSHomeDirectory()
+        let inherited = preferences.settings.newTabDirectory == .currentPane ? state.selectedTab?.workingDirectory : nil
+        let dir = workingDirectory ?? inherited ?? NSHomeDirectory()
         state.addTab(title: "", workingDirectory: dir)
         controllers[state.id]?.reload()
         modelDidChange()
@@ -137,18 +141,27 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     }
 
     func toggleTabLayout() {
-        workspace.toggleTabLayout()
-        for c in controllers.values { c.setTabLayout(workspace.tabLayout, hidden: tabListHidden) }
-        modelDidChange()
+        preferences.update { $0.tabLayout = $0.tabLayout == .sidebar ? .strip : .sidebar }
     }
 
-    /// ⌘B. A preference, not session state, so it lives in UserDefaults.
-    private static let tabListHiddenKey = "tabListHidden"
-    var tabListHidden: Bool { UserDefaults.standard.bool(forKey: Self.tabListHiddenKey) }
+    var tabListHidden: Bool { preferences.settings.tabListHidden }
 
     func toggleTabListHidden() {
-        UserDefaults.standard.set(!tabListHidden, forKey: Self.tabListHiddenKey)
-        for c in controllers.values { c.setTabLayout(workspace.tabLayout, hidden: tabListHidden) }
+        preferences.update { $0.tabListHidden.toggle() }
+    }
+
+    private var appliedLayout: (TabLayout, Bool)?
+
+    /// Applies app-only settings (layout, sidebar) to every window after a settings change.
+    func applyAppSettings(_ settings: Preferences.Settings) {
+        let layout = TabLayout(settings.tabLayout)
+        if workspace.tabLayout != layout {
+            workspace.tabLayout = layout
+            modelDidChange()
+        }
+        guard appliedLayout.map({ $0 != (layout, settings.tabListHidden) }) ?? true else { return }
+        appliedLayout = (layout, settings.tabListHidden)
+        for c in controllers.values { c.setTabLayout(layout, hidden: settings.tabListHidden) }
     }
 
     func windowWillClose(_ id: WindowID) {

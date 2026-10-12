@@ -146,6 +146,28 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         if state.gotoTab(.next) { reload(); coordinator.modelDidChange() }
     }
 
+    /// Go to Tab N; the menu item's tag is N.
+    @objc func gotoTab(_ sender: Any?) {
+        guard let n = (sender as? NSMenuItem)?.tag else { return }
+        if state.gotoTab(.index(n)) { reload(); coordinator.modelDidChange() }
+    }
+
+    @objc func closePane(_ sender: Any?) { closeTab(sender) }
+
+    @objc func clearTerminal(_ sender: Any?) {
+        guard let id = state.selectedTabID else { return }
+        surfaces[id]?.performBindingAction("clear_screen")
+    }
+
+    // Splits arrive with the SwiftUI pane tree.
+    @objc func splitRight(_ sender: Any?) {}
+    @objc func splitDown(_ sender: Any?) {}
+    @objc func focusPaneLeft(_ sender: Any?) {}
+    @objc func focusPaneUp(_ sender: Any?) {}
+    @objc func focusPaneRight(_ sender: Any?) {}
+    @objc func focusPaneDown(_ sender: Any?) {}
+    @objc func equalizePanes(_ sender: Any?) {}
+
     // MARK: NSWindowDelegate
 
     /// Presents a Close/Cancel confirmation sheet on this window; `onConfirm` runs on Close.
