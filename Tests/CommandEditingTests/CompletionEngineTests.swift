@@ -116,6 +116,8 @@ final class GitStatusTests: XCTestCase {
     func testDetachedHeadShowsTheShortHash() {
         let s = GitStatus.parse(porcelainV2: "# branch.oid 1234567890abcdef\n# branch.head (detached)\n")
         XCTAssertEqual(s?.branch, "1234567")
+        XCTAssertEqual(s?.detached, true)
+        XCTAssertEqual(GitStatus.parse(porcelainV2: "# branch.head main\n")?.detached, false)
     }
 
     func testNotARepository() {

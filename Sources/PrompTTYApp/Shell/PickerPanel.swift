@@ -106,7 +106,10 @@ struct PickerRow<Accessory: View>: View {
     let icon: String
     let title: String
     let selected: Bool
-    var dimmed = false
+    /// Not a choice (the branch checked out): dimmed, and not a button.
+    var enabled = true
+    /// When the title does not read well (`..`).
+    var accessibilityLabel: String?
     let accessibilityHint: String
     let open: () -> Void
     @ViewBuilder let accessory: (_ hovering: Bool) -> Accessory
@@ -124,7 +127,7 @@ struct PickerRow<Accessory: View>: View {
                         .font(.system(size: 13))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .opacity(dimmed && !selected ? 0.6 : 1)
+                        .opacity(enabled || selected ? 1 : 0.6)
                     Spacer(minLength: 4)
                 }
                 .padding(.leading, 6)
@@ -132,7 +135,8 @@ struct PickerRow<Accessory: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(title)
+            .disabled(!enabled)
+            .accessibilityLabel(accessibilityLabel ?? title)
             .accessibilityHint(accessibilityHint)
             .accessibilityAddTraits(selected ? .isSelected : [])
             accessory(hovering)

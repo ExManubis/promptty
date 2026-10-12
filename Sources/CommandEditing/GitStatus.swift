@@ -4,10 +4,13 @@ public struct GitStatus: Equatable, Sendable {
     public var branch: String
     /// Anything to commit: changed, staged or untracked files.
     public var dirty: Bool
+    /// HEAD is a commit, not a branch: `branch` is its short hash.
+    public var detached: Bool
 
-    public init(branch: String, dirty: Bool) {
+    public init(branch: String, dirty: Bool, detached: Bool = false) {
         self.branch = branch
         self.dirty = dirty
+        self.detached = detached
     }
 
     /// Nil when the output is not a status (not a repository).
@@ -25,7 +28,8 @@ public struct GitStatus: Equatable, Sendable {
             }
         }
         guard let head else { return nil }
-        let branch = head == "(detached)" ? String((oid ?? "").prefix(7)) : head
-        return GitStatus(branch: branch, dirty: dirty)
+        let detached = head == "(detached)"
+        let branch = detached ? String((oid ?? "").prefix(7)) : head
+        return GitStatus(branch: branch, dirty: dirty, detached: detached)
     }
 }

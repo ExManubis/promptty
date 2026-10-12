@@ -6,11 +6,17 @@ import SwiftUI
 @Observable
 final class BranchPickerModel {
     var list: BranchList
-    let dirty: Bool
+    let git: GitStatus
 
-    init(current: String?, dirty: Bool) {
-        list = BranchList(current: current)
-        self.dirty = dirty
+    init(git: GitStatus) {
+        // Detached, HEAD is no branch: every branch is a choice.
+        list = BranchList(current: git.detached ? nil : git.branch)
+        self.git = git
+    }
+
+    func loaded(_ listing: BranchListing?) {
+        guard let listing else { return list.loaded(nil) }
+        list.loaded(listing.local, remote: listing.remote, elsewhere: listing.checkedOutElsewhere(current: list.current))
     }
 }
 
@@ -26,8 +32,8 @@ struct BranchPickerView: View {
         let list = model.list
         PickerPanel(
             icon: "arrow.triangle.branch",
-            title: list.current ?? "Branches",
-            notice: model.dirty ? "Uncommitted changes" : nil,
+            title: model.git.detached ? "Detached at \(model.git.branch)" : model.git.branch,
+            notice: model.git.dirty ? "Uncommitted changes" : nil,
             placeholder: "Switch to or create a branch",
             query: Binding(get: { model.list.query }, set: { model.list.query = $0 }),
             note: Self.note(for: list),
@@ -41,42 +47,54 @@ struct BranchPickerView: View {
                     icon: Self.icon(for: row),
                     title: Self.title(for: row),
                     selected: list.selection == index,
-                    dimmed: list.choice(row: index) == nil,
-                    accessibilityHint: Self.hint(for: row, isCurrent: list.choice(row: index) == nil),
+                    enabled: list.choice(row: index) != nil,
+                    accessibilityHint: Self.hint(for: row, in: list),
                     open: { if let choice = model.list.choice(row: index) { choose(choice) } }
                 ) { _ in
-                    if list.choice(row: index) == nil {
+                    if case .branch(let name) = row, name == list.current {
                         Image(systemName: "checkmark")
                             .font(.system(size: 10, weight: .semibold))
                             .frame(width: 22)
                             .accessibilityLabel("Current branch")
+                    } else if case .branch(let name) = row, list.isCheckedOutElsewhere(name) {
+                        Text("other worktree")
+                            .font(.system(size: 10))
+                            .padding(.trailing, 6)
+                            .help("Checked out in another worktree; git switches to it only there")
                     }
                 }
                 .id(row)
             }
         }
         .task {
-            let names = await shell.listBranches()
-            model.list.loaded(names)
+            model.loaded(await shell.listBranches())
         }
     }
 
     private static func icon(for row: BranchList.Row) -> String {
-        if case .create = row { return "plus" }
-        return "arrow.triangle.branch"
+        switch row {
+        case .branch: "arrow.triangle.branch"
+        case .create: "plus"
+        case .track: "arrow.down.circle"
+        }
     }
 
     private static func title(for row: BranchList.Row) -> String {
         switch row {
         case .branch(let name): name
         case .create(let name): "Create branch “\(name)”"
+        case .track(let name): "Track “\(name)”"
         }
     }
 
-    private static func hint(for row: BranchList.Row, isCurrent: Bool) -> String {
-        if isCurrent { return "The branch checked out" }
-        if case .create = row { return "Creates this branch and switches to it" }
-        return "Switches to this branch"
+    private static func hint(for row: BranchList.Row, in list: BranchList) -> String {
+        switch row {
+        case .branch(let name) where name == list.current: "The branch checked out"
+        case .branch(let name) where list.isCheckedOutElsewhere(name): "Checked out in another worktree"
+        case .branch: "Switches to this branch"
+        case .create: "Creates this branch and switches to it"
+        case .track: "Creates a local branch that tracks this remote branch, and switches to it"
+        }
     }
 
     /// In place of rows: why there are no branches to show.

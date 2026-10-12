@@ -60,6 +60,7 @@ struct FolderPickerView: View {
                     icon: row == .parent ? "arrow.turn.left.up" : "folder",
                     title: name,
                     selected: browser.selection == index,
+                    accessibilityLabel: row == .parent ? "Parent folder" : nil,
                     accessibilityHint: "Changes to this folder",
                     open: { choose(model.browser.target(row: index)) }
                 ) { hovering in

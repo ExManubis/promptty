@@ -144,6 +144,8 @@ final class PaneShell {
     @ObservationIgnored private var keepingDraft = false
     /// A program other than the shell in the foreground during that command, and for how many polls.
     @ObservationIgnored private var hookForeground: (pid: Int, polls: Int) = (0, 0)
+    /// How many polls that program may keep the terminal before it gets the keys.
+    @ObservationIgnored private var handOverPolls = 4
     @ObservationIgnored private var gitGeneration = 0
 
     init(pane: PaneID, directory: String, integrated: Bool) {
@@ -284,35 +286,39 @@ final class PaneShell {
         }
     }
 
-    /// The folder picker's choice.
+    /// The folder picker's choice. The shell's own hooks run during a `cd`; a program that keeps
+    /// the terminal for a second is one of them asking something.
     func changeDirectory(to path: String) {
-        runKeepingDraft(ShellQuoting.cdCommand(to: path, home: NSHomeDirectory()))
+        runKeepingDraft(ShellQuoting.cdCommand(to: path, home: NSHomeDirectory()), handOverAfter: 1)
     }
 
-    /// The branch picker's choice.
+    /// The branch picker's choice. git itself has the terminal while it checks files out, which
+    /// can take a while in a large repository.
     func switchBranch(_ row: BranchList.Row) {
-        runKeepingDraft(BranchList.command(for: row))
+        runKeepingDraft(BranchList.command(for: row), handOverAfter: 10)
     }
 
     /// A picker's command runs like a typed one (in the scrollback and the history) and leaves
-    /// whatever is half-typed in the bar where it is.
-    private func runKeepingDraft(_ command: String) {
+    /// whatever is half-typed in the bar where it is. A program other than the shell that keeps
+    /// the terminal for `handOverAfter` seconds gets it, and the keys.
+    private func runKeepingDraft(_ command: String, handOverAfter seconds: TimeInterval) {
         guard bar == .active, state.phase == .idle, let surface else { return }
         surface.sendText(command)
         history.add(command)
         surface.sendReturn()
         keepingDraft = true
+        handOverPolls = max(1, Int(seconds / 0.25))
         state.submitted()
         phaseChanged()
     }
 
-    /// The repository's local branches, newest commit first; nil when git cannot list them.
-    func listBranches() async -> [String]? {
+    /// The repository's branches for the branch picker; nil when git cannot list them.
+    func listBranches() async -> BranchListing? {
         let dir = directory
         let git = Self.executable("git", in: stateFile?.path ?? []) ?? "/usr/bin/git"
         return await Task.detached(priority: .userInitiated) {
-            Self.run(git, ["-C", dir, "for-each-ref", "--sort=-committerdate", "--format=%(refname:lstrip=2)", "refs/heads"], timeout: 2)
-                .map { $0.split(separator: "\n").map(String.init) }
+            Self.run(git, ["-C", dir, "for-each-ref", "--sort=-committerdate", "--format=%(refname)%09%(worktreepath)", "refs/heads", "refs/remotes"], timeout: 2)
+                .map(BranchListing.init(forEachRef:))
         }.value
     }
 
@@ -386,9 +392,9 @@ final class PaneShell {
         onPhaseChange?(state.phase)
     }
 
-    /// While a picker's command runs: a program other than the shell that keeps the foreground for
-    /// a second (a hook that asks something, not one that runs `git` for a moment) gets the
-    /// terminal and the keys, the draft staying in the hidden bar.
+    /// While a picker's command runs: a program other than the shell that keeps the foreground
+    /// past the command's allowance (a hook that asks something, not one that runs `git` for a
+    /// moment) gets the terminal and the keys, the draft staying in the hidden bar.
     private func checkForegroundWhileKeepingDraft() {
         guard state.phase == .running, bar == .inactive, keepingDraft else {
             poll?.invalidate()
@@ -400,7 +406,7 @@ final class PaneShell {
             return
         }
         hookForeground = hookForeground.pid == pid ? (pid, hookForeground.polls + 1) : (pid, 1)
-        guard hookForeground.polls >= 4 else { return }
+        guard hookForeground.polls >= handOverPolls else { return }
         hookForeground = (0, 0)
         poll?.invalidate()
         poll = nil

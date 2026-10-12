@@ -125,7 +125,7 @@ private struct BranchButton: View {
 
     var body: some View {
         Button {
-            picker = BranchPickerModel(current: git.branch, dirty: git.dirty)
+            picker = BranchPickerModel(git: git)
             picking = true
         } label: {
             Label {
