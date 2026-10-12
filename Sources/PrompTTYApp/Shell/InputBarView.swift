@@ -2,11 +2,15 @@ import CommandEditing
 import SwiftUI
 import WorkspaceModel
 
-/// The input bar at the bottom of a pane at a prompt: a header in place of the shell prompt, then
-/// the editor. Its text column lines up with the terminal's (the grid's 10 pt side padding).
+/// The input bar at the bottom of a pane at a prompt: a Liquid Glass box, inset from the card's
+/// edges, holding a header in place of the shell prompt and the editor below it.
 struct InputBarView: View {
     let shell: PaneShell
     let dark: Bool
+
+    static let cornerRadius: CGFloat = 12
+    /// From the card's edges to the box.
+    static let inset: CGFloat = 8
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -15,13 +19,13 @@ struct InputBarView: View {
                 .frame(height: shell.editorHeight)
                 .opacity(shell.bar == .active ? 1 : 0.45)
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 7)
-        .padding(.bottom, 9)
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .top) {
-            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
-        }
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+        .padding([.horizontal, .bottom], Self.inset)
+        .padding(.top, 2)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Command input")
     }
