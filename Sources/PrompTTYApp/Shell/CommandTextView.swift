@@ -45,6 +45,9 @@ final class CommandTextView: NSTextView {
     weak var terminal: TerminalSurfaceView?
     /// Newest first.
     var history: () -> [String] = { [] }
+    /// The commands run in the pane's folder and the folders above it, best first: ghost text
+    /// prefers them to the whole history.
+    var folderHistory: () -> [String] = { [] }
     var isKnownCommand: (String) -> Bool = { _ in true }
 
     private(set) var vi = ViEngine()
@@ -334,7 +337,7 @@ final class CommandTextView: NSTextView {
     private func updateSuggestion() {
         let range = selectedRange()
         let atEnd = range.length == 0 && range.location == (string as NSString).length
-        let next = atEnd && !hasMarkedText() ? Autosuggester.suggestion(for: string, history: history()) : nil
+        let next = atEnd && !hasMarkedText() ? Autosuggester.suggestion(for: string, local: folderHistory(), history: history()) : nil
         if next != suggestion {
             suggestion = next
             needsDisplay = true

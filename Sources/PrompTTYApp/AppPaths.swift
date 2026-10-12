@@ -14,4 +14,5 @@ enum AppPaths {
     }()
 
     static var session: URL { support.appendingPathComponent("session.json") }
+    static var folderHistory: URL { support.appendingPathComponent("folder-history.jsonl") }
 }

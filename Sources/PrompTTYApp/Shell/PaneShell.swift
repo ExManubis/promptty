@@ -195,6 +195,7 @@ final class PaneShell {
         text.terminal = surface
         text.onSubmit = { [weak self] in self?.submit($0) }
         text.history = { [weak self] in self?.history.newestFirst ?? [] }
+        text.folderHistory = { [weak self] in self.map { FolderHistoryStore.shared.ranked(for: $0.directory) } ?? [] }
         text.isKnownCommand = { [weak self] in self?.isKnownCommand($0) ?? true }
         text.completionContext = { [weak self] in
             guard let self else { return nil }
@@ -270,6 +271,7 @@ final class PaneShell {
         if !command.isEmpty {
             surface.sendText(command)
             history.add(command)
+            FolderHistoryStore.shared.add(command, in: directory)
             lastCommand = command
         }
         surface.sendReturn()

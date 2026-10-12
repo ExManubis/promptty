@@ -11,6 +11,11 @@ public enum Autosuggester {
         return String(match.dropFirst(text.count))
     }
 
+    /// This folder's commands first (`local`, best first), then the whole history.
+    public static func suggestion(for text: String, local: [String], history newestFirst: [String]) -> String? {
+        suggestion(for: text, history: local) ?? suggestion(for: text, history: newestFirst)
+    }
+
     /// The part of a suggestion ⌥→ accepts: leading spaces plus one word.
     public static func firstWord(of suggestion: String) -> String {
         let spaces = suggestion.prefix(while: { $0 == " " })
