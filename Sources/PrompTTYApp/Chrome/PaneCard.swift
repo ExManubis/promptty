@@ -21,9 +21,10 @@ struct PaneCard: View {
             PaneHost(surface: actions.surfaceView(for: pane), visible: visible)
 
             if tab.hasSplits, !focused {
-                // Dia-style focus: the other panes fade slightly toward the panel color.
-                Color(nsColor: chrome.panelColor)
-                    .opacity(0.38)
+                // Dia-style focus: the other panes fade slightly toward the panel color, in the
+                // card's own shape so the dimming stays inside its rounded corners.
+                RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
+                    .fill(Color(nsColor: chrome.panelColor).opacity(0.38))
                     .allowsHitTesting(false)
             }
 
