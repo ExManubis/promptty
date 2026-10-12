@@ -121,17 +121,24 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         if let existing = surfaces[pane.id] { return existing }
         guard state.tab(containing: pane.id) != nil else { return nil }
         let environment = ShellIntegration.environment(for: pane.id)
+        let integrated = !environment.isEmpty
+        // A pinned tab's command: run from the bar at the first prompt, or typed ahead into a
+        // shell without the integration.
+        let startup = pane.startupCommand
+        pane.startupCommand = nil
         let view = TerminalSurfaceView(
             runtime: runtime,
             configuration: TerminalSurfaceConfiguration(
                 workingDirectory: pane.workingDirectory,
                 inheritFrom: pendingInherit.removeValue(forKey: pane.id),
-                environment: environment
+                environment: environment,
+                initialInput: integrated ? nil : startup.map { $0 + "\n" }
             )
         )
         view.token = pane.id
         surfaces[pane.id] = view
-        let shell = PaneShell(pane: pane.id, directory: pane.workingDirectory, integrated: !environment.isEmpty)
+        let shell = PaneShell(pane: pane.id, directory: pane.workingDirectory, integrated: integrated,
+                              startupCommand: integrated ? startup : nil)
         shell.surface = view
         shells[pane.id] = shell
         bind(view, to: pane.id)
@@ -147,11 +154,11 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     private let previewPanel = PreviewPanel()
     private var previewedTab: TabID?
 
-    func showPreview(of tab: TabID, beside row: CGRect) {
+    func showPreview(of tab: TabID, beside row: CGRect, titled: Bool) {
         guard let window, let model = state.tab(id: tab) else { return }
         previewedTab = tab
         previewPanel.show(
-            TabPreview(tab: model, actions: self, chrome: chrome),
+            TabPreview(tab: model, actions: self, chrome: chrome, titled: titled),
             beside: row, in: window
         )
     }
@@ -354,6 +361,11 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     func requestCloseTab(_ id: TabID) {
         guard let tab = state.tab(id: id) else { return }
+        // A pinned tab cannot be closed; it is unpinned first.
+        guard tab.pin == nil else {
+            NSSound.beep()
+            return
+        }
         let running = tab.orderedPanes.contains { surfaces[$0.id]?.needsConfirmQuit == true }
         guard running, coordinator.preferences.settings.confirmCloseRunning else {
             coordinator.closeTab(id)
@@ -368,13 +380,42 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func renameTab(_ id: TabID, to title: String) { coordinator.rename(id, to: title) }
     func endRenaming() { focusSelectedPane() }
     func moveTab(_ id: TabID, to index: Int) { coordinator.move(id, to: index) }
+    func pinTab(_ id: TabID, at index: Int?) { coordinator.pin(id, at: index) }
+    func unpinTab(_ id: TabID, at index: Int?) { coordinator.unpin(id, at: index) }
+    func resetPinnedTab(_ id: TabID) { coordinator.resetPinned(id, runningCommand: true) }
+
+    /// A sheet with the command a pinned tab runs on relaunch and reset.
+    func editPinnedCommand(_ id: TabID) {
+        guard let window, window.attachedSheet == nil, let tab = state.tab(id: id), let pin = tab.pin else { return }
+        let alert = NSAlert()
+        alert.messageText = "Pinned Command"
+        alert.informativeText = "Runs in \(Tab.abbreviate(pin.directory)) when PrompTTY opens and when the tab is reset. Leave it empty for just a shell."
+        let field = NSTextField(string: pin.command ?? "")
+        field.placeholderString = "npm run dev"
+        field.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        field.frame = NSRect(x: 0, y: 0, width: 320, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { [weak self] response in
+            if response == .alertFirstButtonReturn { self?.coordinator.setPinnedCommand(id, field.stringValue) }
+            self?.focusSelectedPane()
+        }
+    }
     func toggleSidebar() { coordinator.toggleTabListHidden() }
     func split(_ pane: PaneID, direction: SplitDirection) { coordinator.split(pane, direction: direction) }
 
     /// Asks libghostty to close the pane's surface; it answers through `close_surface_cb`, whose
     /// handler confirms first when a process is still running.
     func requestClosePane(_ pane: PaneID) {
-        if let view = surfaces[pane], !view.isTornDown, chrome.exitedPanes[pane] == nil {
+        let live = surfaces[pane].map { !$0.isTornDown } ?? false && chrome.exitedPanes[pane] == nil
+        // Nor can a pinned tab's last pane (a shell that has exited is restarted).
+        if live, let tab = state.tab(containing: pane), tab.pin != nil, !tab.hasSplits {
+            NSSound.beep()
+            return
+        }
+        if let view = surfaces[pane], live {
             view.requestClose()
         } else {
             coordinator.closePane(pane)
@@ -397,6 +438,11 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     @objc func closeTab(_ sender: Any?) {
         guard let id = state.selectedTabID else { return }
         requestCloseTab(id)
+    }
+
+    @objc func togglePinTab(_ sender: Any?) {
+        guard let tab = state.selectedTab else { return }
+        if tab.pin == nil { pinTab(tab.id, at: nil) } else { unpinTab(tab.id, at: nil) }
     }
 
     @objc func closePane(_ sender: Any?) {
@@ -449,6 +495,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             return item.tag <= state.tabs.count
         case #selector(previousTab(_:)), #selector(nextTab(_:)):
             return state.tabs.count > 1
+        case #selector(togglePinTab(_:)):
+            item.title = state.selectedTab?.pin == nil ? "Pin Tab" : "Unpin Tab"
+            return state.selectedTab != nil
         default:
             return true
         }

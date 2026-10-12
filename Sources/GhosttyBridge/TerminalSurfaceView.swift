@@ -8,10 +8,14 @@ public struct TerminalSurfaceConfiguration: Sendable {
     public var inheritFrom: TerminalSurfaceView?
     /// Added to the shell's environment.
     public var environment: [String: String]
-    public init(workingDirectory: String? = nil, inheritFrom: TerminalSurfaceView? = nil, environment: [String: String] = [:]) {
+    /// Typed into the terminal as it starts (a command and its Return), for shells that cannot
+    /// tell when they are ready.
+    public var initialInput: String?
+    public init(workingDirectory: String? = nil, inheritFrom: TerminalSurfaceView? = nil, environment: [String: String] = [:], initialInput: String? = nil) {
         self.workingDirectory = workingDirectory
         self.inheritFrom = inheritFrom
         self.environment = environment
+        self.initialInput = initialInput
     }
 }
 
@@ -159,7 +163,10 @@ public final class TerminalSurfaceView: NSView {
             cfg.env_var_count = vars.count
             return withOptionalCString(configuration.workingDirectory) { dir in
                 cfg.working_directory = dir ?? inheritedDirectory
-                return ghostty_surface_new(runtime.app, &cfg)
+                return withOptionalCString(configuration.initialInput) { input in
+                    cfg.initial_input = input
+                    return ghostty_surface_new(runtime.app, &cfg)
+                }
             }
         }
         surface = created

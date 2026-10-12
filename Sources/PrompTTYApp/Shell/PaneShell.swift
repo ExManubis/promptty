@@ -150,10 +150,14 @@ final class PaneShell {
     @ObservationIgnored private var handOverPolls = 4
     @ObservationIgnored private var gitGeneration = 0
 
-    init(pane: PaneID, directory: String, integrated: Bool) {
+    /// Run from the bar at the first prompt (a pinned tab's command).
+    @ObservationIgnored private var startupCommand: String?
+
+    init(pane: PaneID, directory: String, integrated: Bool, startupCommand: String? = nil) {
         self.pane = pane
         self.directory = directory
         self.integrated = integrated
+        self.startupCommand = startupCommand
         editorHeight = CommandTextView.lineHeight(for: EditorStyle.font)
     }
 
@@ -172,6 +176,16 @@ final class PaneShell {
         reloadHistoryIfChanged()
         refreshGit()
         phaseChanged()
+        if let command = startupCommand {
+            startupCommand = nil
+            // After the prompt is announced, so the bar has the keys, like a typed command.
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.bar == .active else { return }
+                    self.run(command)
+                }
+            }
+        }
         return true
     }
 

@@ -2,9 +2,10 @@ import PaneActivity
 import SwiftUI
 import WorkspaceModel
 
-/// One tab: a Dia-style single-line row in the sidebar (`.full`) or a pill in the strip (`.compact`).
+/// One tab: a Dia-style single-line row in the sidebar (`.full`), a pill in the strip
+/// (`.compact`), or a pinned tab's square tile (`.tile`), its programs' logos and nothing else.
 struct TabRow: View {
-    enum Style { case full, compact }
+    enum Style { case full, compact, tile }
 
     let tab: WorkspaceModel.Tab
     let index: Int
@@ -12,6 +13,9 @@ struct TabRow: View {
     let style: Style
     let chrome: WindowChromeModel
     let actions: ChromeActions
+    /// Tiles: where their preview goes (the sidebar's right edge, in window coordinates); nil
+    /// shows none.
+    var previewEdge: CGFloat?
 
     @State private var hovering = false
     /// The pointer has rested on the row: its preview shows.
@@ -42,6 +46,88 @@ struct TabRow: View {
     }
 
     var body: some View {
+        content
+            .background {
+                RowBackground(selected: selected, hovering: hovering, dropTarget: paneDropTarget, resting: style == .tile)
+            }
+            .contentShape(Rectangle())
+            .help(tab.listSubtitle.map { "\(tab.listTitle) — \($0)" } ?? tab.listTitle)
+            .onHover { inside in
+                hovering = inside
+                updatePreview()
+            }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rowFrame = $0 }
+            .onChange(of: previewing || chrome.forcedPreview == tab.id) { _, shown in
+                if shown { actions.showPreview(of: tab.id, beside: previewAnchor, titled: style == .tile) } else { actions.hidePreview(of: tab.id) }
+            }
+            .onChange(of: selected) { _, isSelected in
+                if isSelected {
+                    previewing = false
+                    if chrome.forcedPreview == tab.id { chrome.forcedPreview = nil }
+                }
+            }
+            .onDisappear { actions.hidePreview(of: tab.id) }
+            // One tap recognizer that tells a double click from a single one itself. A separate
+            // count-2 recognizer makes SwiftUI hold every single click until the double-click
+            // interval has passed (0.5s by default) before the tab is selected.
+            .onTapGesture {
+                guard !renaming else { return }
+                let now = Date()
+                if let last = lastTap, now.timeIntervalSince(last) < NSEvent.doubleClickInterval {
+                    lastTap = nil
+                    beginRename()
+                } else {
+                    lastTap = now
+                    actions.selectTab(tab.id)
+                }
+            }
+            .onDrag {
+                chrome.beginTabDrag(tab.id)
+                return DragPayload.provider(DragPayload.tab, id: tab.id.rawValue)
+            }
+            .onDrop(of: [DragPayload.tab, DragPayload.pane], delegate: RowDropDelegate(tab: tab, index: index, chrome: chrome, actions: actions))
+            .contextMenu { menu }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityLabel([tab.listTitle, tab.pin != nil ? "pinned" : nil, tab.listSubtitle, ActivityIndicator.label(for: display)]
+                .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", "))
+            .accessibilityAction(named: "Rename", beginRename)
+            .accessibilityAction(named: tab.pin == nil ? "Pin" : "Unpin", togglePin)
+            .accessibilityAction(named: "Close") { actions.requestCloseTab(tab.id) }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if style == .tile {
+            tileContent
+        } else {
+            rowContent
+        }
+    }
+
+    /// The tile: its programs centered, the activity dot in the corner. Renamed in a popover,
+    /// having no title of its own.
+    private var tileContent: some View {
+        ProgramStack(cards: stackCards)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .topTrailing) {
+                ActivityIndicator(display: display)
+                    .padding(4)
+                    .allowsHitTesting(false)
+            }
+            .popover(isPresented: Binding(get: { renaming }, set: { if !$0, renaming { commitRename() } }), arrowEdge: .bottom) {
+                TextField("Tab name", text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+                    .padding(10)
+                    .focused($fieldFocused)
+                    .onAppear { fieldFocused = true }
+                    .onSubmit(commitRename)
+                    .onExitCommand(perform: cancelRename)
+            }
+    }
+
+    private var rowContent: some View {
         HStack(spacing: 8) {
             // The panes' programs as tiles, the focused one in front.
             ProgramStack(cards: stackCards)
@@ -84,68 +170,45 @@ struct TabRow: View {
         .padding(.leading, 8)
         .padding(.trailing, 6)
         .frame(height: style == .full ? ChromeMetrics.rowHeight : 28)
+    }
 
-        .background {
-            RowBackground(selected: selected, hovering: hovering, dropTarget: paneDropTarget)
+    @ViewBuilder
+    private var menu: some View {
+        Button("Rename…", action: beginRename)
+        Button(tab.pin == nil ? "Pin Tab" : "Unpin Tab", action: togglePin)
+        if let pin = tab.pin {
+            Button("Reset Pinned Tab") { actions.resetPinnedTab(tab.id) }
+                .help(pin.command.map { "Back to \(Tab.abbreviate(pin.directory)), running \($0)" } ?? "Back to \(Tab.abbreviate(pin.directory))")
+            Button("Edit Pinned Command…") { actions.editPinnedCommand(tab.id) }
         }
-        .contentShape(Rectangle())
-        .help(tab.listSubtitle.map { "\(tab.listTitle) — \($0)" } ?? tab.listTitle)
-        .onHover { inside in
-            hovering = inside
-            updatePreview()
-        }
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rowFrame = $0 }
-        .onChange(of: previewing || chrome.forcedPreview == tab.id) { _, shown in
-            if shown { actions.showPreview(of: tab.id, beside: rowFrame) } else { actions.hidePreview(of: tab.id) }
-        }
-        .onChange(of: selected) { _, isSelected in
-            if isSelected {
-                previewing = false
-                if chrome.forcedPreview == tab.id { chrome.forcedPreview = nil }
-            }
-        }
-        .onDisappear { actions.hidePreview(of: tab.id) }
-        // One tap recognizer that tells a double click from a single one itself. A separate
-        // count-2 recognizer makes SwiftUI hold every single click until the double-click
-        // interval has passed (0.5s by default) before the tab is selected.
-        .onTapGesture {
-            guard !renaming else { return }
-            let now = Date()
-            if let last = lastTap, now.timeIntervalSince(last) < NSEvent.doubleClickInterval {
-                lastTap = nil
-                beginRename()
-            } else {
-                lastTap = now
-                actions.selectTab(tab.id)
-            }
-        }
-        .onDrag { DragPayload.provider(DragPayload.tab, id: tab.id.rawValue) }
-        .onDrop(of: [DragPayload.tab, DragPayload.pane], delegate: RowDropDelegate(tab: tab, index: index, chrome: chrome, actions: actions))
-        .contextMenu {
-            Button("Rename…", action: beginRename)
-            Button("New Tab", action: actions.newTab)
-            Divider()
-            Button("Close Tab") { actions.requestCloseTab(tab.id) }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityLabel([tab.listTitle, tab.listSubtitle, ActivityIndicator.label(for: display)]
-            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", "))
-        .accessibilityAction(named: "Rename", beginRename)
-        .accessibilityAction(named: "Close") { actions.requestCloseTab(tab.id) }
+        Button("New Tab", action: actions.newTab)
+        Divider()
+        Button("Close Tab") { actions.requestCloseTab(tab.id) }
+            .disabled(tab.pin != nil)
+    }
+
+    private func togglePin() {
+        if tab.pin == nil { actions.pinTab(tab.id, at: nil) } else { actions.unpinTab(tab.id, at: nil) }
+    }
+
+    /// A row's preview goes beside it; a tile's beside the sidebar, past the other tiles.
+    private var previewAnchor: CGRect {
+        guard style == .tile, let previewEdge else { return rowFrame }
+        return CGRect(x: rowFrame.minX, y: rowFrame.minY, width: max(previewEdge - rowFrame.minX, rowFrame.width), height: rowFrame.height)
     }
 
     /// Another tab of the sidebar, after the pointer has rested on it for half a second (not
     /// while something is dragged).
     private func updatePreview() {
         previewTimer?.cancel()
-        guard hovering, style == .full, !selected, !renaming, chrome.draggingPane == nil else {
+        let previews = style == .full || (style == .tile && previewEdge != nil)
+        guard hovering, previews, !selected, !renaming, chrome.draggingPane == nil, chrome.draggingTab == nil else {
             previewing = false
             return
         }
         previewTimer = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled, hovering, !selected, !renaming, chrome.draggingPane == nil,
+            guard !Task.isCancelled, hovering, !selected, !renaming, chrome.draggingPane == nil, chrome.draggingTab == nil,
                   NSEvent.pressedMouseButtons == 0 else { return }
             previewing = true
         }
@@ -207,8 +270,15 @@ private struct RowDropDelegate: DropDelegate {
             }) {
                 return true
             }
+            // Onto a pinned tile it is pinned there, onto a row unpinned there (or just moved).
+            let pinned = tab.pin != nil
+            chrome.draggingTab = nil
             return DragPayload.loadID(DragPayload.tab, from: info.itemProviders(for: [DragPayload.tab])) { [actions] id in
-                actions.moveTab(TabID(rawValue: id), to: destination)
+                if pinned {
+                    actions.pinTab(TabID(rawValue: id), at: destination)
+                } else {
+                    actions.unpinTab(TabID(rawValue: id), at: destination)
+                }
             }
         }
     }
@@ -219,6 +289,8 @@ struct RowBackground: View {
     let selected: Bool
     let hovering: Bool
     var dropTarget = false
+    /// Tiles show their shape at rest too, like Dia's pinned tabs.
+    var resting = false
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -230,7 +302,9 @@ struct RowBackground: View {
         } else if selected {
             Color.clear.glassEffect(.regular, in: shape)
         } else if hovering {
-            shape.fill(Color.primary.opacity(colorScheme == .dark ? 0.06 : 0.05))
+            shape.fill(Color.primary.opacity(colorScheme == .dark ? (resting ? 0.1 : 0.06) : (resting ? 0.09 : 0.05)))
+        } else if resting {
+            shape.fill(Color.primary.opacity(colorScheme == .dark ? 0.05 : 0.045))
         }
     }
 }

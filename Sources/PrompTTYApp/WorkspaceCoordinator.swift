@@ -1,4 +1,5 @@
 import AppKit
+import CommandEditing
 import GhosttyBridge
 import PaneActivity
 import Preferences
@@ -254,10 +255,15 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
-    /// Closes a tab and all its panes; closing the last tab closes the window.
+    /// Closes a tab and all its panes; closing the last tab closes the window. A pinned tab is
+    /// not closed: it is unpinned first.
     func closeTab(_ id: TabID) {
         guard let state = workspace.window(containing: id), let controller = controllers[state.id],
               let tab = state.tab(id: id) else { return }
+        guard tab.pin == nil else {
+            NSSound.beep()
+            return
+        }
         for pane in tab.orderedPanes { controller.removeSurface(for: pane.id) }
         state.closeTab(id: id)
         if state.isEmpty {
@@ -279,6 +285,60 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         guard let state = workspace.window(containing: id) else { return }
         state.moveTab(id: id, to: index)
         controllers[state.id]?.reload()
+        modelDidChange()
+    }
+
+    // MARK: Pinned tabs
+
+    /// Pins a tab with the folder of its focused pane and the command running there, if any.
+    /// `index` places it among the pinned tabs (a drop); nil adds it after them.
+    func pin(_ id: TabID, at index: Int? = nil) {
+        guard let state = workspace.window(containing: id), let controller = controllers[state.id],
+              let tab = state.tab(id: id) else { return }
+        if tab.pin != nil {
+            if let index { state.moveTab(id: id, to: index) }
+        } else {
+            let pane = tab.focusedPaneID
+            let shell = controller.shell(for: pane)
+            let running = activity.activity(for: pane).isRunning || shell?.phase == .running
+            let arguments = controller.existingSurface(for: pane)?.foregroundPID
+                .flatMap { running ? ProcessArguments.read(pid: Int32($0))?.arguments : nil }
+            let command = PinnedCommand.capture(running: running, lastCommand: shell?.lastCommand, arguments: arguments)
+            state.pin(id, TabPin(directory: tab.workingDirectory, command: command), at: index)
+        }
+        controller.reload()
+        modelDidChange()
+    }
+
+    /// `index` places it among the other tabs (a drop); nil puts it first after the pinned tabs.
+    func unpin(_ id: TabID, at index: Int? = nil) {
+        guard let state = workspace.window(containing: id), let tab = state.tab(id: id) else { return }
+        if tab.pin == nil {
+            if let index { state.moveTab(id: id, to: index) }
+        } else {
+            state.unpin(id, at: index)
+        }
+        controllers[state.id]?.reload()
+        modelDidChange()
+    }
+
+    func setPinnedCommand(_ id: TabID, _ command: String?) {
+        guard let state = workspace.window(containing: id) else { return }
+        state.setPinnedCommand(id, command)
+        modelDidChange()
+    }
+
+    /// Takes a pinned tab back to its pin: one fresh shell in the pinned folder, running the
+    /// pinned command when `runningCommand` (not after its shell exited: the user ended it).
+    func resetPinned(_ id: TabID, runningCommand: Bool) {
+        guard let state = workspace.window(containing: id), let controller = controllers[state.id],
+              let tab = state.tab(id: id), let pin = tab.pin else { return }
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: pin.directory, isDirectory: &isDirectory) && isDirectory.boolValue
+        let removed = tab.reset(workingDirectory: exists ? pin.directory : NSHomeDirectory(),
+                                startupCommand: runningCommand && exists ? pin.command : nil)
+        for pane in removed { controller.removeSurface(for: pane) }
+        controller.reload()
         modelDidChange()
     }
 
@@ -312,10 +372,16 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     }
 
     /// Removes a pane (its surface is already closing or closed); the last pane closes its tab.
+    /// A pinned tab's last pane is replaced instead: its shell exited, and a fresh one starts in
+    /// the pinned folder.
     func closePane(_ pane: PaneID) {
         guard let (state, tab) = workspace.tab(containing: pane), let controller = controllers[state.id] else { return }
         guard tab.hasSplits else {
-            closeTab(tab.id)
+            if tab.pin != nil {
+                resetPinned(tab.id, runningCommand: false)
+            } else {
+                closeTab(tab.id)
+            }
             return
         }
         controller.removeSurface(for: pane, closingOutOf: tab.id)

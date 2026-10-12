@@ -10,16 +10,37 @@ struct TabPreview: View {
     let actions: ChromeActions
     /// The window's chrome, for the terminal's colors as they are now.
     let chrome: WindowChromeModel
+    /// A pinned tile's preview names the tab, which the tile does not.
+    var titled = false
 
     static let size = CGSize(width: 380, height: 236)
 
     var body: some View {
-        // The tick reaches every pane, so their text is read again each second.
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            PreviewNode(node: tab.root, tab: tab, actions: actions, panel: chrome.panelColor, tick: context.date)
+        VStack(alignment: .leading, spacing: 6) {
+            if titled {
+                HStack(spacing: 6) {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text(tab.listTitle)
+                        .font(.system(size: 12, weight: .semibold))
+                    if let subtitle = tab.listSubtitle {
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .lineLimit(1)
+                .padding(.horizontal, 4)
+                .padding(.top, 2)
+            }
+            // The tick reaches every pane, so their text is read again each second.
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                PreviewNode(node: tab.root, tab: tab, actions: actions, panel: chrome.panelColor, tick: context.date)
+            }
+            .environment(\.colorScheme, chrome.panelIsDark ? .dark : .light)
+            .frame(width: Self.size.width, height: Self.size.height)
         }
-        .environment(\.colorScheme, chrome.panelIsDark ? .dark : .light)
-        .frame(width: Self.size.width, height: Self.size.height)
         .padding(7)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .ignore)
