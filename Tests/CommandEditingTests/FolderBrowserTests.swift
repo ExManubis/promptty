@@ -23,19 +23,29 @@ final class ShellQuotingTests: XCTestCase {
 
     /// zsh itself must read each command as `cd` and the one path.
     func testZshReadsTheCommandAsOnePath() throws {
-        let paths = ["/tmp/a b", "/tmp/$HOME", "/tmp/a\nb", "/tmp/it's", "/tmp/~x", "/tmp/[a]*", "/tmp/a\\b", "/tmp/!x"]
+        let paths = [
+            "/tmp/a b", "/tmp/$HOME", "/tmp/a\nb", "/tmp/it's", "/tmp/~x", "/tmp/[a]*", "/tmp/a\\b", "/tmp/!x",
+            // A special character in one grapheme cluster with a combining mark or a prepend
+            // character is still a bare byte to zsh.
+            "/tmp/\u{0600}`touch /tmp/promptty-pwned`\u{301}", "/tmp/\"\u{301}", "/tmp/\u{0600}$HOME",
+            "/Users/me/~\u{301}x",
+            // Glob operators under the options people turn on.
+            "/tmp/^foo", "/tmp/a#b", "/tmp/x~y", "/tmp/=ls", "/tmp/%1",
+        ]
         for path in paths {
             let command = ShellQuoting.cdCommand(to: path, home: "/Users/me")
             XCTAssertTrue(command.hasPrefix("cd "))
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            process.arguments = ["-f", "-c", "x=( \(command.dropFirst(3)) ); print -rn -- \"${#x}:${x[1]}\""]
+            process.environment = ["HOME": "/Users/me"]
+            process.arguments = ["-f", "-c", "setopt extendedglob; x=( \(command.dropFirst(3)) ); print -rn -- \"${#x}:${x[1]}\""]
             let pipe = Pipe()
             process.standardOutput = pipe
             try process.run()
             process.waitUntilExit()
             let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             XCTAssertEqual(out, "1:\(path)", "for \(command)")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: "/tmp/promptty-pwned"), "for \(command)")
         }
     }
 }

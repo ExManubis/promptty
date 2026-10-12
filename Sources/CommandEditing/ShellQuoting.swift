@@ -2,7 +2,9 @@ import Foundation
 
 /// Writing names into zsh command lines so the shell reads each back as exactly one word.
 public enum ShellQuoting {
-    private static let special = Set(" \t'\"\\$&;|()<>*?[]#~`!{}")
+    /// zsh reads bytes, not grapheme clusters: each of these is checked as a lone scalar, also when
+    /// it shares a cluster with a combining mark. `^` is a glob operator with `extendedglob`.
+    private static let special = Set(" \t'\"\\$&;|()<>*?[]#~`!{}^=%".unicodeScalars)
 
     /// Makes a name safe to put in a command line. A name with control characters (a newline in a
     /// file name would end the command and start another) is written in zsh's `$'…'` form. A
@@ -26,13 +28,13 @@ public enum ShellQuoting {
             }
             return out + "'"
         }
-        var out = ""
-        for (i, ch) in s.enumerated() {
+        var out = String.UnicodeScalarView()
+        for (i, u) in s.unicodeScalars.enumerated() {
             // A leading ~ is the home shorthand.
-            if special.contains(ch), !(ch == "~" && i == 0 && keepLeadingTilde) { out.append("\\") }
-            out.append(ch)
+            if special.contains(u), !(u == "~" && i == 0 && keepLeadingTilde) { out.append("\\") }
+            out.append(u)
         }
-        return out
+        return String(out)
     }
 
     /// The command that changes to `path`, written the way a person would type it: with `~` for
