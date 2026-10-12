@@ -47,6 +47,8 @@ public final class Workspace {
               let (sourceWindow, sourceTab) = tab(containing: pane),
               let (targetWindow, targetTab) = tab(containing: target),
               let moving = sourceTab.pane(pane) else { return false }
+        // A pinned tab cannot be closed, so its last pane stays.
+        if sourceTab !== targetTab, sourceTab.pin != nil, !sourceTab.hasSplits { return false }
         if sourceTab === targetTab {
             guard sourceTab.detach(pane) != nil else { return false }
         } else if sourceTab.hasSplits {

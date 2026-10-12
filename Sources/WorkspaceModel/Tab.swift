@@ -15,6 +15,9 @@ public final class Tab {
     public let id: TabID
     /// User rename; blank means none.
     public var customTitle: String?
+    /// Set for a pinned tab: it stays at the top, cannot be closed, and comes back on relaunch.
+    /// Changed through its window, which keeps the pinned tabs first.
+    public internal(set) var pin: TabPin?
     /// The tab's layout. Every leaf has an entry in `panes`.
     public private(set) var root: SplitNode
     public private(set) var panes: [PaneID: Pane]
@@ -96,6 +99,18 @@ public final class Tab {
     }
 
     public func equalize() { root = root.equalized() }
+
+    /// Replaces every pane with one fresh pane in `workingDirectory` (a pinned tab going back to
+    /// its pin). Returns the panes removed, whose terminals the caller frees.
+    @discardableResult
+    public func reset(workingDirectory: String, startupCommand: String?) -> [PaneID] {
+        let removed = orderedPanes.map(\.id)
+        let pane = Pane(workingDirectory: workingDirectory, startupCommand: startupCommand)
+        root = .leaf(pane.id)
+        panes = [pane.id: pane]
+        focusedPaneID = pane.id
+        return removed
+    }
 
     /// The pane nearest to `pane` in the subtree that takes its place when it is removed from `tree`:
     /// the sibling side's leaf adjacent to the removed pane.
