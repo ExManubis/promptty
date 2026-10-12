@@ -8,6 +8,6 @@ public enum PinnedCommand {
         guard running else { return nil }
         if let typed = lastCommand?.trimmingCharacters(in: .whitespacesAndNewlines), !typed.isEmpty { return typed }
         guard let arguments, !arguments.isEmpty else { return nil }
-        return arguments.map { ShellQuoting.escape($0, keepLeadingTilde: false) }.joined(separator: " ")
+        return arguments.map { $0.isEmpty ? "''" : ShellQuoting.escape($0, keepLeadingTilde: false) }.joined(separator: " ")
     }
 }

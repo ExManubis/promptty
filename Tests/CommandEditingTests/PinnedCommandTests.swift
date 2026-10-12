@@ -21,6 +21,10 @@ final class PinnedCommandTests: XCTestCase {
         )
     }
 
+    func testAnEmptyArgumentIsKept() {
+        XCTAssertEqual(PinnedCommand.capture(running: true, lastCommand: nil, arguments: ["grep", "", "file"]), "grep '' file")
+    }
+
     func testUnreadableArgumentsPinNoCommand() {
         XCTAssertNil(PinnedCommand.capture(running: true, lastCommand: nil, arguments: nil))
         XCTAssertNil(PinnedCommand.capture(running: true, lastCommand: "  ", arguments: []))

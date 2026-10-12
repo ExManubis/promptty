@@ -301,8 +301,9 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             let pane = tab.focusedPaneID
             let shell = controller.shell(for: pane)
             let running = activity.activity(for: pane).isRunning || shell?.phase == .running
+            // The program in front, not the shell itself (`-zsh`).
             let arguments = controller.existingSurface(for: pane)?.foregroundPID
-                .flatMap { running ? ProcessArguments.read(pid: Int32($0))?.arguments : nil }
+                .flatMap { pid in running && pid > 0 && pid != shell?.state.shellPID ? ProcessArguments.read(pid: Int32(pid))?.arguments : nil }
             let command = PinnedCommand.capture(running: running, lastCommand: shell?.lastCommand, arguments: arguments)
             state.pin(id, TabPin(directory: tab.workingDirectory, command: command), at: index)
         }
@@ -326,6 +327,22 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         guard let state = workspace.window(containing: id) else { return }
         state.setPinnedCommand(id, command)
         modelDidChange()
+    }
+
+    /// When each pinned tab's shell was last restarted on its own.
+    private var automaticRestarts: [TabID: Date] = [:]
+
+    /// A pinned tab's only shell exited (or could not start): a fresh one takes its place, unless
+    /// the last one also ended within seconds. Then the pane stays, exited, for the user to
+    /// restart, so a shell that cannot run never loops.
+    private func restartAfterExit(_ id: TabID, pane: PaneID, in controller: TerminalWindowController) {
+        let now = Date()
+        if let last = automaticRestarts[id], now.timeIntervalSince(last) < 5 {
+            if controller.chrome.exitedPanes[pane] == nil { controller.chrome.exitedPanes[pane] = 1 }
+            return
+        }
+        automaticRestarts[id] = now
+        resetPinned(id, runningCommand: false)
     }
 
     /// Takes a pinned tab back to its pin: one fresh shell in the pinned folder, running the
@@ -378,7 +395,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         guard let (state, tab) = workspace.tab(containing: pane), let controller = controllers[state.id] else { return }
         guard tab.hasSplits else {
             if tab.pin != nil {
-                resetPinned(tab.id, runningCommand: false)
+                restartAfterExit(tab.id, pane: pane, in: controller)
             } else {
                 closeTab(tab.id)
             }

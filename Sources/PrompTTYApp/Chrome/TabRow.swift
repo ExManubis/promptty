@@ -26,6 +26,7 @@ struct TabRow: View {
     @State private var draft = ""
     @State private var lastTap: Date?
     @FocusState private var fieldFocused: Bool
+    @Environment(\.sidebarOutOfSight) private var outOfSight
 
     private var renaming: Bool { chrome.renamingTab == tab.id }
     private var paneDropTarget: Bool { chrome.dropTargetTab == tab.id }
@@ -117,7 +118,7 @@ struct TabRow: View {
                     .padding(4)
                     .allowsHitTesting(false)
             }
-            .popover(isPresented: Binding(get: { renaming }, set: { if !$0, renaming { commitRename() } }), arrowEdge: .bottom) {
+            .popover(isPresented: Binding(get: { renaming && !outOfSight }, set: { if !$0, renaming { commitRename() } }), arrowEdge: .bottom) {
                 TextField("Tab name", text: $draft)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 200)

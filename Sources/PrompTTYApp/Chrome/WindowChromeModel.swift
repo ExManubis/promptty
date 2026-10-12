@@ -43,23 +43,23 @@ final class WindowChromeModel {
     /// Shows every pane header without hover (debug driver snapshots).
     var forceHeaders = false
 
-    @ObservationIgnored private var tabDragWatch: Timer?
+    @ObservationIgnored private var tabDragWatch: Task<Void, Never>?
 
     /// A tab drag started. A drop ends it; a drag let go anywhere else (or cancelled) ends with
     /// the mouse button, which is watched for since SwiftUI does not say.
     func beginTabDrag(_ tab: TabID) {
         draggingTab = tab
-        tabDragWatch?.invalidate()
-        tabDragWatch = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.checkTabDrag() }
+        tabDragWatch?.cancel()
+        tabDragWatch = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard let self else { return }
+                guard self.draggingTab == nil || NSEvent.pressedMouseButtons == 0 else { continue }
+                // A drop is delivered just after the button comes up; let it read the drag first.
+                try? await Task.sleep(for: .milliseconds(50))
+                self.draggingTab = nil
+                return
+            }
         }
-    }
-
-    private func checkTabDrag() {
-        guard draggingTab == nil || NSEvent.pressedMouseButtons == 0 else { return }
-        tabDragWatch?.invalidate()
-        tabDragWatch = nil
-        // A drop is delivered just after the button comes up; let it read the drag first.
-        DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { self?.draggingTab = nil } }
     }
 }

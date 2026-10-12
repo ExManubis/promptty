@@ -176,13 +176,14 @@ final class PaneShell {
         reloadHistoryIfChanged()
         refreshGit()
         phaseChanged()
-        if let command = startupCommand {
-            startupCommand = nil
-            // After the prompt is announced, so the bar has the keys, like a typed command.
+        if startupCommand != nil {
+            // After the prompt is announced, so the bar has the keys, like a typed command. Kept
+            // for the next prompt if this one is gone by then.
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
-                    guard let self, self.bar == .active else { return }
-                    self.run(command)
+                    guard let self, self.bar == .active, self.state.phase == .idle, let command = self.startupCommand else { return }
+                    self.startupCommand = nil
+                    self.run(command, recordingHistory: false)
                 }
             }
         }
@@ -280,12 +281,15 @@ final class PaneShell {
     }
 
     /// zsh gets the command as a paste (one line edit, however many lines) followed by Return.
-    private func run(_ command: String) {
+    /// A pinned tab's command, run again at each launch, is not added to the suggestions again.
+    private func run(_ command: String, recordingHistory: Bool = true) {
         guard state.phase == .idle, let surface else { return }
         if !command.isEmpty {
             surface.sendText(command)
-            history.add(command)
-            FolderHistoryStore.shared.add(command, in: directory, persist: stateFile?.historyFile != nil)
+            if recordingHistory {
+                history.add(command)
+                FolderHistoryStore.shared.add(command, in: directory, persist: stateFile?.historyFile != nil)
+            }
             lastCommand = command
         }
         surface.sendReturn()

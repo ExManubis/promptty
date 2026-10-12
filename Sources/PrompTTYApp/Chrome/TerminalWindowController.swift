@@ -379,10 +379,32 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func newTab() { coordinator.newTab(in: state) }
     func renameTab(_ id: TabID, to title: String) { coordinator.rename(id, to: title) }
     func endRenaming() { focusSelectedPane() }
-    func moveTab(_ id: TabID, to index: Int) { coordinator.move(id, to: index) }
-    func pinTab(_ id: TabID, at index: Int?) { coordinator.pin(id, at: index) }
-    func unpinTab(_ id: TabID, at index: Int?) { coordinator.unpin(id, at: index) }
-    func resetPinnedTab(_ id: TabID) { coordinator.resetPinned(id, runningCommand: true) }
+    func moveTab(_ id: TabID, to index: Int) {
+        guard state.tab(id: id) != nil else { return }
+        coordinator.move(id, to: index)
+    }
+    // A tab dragged in from another window is not this window's to pin, unpin or move.
+    func pinTab(_ id: TabID, at index: Int?) {
+        guard state.tab(id: id) != nil else { return }
+        coordinator.pin(id, at: index)
+    }
+    func unpinTab(_ id: TabID, at index: Int?) {
+        guard state.tab(id: id) != nil else { return }
+        coordinator.unpin(id, at: index)
+    }
+
+    /// Ends what runs in the tab, so it asks first, as closing it would.
+    func resetPinnedTab(_ id: TabID) {
+        guard let tab = state.tab(id: id), tab.pin != nil else { return }
+        let running = tab.orderedPanes.contains { surfaces[$0.id]?.needsConfirmQuit == true }
+        guard running, coordinator.preferences.settings.confirmCloseRunning else {
+            coordinator.resetPinned(id, runningCommand: true)
+            return
+        }
+        confirmClose(message: "Reset this tab?", informativeText: "A process is still running in it.", confirmTitle: "Reset") { [weak self] in
+            self?.coordinator.resetPinned(id, runningCommand: true)
+        }
+    }
 
     /// A sheet with the command a pinned tab runs on relaunch and reset.
     func editPinnedCommand(_ id: TabID) {
@@ -410,9 +432,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     /// handler confirms first when a process is still running.
     func requestClosePane(_ pane: PaneID) {
         let live = surfaces[pane].map { !$0.isTornDown } ?? false && chrome.exitedPanes[pane] == nil
-        // Nor can a pinned tab's last pane (a shell that has exited is restarted).
-        if live, let tab = state.tab(containing: pane), tab.pin != nil, !tab.hasSplits {
-            NSSound.beep()
+        // Nor can a pinned tab's last pane; once its shell has exited, it is restarted.
+        if let tab = state.tab(containing: pane), tab.pin != nil, !tab.hasSplits {
+            if live { NSSound.beep() } else { coordinator.resetPinned(tab.id, runningCommand: false) }
             return
         }
         if let view = surfaces[pane], live {
@@ -506,12 +528,12 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     // MARK: NSWindowDelegate
 
     /// Presents a Close/Cancel confirmation sheet on this window; `onConfirm` runs on Close.
-    func confirmClose(message: String, informativeText: String, onConfirm: @escaping () -> Void) {
+    func confirmClose(message: String, informativeText: String, confirmTitle: String = "Close", onConfirm: @escaping () -> Void) {
         guard let window, window.attachedSheet == nil else { return }
         let alert = NSAlert()
         alert.messageText = message
         alert.informativeText = informativeText
-        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: confirmTitle)
         alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: window) { [weak self] response in
             if response == .alertFirstButtonReturn { onConfirm() } else { self?.focusSelectedPane() }
@@ -519,6 +541,15 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        // Pinned tabs are kept per window: closing it is the one way they are lost.
+        if state.pinnedCount > 0 {
+            let count = state.pinnedCount
+            confirmClose(message: "Close this window?",
+                         informativeText: count == 1 ? "Its pinned tab will be closed too." : "Its \(count) pinned tabs will be closed too.") { [weak self] in
+                self?.window?.close()
+            }
+            return false
+        }
         guard coordinator.preferences.settings.confirmCloseRunning,
               allSurfaces().contains(where: { $0.needsConfirmQuit }) else { return true }
         confirmClose(message: "Close this window?", informativeText: "A process is still running in one of its tabs.") { [weak self] in
