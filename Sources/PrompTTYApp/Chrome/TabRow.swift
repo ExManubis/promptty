@@ -156,8 +156,7 @@ private struct RowDropDelegate: DropDelegate {
     }
 }
 
-/// Dia's row states: a soft fill when selected (a white pill with a faint shadow in light mode),
-/// a fainter one on hover.
+/// The row states: a Liquid Glass pill when selected, like the input box; a faint fill on hover.
 struct RowBackground: View {
     let selected: Bool
     let hovering: Bool
@@ -171,14 +170,7 @@ struct RowBackground: View {
             shape.fill(Color.accentColor.opacity(0.22))
                 .overlay(shape.strokeBorder(Color.accentColor.opacity(0.9), lineWidth: 1.5))
         } else if selected {
-            if colorScheme == .dark {
-                shape.fill(Color.white.opacity(0.10))
-                    .overlay(shape.strokeBorder(Color.white.opacity(0.05), lineWidth: 0.5))
-            } else {
-                shape.fill(Color.white)
-                    .shadow(color: .black.opacity(0.08), radius: 1.5, y: 0.5)
-                    .overlay(shape.strokeBorder(Color.black.opacity(0.05), lineWidth: 0.5))
-            }
+            Color.clear.glassEffect(.regular, in: shape)
         } else if hovering {
             shape.fill(Color.primary.opacity(colorScheme == .dark ? 0.06 : 0.05))
         }
