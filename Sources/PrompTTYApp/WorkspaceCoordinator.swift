@@ -183,6 +183,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     func windowWillClose(_ id: WindowID) {
         guard let controller = controllers.removeValue(forKey: id) else { return }
         for view in controller.allSurfaces() { view.teardown() }
+        controller.stopShells()
         workspace.removeWindow(id: id)
         modelDidChange()
     }
@@ -248,8 +249,8 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     /// window left without tabs, and focus the moved pane.
     private func finishMove(_ pane: PaneID, from source: WindowState, to target: WindowState) {
         if source !== target, let from = controllers[source.id], let to = controllers[target.id],
-           let surface = from.relinquishSurface(for: pane) {
-            to.adoptSurface(surface, for: pane)
+           let (surface, shell) = from.relinquishSurface(for: pane) {
+            to.adoptSurface(surface, shell: shell, for: pane)
         }
         if source.isEmpty {
             controllers[source.id]?.window?.close()
@@ -335,6 +336,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             return true
         case .pwd(let dir):
             guard let located else { return false }
+            located.3.shell(for: located.2.id)?.pwdReported(dir)
             located.2.workingDirectory = dir
             located.3.reload()
             modelDidChange()
@@ -374,8 +376,10 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         case .ringBell:
             NSSound.beep()
             return true
-        case .commandFinished:
-            return false
+        case .commandFinished(let code, let duration):
+            guard let located, let shell = located.3.shell(for: located.2.id) else { return false }
+            shell.commandFinished(code: code, durationNs: duration)
+            return true
         case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .unhandled:
             // Config, mouse-shape and mouse-visibility actions are handled by the runtime.
             return false

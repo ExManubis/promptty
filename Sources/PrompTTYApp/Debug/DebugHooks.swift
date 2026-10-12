@@ -192,6 +192,15 @@ enum DebugHooks {
             defer { TerminalSurfaceView.sentSizes = [] }
             return "resizes=\(TerminalSurfaceView.sentSizes.count) \(TerminalSurfaceView.sentSizes.joined(separator: " "))"
         }
+        // eval shell — the focused pane's shell session: phase, header data, what the shell reported.
+        driver.hooks["shell"] = { _ in
+            guard let c = coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true }) ?? coordinator.allControllers.first,
+                  let tab = c.state.selectedTab, let shell = c.shell(for: tab.focusedPaneID) else { return "error: no shell" }
+            let exit = shell.state.lastExit.map { "\($0.code)/\(String(format: "%.2f", $0.duration))s" } ?? "-"
+            let git = shell.git.map { "\($0.branch)\($0.dirty ? "*" : "")" } ?? "-"
+            let file = shell.stateFile.map { "histfile=\($0.historyFile ?? "-") path=\($0.path.count) names=\($0.commandNames.count) exports=\($0.exports.count)" } ?? "no-state-file"
+            return "phase=\(shell.phase) integrated=\(shell.integrated) pid=\(shell.state.shellPID ?? -1) fg=\(shell.surface?.foregroundPID ?? -1) dir=\(shell.directory) git=\(git) exit=\(exit) history=\(shell.history.newestFirst.count) \(file)"
+        }
         driver.hooks["live"] = { _ in "controllers=\(TerminalWindowController.liveCount)" }
         // eval backdrop — window transparency and the blur view's state, for checking the chrome.
         driver.hooks["backdrop"] = { _ in

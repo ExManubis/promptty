@@ -1,0 +1,216 @@
+import AppKit
+import CommandEditing
+import Darwin
+import GhosttyBridge
+import Observation
+import WorkspaceModel
+
+/// Where the zsh integration lives and what a pane's shell is. Set up once at launch.
+@MainActor
+enum ShellIntegration {
+    /// Nil when the user's login shell is not zsh, or the integration could not be installed:
+    /// panes are then plain terminals.
+    private(set) static var zshDirectory: URL?
+
+    static var stateDirectory: URL { AppPaths.support.appendingPathComponent("shell/state", isDirectory: true) }
+
+    static func install() {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["PROMPTTY_DEBUG_NO_INTEGRATION"] == "1" { return }
+        #endif
+        guard ZshIntegration.isZsh(shellPath: loginShell) else { return }
+        do {
+            zshDirectory = try ZshIntegration.install(in: AppPaths.support.appendingPathComponent("shell/zsh", isDirectory: true))
+            try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        } catch {
+            zshDirectory = nil
+        }
+    }
+
+    /// The shell libghostty starts: the user's login shell.
+    static var loginShell: String {
+        guard let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell else { return "" }
+        return String(cString: shell)
+    }
+
+    static func stateFile(for pane: PaneID) -> URL {
+        stateDirectory.appendingPathComponent(pane.rawValue.uuidString)
+    }
+
+    /// The environment for a new pane's shell; empty without the integration.
+    static func environment(for pane: PaneID) -> [String: String] {
+        guard let zshDirectory else { return [:] }
+        return ZshIntegration.environment(
+            integrationDirectory: zshDirectory,
+            stateFile: stateFile(for: pane),
+            userZDOTDIR: ProcessInfo.processInfo.environment["ZDOTDIR"]
+        )
+    }
+}
+
+/// One pane's shell as the input bar sees it: whether it is at a prompt, what the header shows,
+/// and what the shell told us about itself (history, commands, PATH).
+@MainActor
+@Observable
+final class PaneShell {
+    let pane: PaneID
+    /// Whether this pane's shell loads PrompTTY's integration (zsh only).
+    let integrated: Bool
+    private(set) var state = ShellPaneState()
+    var phase: ShellPhase { state.phase }
+    private(set) var directory: String
+    private(set) var git: GitStatus?
+    private(set) var stateFile: ShellStateFile?
+    private(set) var history = CommandHistory(fileEntries: [])
+
+    /// Called when the pane reaches a prompt (`.idle`) or leaves it.
+    @ObservationIgnored var onPhaseChange: ((ShellPhase) -> Void)?
+    @ObservationIgnored weak var surface: TerminalSurfaceView?
+
+    @ObservationIgnored private var poll: Timer?
+    @ObservationIgnored private var historyDate: Date?
+    @ObservationIgnored private var gitGeneration = 0
+
+    init(pane: PaneID, directory: String, integrated: Bool) {
+        self.pane = pane
+        self.directory = directory
+        self.integrated = integrated
+    }
+
+    // MARK: Events
+
+    /// The shell reported its directory (our precmd does at every prompt).
+    func pwdReported(_ dir: String) {
+        let moved = dir != directory
+        directory = dir
+        if moved { refreshGit() }
+        guard integrated, let pid = surface?.foregroundPID else { return }
+        let wasStarting = state.phase == .starting
+        if state.pwdReported(foregroundPID: pid) {
+            if wasStarting { loadStateFile() }
+            reloadHistoryIfChanged()
+            if !moved { refreshGit() }
+            phaseChanged()
+        }
+    }
+
+    func commandFinished(code: Int16, durationNs: UInt64) {
+        state.commandFinished(code: Int(code), durationNanoseconds: durationNs)
+    }
+
+    /// The bar ran `command`.
+    func submitted(_ command: String) {
+        history.add(command)
+        state.submitted()
+        phaseChanged()
+    }
+
+    func stop() {
+        poll?.invalidate()
+        poll = nil
+        try? FileManager.default.removeItem(at: ShellIntegration.stateFile(for: pane))
+    }
+
+    private func phaseChanged() {
+        poll?.invalidate()
+        poll = nil
+        if state.phase == .idle {
+            // Something other than the shell can take the terminal without a command from the bar
+            // (`fg`, a program started by a hook): watch the foreground process while idle.
+            poll = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.checkForeground() }
+            }
+        }
+        onPhaseChange?(state.phase)
+    }
+
+    private func checkForeground() {
+        guard let pid = surface?.foregroundPID else { return }
+        let before = state.phase
+        state.foregroundChanged(to: pid)
+        if state.phase != before { phaseChanged() }
+    }
+
+    // MARK: What the shell told us
+
+    private func loadStateFile() {
+        let url = ShellIntegration.stateFile(for: pane)
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        stateFile = ShellStateFile.parse(text)
+    }
+
+    private func reloadHistoryIfChanged() {
+        guard let path = stateFile?.historyFile else { return }
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let date = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+        guard let date, date != historyDate else { return }
+        historyDate = date
+        Task.detached(priority: .utility) {
+            guard let data = try? Data(contentsOf: url) else { return }
+            let entries = ZshHistory.parse(data)
+            await MainActor.run { [weak self] in self?.history.replaceFileEntries(entries) }
+        }
+    }
+
+    private func refreshGit() {
+        gitGeneration += 1
+        let generation = gitGeneration
+        let dir = directory
+        let git = Self.executable("git", in: stateFile?.path ?? []) ?? "/usr/bin/git"
+        Task.detached(priority: .utility) {
+            let status = Self.run(git, ["-C", dir, "--no-optional-locks", "status", "--porcelain=v2", "--branch"], timeout: 1)
+                .flatMap { GitStatus.parse(porcelainV2: $0) }
+            await MainActor.run { [weak self] in
+                guard let self, generation == self.gitGeneration else { return }
+                self.git = status
+            }
+        }
+    }
+
+    nonisolated static func executable(_ name: String, in path: [String]) -> String? {
+        path.map { ($0 as NSString).appendingPathComponent(name) }.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    /// Runs a program and returns its standard output, or nil on failure or after `timeout` seconds.
+    nonisolated static func run(_ executable: String, _ arguments: [String], timeout: TimeInterval) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: executable)
+        p.arguments = arguments
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        p.standardInput = FileHandle.nullDevice
+        // Read as output arrives: a full pipe would otherwise stall the program until the timeout.
+        let collected = OutputBuffer()
+        out.fileHandleForReading.readabilityHandler = { collected.append($0.availableData) }
+        let done = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in done.signal() }
+        do { try p.run() } catch { return nil }
+        guard done.wait(timeout: .now() + timeout) == .success else {
+            p.terminate()
+            out.fileHandleForReading.readabilityHandler = nil
+            return nil
+        }
+        out.fileHandleForReading.readabilityHandler = nil
+        collected.append(out.fileHandleForReading.readDataToEndOfFile())
+        guard p.terminationStatus == 0 else { return nil }
+        return String(decoding: collected.data, as: UTF8.self)
+    }
+}
+
+private final class OutputBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = Data()
+
+    func append(_ data: Data) {
+        lock.lock()
+        storage.append(data)
+        lock.unlock()
+    }
+
+    var data: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+}

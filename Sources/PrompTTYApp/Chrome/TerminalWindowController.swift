@@ -14,6 +14,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     private unowned let coordinator: WorkspaceCoordinator
     private let runtime: GhosttyRuntime
     private var surfaces: [PaneID: TerminalSurfaceView] = [:]
+    /// Each pane's shell session (prompt state, header, history), created with its surface.
+    private var shells: [PaneID: PaneShell] = [:]
     /// Source surfaces for panes created by a split, consumed when their surface is made.
     private var pendingInherit: [PaneID: TerminalSurfaceView] = [:]
     private var appliedInitialSize = false
@@ -116,18 +118,25 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func surfaceView(for pane: Pane) -> TerminalSurfaceView? {
         if let existing = surfaces[pane.id] { return existing }
         guard state.tab(containing: pane.id) != nil else { return nil }
+        let environment = ShellIntegration.environment(for: pane.id)
         let view = TerminalSurfaceView(
             runtime: runtime,
             configuration: TerminalSurfaceConfiguration(
                 workingDirectory: pane.workingDirectory,
-                inheritFrom: pendingInherit.removeValue(forKey: pane.id)
+                inheritFrom: pendingInherit.removeValue(forKey: pane.id),
+                environment: environment
             )
         )
         view.token = pane.id
         surfaces[pane.id] = view
+        let shell = PaneShell(pane: pane.id, directory: pane.workingDirectory, integrated: !environment.isEmpty)
+        shell.surface = view
+        shells[pane.id] = shell
         bind(view, to: pane.id)
         return view
     }
+
+    func shell(for pane: PaneID) -> PaneShell? { shells[pane] }
 
     private func bind(_ view: TerminalSurfaceView, to pane: PaneID) {
         view.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
@@ -151,13 +160,15 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         if let s = surfaces[source] { pendingInherit[pane] = s }
     }
 
-    /// Hands a live surface to another window (pane moved across windows).
-    func relinquishSurface(for pane: PaneID) -> TerminalSurfaceView? {
-        surfaces.removeValue(forKey: pane)
+    /// Hands a live surface and its shell session to another window (pane moved across windows).
+    func relinquishSurface(for pane: PaneID) -> (TerminalSurfaceView, PaneShell?)? {
+        guard let view = surfaces.removeValue(forKey: pane) else { return nil }
+        return (view, shells.removeValue(forKey: pane))
     }
 
-    func adoptSurface(_ view: TerminalSurfaceView, for pane: PaneID) {
+    func adoptSurface(_ view: TerminalSurfaceView, shell: PaneShell?, for pane: PaneID) {
         surfaces[pane] = view
+        shells[pane] = shell
         bind(view, to: pane)
     }
 
@@ -166,6 +177,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func removeSurface(for pane: PaneID, closingOutOf tab: TabID? = nil) {
         pendingInherit[pane] = nil
         chrome.exitedPanes[pane] = nil
+        shells.removeValue(forKey: pane)?.stop()
         guard let view = surfaces.removeValue(forKey: pane) else { return }
         guard let tab, tab == state.selectedTabID, window?.isVisible == true,
               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
@@ -184,6 +196,12 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     }
 
     func allSurfaces() -> [TerminalSurfaceView] { Array(surfaces.values) }
+
+    /// The window is closing: stop every shell session's timers and forget their state files.
+    func stopShells() {
+        for shell in shells.values { shell.stop() }
+        shells.removeAll()
+    }
 
     // MARK: Focus
 
