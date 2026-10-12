@@ -227,3 +227,63 @@ final class FolderBrowserTests: XCTestCase {
         XCTAssertFalse(b.rows.isEmpty)
     }
 }
+
+final class DroppedPathTests: XCTestCase {
+    private func arg(_ path: String) -> String {
+        ShellQuoting.pathArgument(path, directory: "/Users/me/app", home: "/Users/me")
+    }
+
+    func testInsideTheFolderIsRelative() {
+        XCTAssertEqual(arg("/Users/me/app/Sources/main.swift"), "Sources/main.swift")
+        XCTAssertEqual(arg("/Users/me/app/My File.txt"), #"My\ File.txt"#)
+        XCTAssertEqual(arg("/Users/me/app"), ".")
+    }
+
+    func testUnderHomeStartsWithTilde() {
+        XCTAssertEqual(arg("/Users/me/Downloads/report (1).pdf"), #"~/Downloads/report\ \(1\).pdf"#)
+        XCTAssertEqual(arg("/Users/me/app-old/x"), "~/app-old/x")
+    }
+
+    func testElsewhereIsAbsolute() {
+        XCTAssertEqual(arg("/tmp/x y"), #"/tmp/x\ y"#)
+    }
+
+    /// `-rf` relative to the folder would read as an option.
+    func testANameStartingWithADashIsNotAnOption() {
+        XCTAssertEqual(arg("/Users/me/app/-rf"), "./-rf")
+    }
+
+    func testZshReadsEachAsThePath() throws {
+        let home = "/Users/me"
+        for path in ["/Users/me/app/a b", "/Users/me/x$y", "/tmp/it's", "/Users/me/app/-rf", "/tmp/a\nb", "/Users/me/~odd"] {
+            let word = arg(path)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            process.environment = ["HOME": home]
+            process.currentDirectoryURL = URL(fileURLWithPath: "/")
+            process.arguments = ["-f", "-c", "x=( \(word) ); print -rn -- \"${#x}:${x[1]}\""]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            try process.run()
+            process.waitUntilExit()
+            let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            // Relative words are relative to the pane's folder.
+            let expected = path.hasPrefix("/Users/me/app/") ? String(word.unescapedForTest) : path
+            XCTAssertEqual(out, "1:\(expected)", word)
+        }
+    }
+}
+
+private extension String {
+    /// What zsh makes of a relative word this file's tests produce: the backslashes go.
+    var unescapedForTest: String {
+        var out = ""
+        var escaped = false
+        for ch in self {
+            if !escaped, ch == "\\" { escaped = true; continue }
+            out.append(ch)
+            escaped = false
+        }
+        return out
+    }
+}

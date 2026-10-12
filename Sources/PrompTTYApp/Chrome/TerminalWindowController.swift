@@ -1,4 +1,5 @@
 import AppKit
+import CommandEditing
 import GhosttyBridge
 import PaneActivity
 import Preferences
@@ -144,6 +145,15 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     private func bind(_ view: TerminalSurfaceView, to pane: PaneID) {
         view.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
         view.onAttachedToWindow = { [weak self] in self?.surfaceAttached(pane) }
+        // Dropped files: into the bar while it is shown, else typed for the program, quoted.
+        view.onFileDrop = { [weak self, weak view] urls in
+            if let shell = self?.shells[pane], shell.bar != .hidden {
+                shell.editor.textView.insertDroppedFiles(urls)
+            } else {
+                view?.sendText(urls.map { ShellQuoting.escape($0.path) }.joined(separator: " ") + " ")
+            }
+            return true
+        }
         guard let shell = shells[pane] else { return }
         // At a prompt the bar takes the keys, even after a click into the terminal's output
         // (which still selects text there).

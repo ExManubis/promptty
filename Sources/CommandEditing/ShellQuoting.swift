@@ -47,4 +47,22 @@ public enum ShellQuoting {
         }
         return "cd " + escape(path)
     }
+
+    /// A dropped file's path as a command-line word: relative inside the pane's folder, with `~`
+    /// under the home folder, absolute elsewhere.
+    public static func pathArgument(_ path: String, directory: String, home: String) -> String {
+        if path == directory { return "." }
+        let folder = directory.hasSuffix("/") ? directory : directory + "/"
+        if path.hasPrefix(folder) {
+            let relative = String(path.dropFirst(folder.count))
+            // `-rf` would read as an option.
+            return (relative.hasPrefix("-") ? "./" : "") + escape(relative, keepLeadingTilde: false)
+        }
+        if path == home { return "~" }
+        let homeFolder = home.hasSuffix("/") ? home : home + "/"
+        if path.hasPrefix(homeFolder) {
+            return "~/" + escape(String(path.dropFirst(homeFolder.count)), keepLeadingTilde: false)
+        }
+        return escape(path)
+    }
 }

@@ -30,6 +30,8 @@ public final class TerminalSurfaceView: NSView {
     /// Asked before the terminal takes a key: a responder returned here gets focus and the key
     /// instead (the input bar while the shell is at a prompt). ⌘ keys still go to the menus.
     public var keyRedirect: (() -> NSResponder?)?
+    /// Files dropped on the terminal. Returns false to decline the drop.
+    public var onFileDrop: (([URL]) -> Bool)?
 
     /// Size libghostty asked for during `ghostty_surface_new`, before this view had a window.
     public private(set) var pendingInitialSize: CGSize?
@@ -58,6 +60,23 @@ public final class TerminalSurfaceView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
         layerContentsRedrawPolicy = .duringViewResize
+        registerForDraggedTypes([.fileURL])
+    }
+
+    // MARK: File drops
+
+    public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        Self.fileURLs(in: sender).isEmpty || onFileDrop == nil ? [] : .copy
+    }
+
+    public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let urls = Self.fileURLs(in: sender)
+        guard !urls.isEmpty, let onFileDrop else { return false }
+        return onFileDrop(urls)
+    }
+
+    static func fileURLs(in sender: NSDraggingInfo) -> [URL] {
+        sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
     }
 
     @available(*, unavailable)

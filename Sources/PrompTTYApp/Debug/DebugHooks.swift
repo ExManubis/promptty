@@ -31,6 +31,11 @@ enum DebugHooks {
             coordinator.reveal(pane.id)
             return ""
         }
+        // eval dropfiles <path>… — files dropped on the focused pane's terminal (its drop handler).
+        driver.hooks["dropfiles"] = { args in
+            guard let view = driver.focusedSurface(), let drop = view.onFileDrop else { return "error: no drop handler" }
+            return drop(args.map { URL(fileURLWithPath: $0) }) ? "" : "declined"
+        }
         // eval headers on|off — show every pane header without hovering.
         driver.hooks["headers"] = { args in
             for c in coordinator.allControllers { c.chrome.forceHeaders = args.first == "on" }

@@ -291,6 +291,39 @@ final class CommandTextView: NSTextView {
     }
 
     /// Inserts on the app's behalf (completions, suggestions), in any mode.
+    // MARK: File drops
+
+    /// Files dropped on the bar (or on its terminal while the bar is shown): their paths, quoted,
+    /// at the drop point, or at the caret.
+    func insertDroppedFiles(_ urls: [URL], at index: Int? = nil) {
+        let directory = completionContext()?.directory ?? FileManager.default.currentDirectoryPath
+        let words = urls.map { ShellQuoting.pathArgument($0.path, directory: directory, home: NSHomeDirectory()) }
+        let text = string as NSString
+        let at = min(index ?? selectedRange().location, text.length)
+        let before = at > 0 ? text.substring(with: NSRange(location: at - 1, length: 1)) : " "
+        let after = at < text.length ? text.substring(with: NSRange(location: at, length: 1)) : ""
+        let spaceBefore = before.rangeOfCharacter(from: .whitespacesAndNewlines) == nil ? " " : ""
+        // A space after, as a terminal leaves one: the next argument follows right away.
+        let spaceAfter = after.isEmpty || after.rangeOfCharacter(from: .whitespacesAndNewlines) == nil ? " " : ""
+        window?.makeFirstResponder(self)
+        insertProgrammatically(spaceBefore + words.joined(separator: " ") + spaceAfter, replacing: NSRange(location: at, length: 0))
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        Self.fileURLs(in: sender).isEmpty ? super.draggingEntered(sender) : .copy
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let urls = Self.fileURLs(in: sender)
+        guard !urls.isEmpty else { return super.performDragOperation(sender) }
+        insertDroppedFiles(urls, at: characterIndexForInsertion(at: convert(sender.draggingLocation, from: nil)))
+        return true
+    }
+
+    private static func fileURLs(in sender: NSDraggingInfo) -> [URL] {
+        sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    }
+
     private func insertProgrammatically(_ text: String, replacing range: NSRange) {
         insertingProgrammatically = true
         defer { insertingProgrammatically = false }
