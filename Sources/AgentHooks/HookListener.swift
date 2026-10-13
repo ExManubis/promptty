@@ -54,21 +54,15 @@ public final class HookListener: @unchecked Sendable {
         let folder = (path as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try checkFolder(folder)
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let bytes = Array(path.utf8)
-        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { throw Failure.pathTooLong }
-        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes + [0]) }
-        if Self.answers(&address) { throw Failure.inUse }
+        guard let address = HookSocket.address(path) else { throw Failure.pathTooLong }
+        if Self.answers(address) { throw Failure.inUse }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw Failure.socket(errno) }
         // Not inherited by the shells the terminal starts.
         _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         // Nobody answers: a socket left by an earlier run (a crash), which would keep the path taken.
         unlink(path)
-        let bindResult = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
-        }
+        let bindResult = HookSocket.withSockaddr(address) { Darwin.bind(fd, $0, $1) }
         var info = stat()
         guard bindResult == 0, chmod(path, 0o600) == 0, lstat(path, &info) == 0, Darwin.listen(fd, 16) == 0 else {
             let error = errno
@@ -101,13 +95,11 @@ public final class HookListener: @unchecked Sendable {
     }
 
     /// Whether something listens at the address.
-    private static func answers(_ address: inout sockaddr_un) -> Bool {
+    private static func answers(_ address: sockaddr_un) -> Bool {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
         defer { close(fd) }
-        return withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
-        } == 0
+        return HookSocket.connect(fd, to: address)
     }
 
     /// The folder is a real folder of the user's; the shared fallback in /tmp must also be closed
@@ -175,5 +167,29 @@ public final class HookListener: @unchecked Sendable {
         guard let connection = connections.removeValue(forKey: fd) else { return }
         connection.timeout?.cancel()
         connection.source.cancel()
+    }
+}
+
+extension HookSocket {
+    /// The Unix socket address of `path`; nil when the path is too long for one.
+    public static func address(_ path: String) -> sockaddr_un? {
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { return nil }
+        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes + [0]) }
+        return address
+    }
+
+    /// Connects the socket `fd` to `address`; whether it did.
+    public static func connect(_ fd: Int32, to address: sockaddr_un) -> Bool {
+        withSockaddr(address) { Darwin.connect(fd, $0, $1) } == 0
+    }
+
+    /// `body` with the address as the `sockaddr` and length that `bind` and `connect` take.
+    static func withSockaddr<R>(_ address: sockaddr_un, _ body: (UnsafePointer<sockaddr>, socklen_t) -> R) -> R {
+        withUnsafePointer(to: address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { body($0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
     }
 }

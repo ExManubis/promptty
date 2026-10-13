@@ -205,15 +205,7 @@ private struct SecureLock: View {
 
     var body: some View {
         if actions.isSecure(pane) {
-            Image(systemName: "lock.fill")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(5)
-                .background(.regularMaterial, in: Circle())
-                .overlay(Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
-                .help("Secure keyboard entry is on")
-                .padding(6)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            PaneBadge(symbol: "lock.fill", help: "Secure keyboard entry is on", alignment: .topTrailing)
         }
     }
 }
@@ -221,15 +213,26 @@ private struct SecureLock: View {
 /// Marks the zoomed pane, at its top-left.
 private struct ZoomBadge: View {
     var body: some View {
-        Image(systemName: "arrow.up.left.and.arrow.down.right")
+        PaneBadge(symbol: "arrow.up.left.and.arrow.down.right", help: "Zoomed. Press the zoom shortcut again to show all panes.", alignment: .topLeading)
+            .accessibilityLabel("Zoomed pane")
+    }
+}
+
+/// A small round mark in a corner of the pane.
+private struct PaneBadge: View {
+    let symbol: String
+    let help: String
+    let alignment: Alignment
+
+    var body: some View {
+        Image(systemName: symbol)
             .font(.caption)
             .foregroundStyle(.secondary)
             .padding(5)
             .background(.regularMaterial, in: Circle())
             .overlay(Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
-            .help("Zoomed. Press the zoom shortcut again to show all panes.")
+            .help(help)
             .padding(6)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .accessibilityLabel("Zoomed pane")
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
     }
 }

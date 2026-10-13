@@ -35,9 +35,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         activity.isSeen = { [weak self] in self?.isSeen($0) ?? false }
         activity.onNotice = { [weak self] pane, notice in self?.post(notice, for: pane) }
         activity.onSeen = { Notifications.remove(for: $0) }
-        activity.allPanes = { [weak self] in
-            Set(self?.workspace.windows.flatMap { $0.tabs.flatMap { $0.orderedPanes.map(\.id) } } ?? [])
-        }
+        activity.allPanes = { [weak self] in Set(self?.allPaneIDs ?? []) }
         activity.afterTick = { [weak self] in self?.lookUpRepositories() }
         secureInput.global = preferences.settings.secureKeyboardEntry
         secureInput.onChange = { [weak self] in self?.refreshSecureIndicators() }
@@ -46,10 +44,13 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     /// Every pane's lock follows the owner: shown on a pane that asked for secure input itself, or
     /// on all of them while the menu forces it.
     func refreshSecureIndicators() {
-        for pane in workspace.windows.flatMap({ $0.tabs.flatMap { $0.orderedPanes.map(\.id) } }) {
+        for pane in allPaneIDs {
             activity.status(for: pane).setSecure(secureInput.isSecure(pane))
         }
     }
+
+    /// Every pane, window by window, tab by tab.
+    private var allPaneIDs: [PaneID] { workspace.windows.flatMap(\.paneIDs) }
 
     /// Opens a controller for every window in the model; creates a default window if none.
     func start() {
@@ -581,7 +582,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         // Before the surfaces are freed: a freed one reports no more, and a pane left in the owner
         // would hold secure input on for the whole system.
         if let state = workspace.windows.first(where: { $0.id == id }) {
-            secureInput.remove(state.tabs.flatMap { $0.orderedPanes.map(\.id) })
+            secureInput.remove(state.paneIDs)
         }
         for view in controller.allSurfaces() { view.teardown() }
         controller.stopShells()

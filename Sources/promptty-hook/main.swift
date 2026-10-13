@@ -48,18 +48,8 @@ var on: Int32 = 1
 setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
 // Non-blocking: an app that is not listening, or not reading, is not waited for.
 _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
-var address = sockaddr_un()
-address.sun_family = sa_family_t(AF_UNIX)
-let pathBytes = Array(socketPath.utf8)
-guard pathBytes.count < MemoryLayout.size(ofValue: address.sun_path) else { exit(0) }
-withUnsafeMutableBytes(of: &address.sun_path) { raw in
-    raw.copyBytes(from: pathBytes)
-    raw[pathBytes.count] = 0
-}
-let connected = withUnsafePointer(to: &address) {
-    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
-}
-if connected == 0 {
+guard let address = HookSocket.address(socketPath) else { exit(0) }
+if HookSocket.connect(fd, to: address) {
     line.withUnsafeBytes { raw in
         var offset = 0
         while offset < raw.count {

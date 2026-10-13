@@ -306,8 +306,7 @@ final class PaneShell {
         let epoch = branchEpoch
         let path = stateFile?.path ?? []
         let lookup = Task.detached(priority: .userInitiated) { () -> [String]? in
-            let git = Self.executable("git", in: path) ?? "/usr/bin/git"
-            return await ProcessRunner.run(git, ["-C", directory, "for-each-ref", "--format=%(refname:short)", "refs/heads"], timeout: 1)
+            await Self.git(["for-each-ref", "--format=%(refname:short)", "refs/heads"], in: directory, path: path, timeout: 1)
                 .map { $0.split(separator: "\n").map(String.init) }
         }
         branchLookups[directory] = lookup
@@ -442,8 +441,7 @@ final class PaneShell {
         let dir = directory
         let path = stateFile?.path ?? []
         return await Task.detached(priority: .userInitiated) {
-            let git = Self.executable("git", in: path) ?? "/usr/bin/git"
-            return await ProcessRunner.run(git, ["-C", dir, "for-each-ref", "--sort=-committerdate", "--format=%(refname)%09%(worktreepath)", "refs/heads", "refs/remotes"], timeout: 2)
+            await Self.git(["for-each-ref", "--sort=-committerdate", "--format=%(refname)%09%(worktreepath)", "refs/heads", "refs/remotes"], in: dir, path: path, timeout: 2)
                 .map(BranchListing.init(forEachRef:))
         }.value
     }
@@ -594,14 +592,20 @@ final class PaneShell {
         let dir = directory
         let path = stateFile?.path ?? []
         Task.detached(priority: .utility) {
-            let git = Self.executable("git", in: path) ?? "/usr/bin/git"
-            let status = await ProcessRunner.run(git, ["-C", dir, "--no-optional-locks", "status", "--porcelain=v2", "--branch", "--ignore-submodules=dirty"], timeout: 1)
+            let status = await Self.git(["--no-optional-locks", "status", "--porcelain=v2", "--branch", "--ignore-submodules=dirty"], in: dir, path: path, timeout: 1)
                 .flatMap { GitStatus.parse(porcelainV2: $0) }
             await MainActor.run { [weak self] in
                 guard let self, generation == self.gitGeneration else { return }
                 self.git = status
             }
         }
+    }
+
+    /// Runs the shell's git (the first on its PATH, else the system's) in `directory`; its output,
+    /// or nil when it failed or timed out. Call off the main thread: the lookup touches the disk.
+    nonisolated static func git(_ arguments: [String], in directory: String, path: [String], timeout: TimeInterval) async -> String? {
+        let git = executable("git", in: path) ?? "/usr/bin/git"
+        return await ProcessRunner.run(git, ["-C", directory] + arguments, timeout: timeout)
     }
 
     nonisolated static func executable(_ name: String, in path: [String]) -> String? {
