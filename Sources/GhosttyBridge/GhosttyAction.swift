@@ -17,6 +17,9 @@ public enum MouseShape: Equatable, Sendable {
 /// What libghostty says a link's target is; `text` is a file to show in an editor.
 public enum OpenURLKind: Equatable, Sendable { case unknown, text, html }
 
+/// What a program asks of secure keyboard input (a password prompt).
+public enum SecureInputRequest: Equatable, Sendable { case on, off, toggle }
+
 public enum ColorKind: Equatable, Sendable {
     case foreground, background, cursor
     case palette(Int)
@@ -56,6 +59,8 @@ public enum GhosttyAction: Equatable, Sendable {
     case openURL(kind: OpenURLKind, url: String)
     /// The pointer is over a link (its text), or left it (nil).
     case mouseOverLink(String?)
+    /// A program in the pane starts or stops reading a secret; `toggle` flips the pane's request.
+    case secureInput(SecureInputRequest)
     /// Synthesized from `close_surface_cb`, not a `ghostty_action_tag_e`.
     case closeSurface(processAlive: Bool)
     case unhandled(tag: UInt32)
@@ -131,6 +136,12 @@ public enum GhosttyAction: Equatable, Sendable {
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:
             let l = c.action.mouse_over_link
             self = .mouseOverLink(Self.string(l.url, length: Int(l.len)).flatMap { $0.isEmpty ? nil : $0 })
+        case GHOSTTY_ACTION_SECURE_INPUT:
+            switch c.action.secure_input {
+            case GHOSTTY_SECURE_INPUT_ON: self = .secureInput(.on)
+            case GHOSTTY_SECURE_INPUT_OFF: self = .secureInput(.off)
+            default: self = .secureInput(.toggle)
+            }
         default:
             self = .unhandled(tag: c.tag.rawValue)
         }

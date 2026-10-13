@@ -54,6 +54,7 @@ enum MainMenu {
         app.addItem(withTitle: "About PrompTTY", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         app.addItem(.separator())
         app.addItem(fixed("Settings…", Action.showSettings, ","))
+        app.addItem(withTitle: "Secure Keyboard Entry", action: #selector(AppDelegate.toggleSecureKeyboardEntry(_:)), keyEquivalent: "")
         app.addItem(withTitle: "Clear Folder Suggestions", action: #selector(AppDelegate.clearFolderHistory(_:)), keyEquivalent: "")
         app.addItem(.separator())
         app.addItem(fixed("Hide PrompTTY", #selector(NSApplication.hide(_:)), "h"))

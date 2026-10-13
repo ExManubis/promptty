@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import CommandEditing
 import GhosttyBridge
 import Observation
@@ -16,6 +17,12 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     private var controllers: [WindowID: TerminalWindowController] = [:]
     /// What runs in each pane and what happened there unseen.
     let activity = ActivityTracker()
+    /// macOS secure keyboard input: forced by the menu, or asked for by a pane at a password prompt.
+    let secureInput = SecureInputOwner<PaneID>(
+        appActive: NSApp.isActive,
+        enable: { EnableSecureEventInput() == noErr },
+        disable: { DisableSecureEventInput() == noErr }
+    )
     /// Schedules a session save.
     var onModelChanged: (() -> Void)?
 
@@ -31,6 +38,16 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             Set(self?.workspace.windows.flatMap { $0.tabs.flatMap { $0.orderedPanes.map(\.id) } } ?? [])
         }
         activity.afterTick = { [weak self] in self?.lookUpRepositories() }
+        secureInput.global = preferences.settings.secureKeyboardEntry
+        secureInput.onChange = { [weak self] in self?.refreshSecureIndicators() }
+    }
+
+    /// Every pane's lock follows the owner: shown on a pane that asked for secure input itself, or
+    /// on all of them while the menu forces it.
+    private func refreshSecureIndicators() {
+        for pane in workspace.windows.flatMap({ $0.tabs.flatMap { $0.orderedPanes.map(\.id) } }) {
+            activity.status(for: pane).setSecure(secureInput.isSecure(pane))
+        }
     }
 
     /// Opens a controller for every window in the model; creates a default window if none.
@@ -287,6 +304,10 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             workspace.tabLayout = layout
             modelDidChange()
         }
+        if secureInput.global != settings.secureKeyboardEntry {
+            secureInput.global = settings.secureKeyboardEntry
+            refreshSecureIndicators()
+        }
         if lastTintStrength != settings.tintStrength {
             lastTintStrength = settings.tintStrength
             configDidReload()
@@ -301,6 +322,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     /// it is in front.
     func appActivationChanged() {
         for c in controllers.values { c.updateRefreshRate() }
+        secureInput.setAppActive(NSApp.isActive)
     }
 
     // MARK: Windows and tabs
@@ -788,6 +810,16 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             activity.exitReported(located.2.id, code: Int(code))
             located.3.shell(for: located.2.id)?.commandFinished(code: code, durationNs: duration)
             located.3.blocks(for: located.2.id)?.setNeedsRefresh()
+            return true
+        case .secureInput(let request):
+            guard let located else { return false }
+            let pane = located.2.id
+            switch request {
+            case .on: secureInput.setRequested(pane, true)
+            case .off: secureInput.setRequested(pane, false)
+            case .toggle: secureInput.setRequested(pane, !secureInput.isRequested(pane))
+            }
+            refreshSecureIndicators()
             return true
         case .openURL(let kind, let text):
             // Always true, even when refused: false would make libghostty `open` the text itself,

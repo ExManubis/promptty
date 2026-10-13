@@ -156,6 +156,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func blocks(for pane: PaneID) -> BlockOverlayView? { surfaces[pane]?.overlay as? BlockOverlayView }
     func activity(for pane: PaneID) -> PaneActivity.Visible { coordinator.activity.activity(for: pane) }
     func hoveredLink(for pane: PaneID) -> String? { coordinator.activity.status(for: pane).hoveredLink }
+    func isSecure(_ pane: PaneID) -> Bool { coordinator.activity.status(for: pane).secure }
     var agentList: AgentList { coordinator.agentList }
     func reveal(_ pane: PaneID) { coordinator.reveal(pane) }
     func screenText(for pane: PaneID) -> String? { surfaces[pane]?.visibleText() }
@@ -181,6 +182,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     private func bind(_ view: TerminalSurfaceView, to pane: PaneID) {
         view.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
+        view.onFocusChange = { [weak self] focused in self?.coordinator.secureInput.setFocused(pane, focused) }
         view.onAttachedToWindow = { [weak self] in self?.surfaceAttached(pane) }
         view.onLinkHover = { [weak self] link in self?.coordinator.activity.status(for: pane).hover(over: link) }
         // Dropped files: into the bar while it is shown, else typed for the program, quoted.
@@ -252,6 +254,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     /// tab is on screen, the surface lives on for a moment so its card can shrink away.
     func removeSurface(for pane: PaneID, closingOutOf tab: TabID? = nil) {
         pendingInherit[pane] = nil
+        coordinator.secureInput.remove(pane)
         chrome.exitedPanes[pane] = nil
         shells.removeValue(forKey: pane)?.stop()
         guard let view = surfaces.removeValue(forKey: pane) else { return }

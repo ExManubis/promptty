@@ -36,6 +36,10 @@ Everything is in **PrompTTY › Settings…** (⌘,) and applies immediately:
   close confirmation.
 - **Keyboard:** Option as Alt, vim-style navigation, and every shortcut below.
 
+**PrompTTY › Secure Keyboard Entry** keeps other apps from seeing keystrokes while PrompTTY is in
+front (a checkmark; remembered). Separately, whenever a program asks for it, as a password prompt
+does, secure input is on while that pane has the keyboard, and a lock shows at the pane's corner.
+
 Settings are stored in `~/Library/Application Support/PrompTTY/settings.json`. From them the app
 writes `terminal.conf`, the only config libghostty reads. PrompTTY does not read
 `~/.config/ghostty/config`.

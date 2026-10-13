@@ -26,6 +26,8 @@ public final class TerminalSurfaceView: NSView {
     public var token: AnyHashable?
     /// Called when the view becomes first responder (a click or programmatic focus).
     public var onFocus: (() -> Void)?
+    /// The terminal has the keyboard (its window key, it first responder) or lost it.
+    public var onFocusChange: ((Bool) -> Void)?
     /// Called each time the view joins a window. Hosts that move the view between containers use
     /// it to restore focus, which AppKit drops when a first responder leaves the window.
     public var onAttachedToWindow: (() -> Void)?
@@ -372,26 +374,26 @@ public final class TerminalSurfaceView: NSView {
     // new focus state explicitly instead of deriving it.
     public override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
-        if let surface {
-            ghostty_surface_set_focus(surface, ok && (window?.isKeyWindow ?? false))
-        }
+        setSurfaceFocus(ok && (window?.isKeyWindow ?? false))
         if ok { onFocus?() }
         return ok
     }
 
     public override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
-        if ok, let surface {
-            ghostty_surface_set_focus(surface, false)
-        }
+        if ok { setSurfaceFocus(false) }
         return ok
     }
 
     /// For window key/resign notifications, where `firstResponder` is already settled.
     private func focusDidChange() {
+        setSurfaceFocus((window?.isKeyWindow ?? false) && window?.firstResponder === self)
+    }
+
+    private func setSurfaceFocus(_ focused: Bool) {
         guard let surface else { return }
-        let focused = (window?.isKeyWindow ?? false) && window?.firstResponder === self
         ghostty_surface_set_focus(surface, focused)
+        onFocusChange?(focused)
     }
 
     /// The display the window is on, for the renderer's display link. A focused surface draws

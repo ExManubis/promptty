@@ -14,6 +14,13 @@ final class PaneStatus {
     /// The link under the pointer, shown at the pane's corner; nil when there is none.
     private(set) var hoveredLink: String?
 
+    /// Secure keyboard input is on for the pane (it asked for it, or the user forced it).
+    private(set) var secure = false
+
+    func setSecure(_ on: Bool) {
+        if secure != on { secure = on }
+    }
+
     /// Moves arrive with every mouse move over text; an unchanged link changes nothing.
     func hover(over link: String?) {
         if hoveredLink != link { hoveredLink = link }

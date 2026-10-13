@@ -40,6 +40,7 @@ struct PaneCard: View {
                 .allowsHitTesting(false)
 
             LinkPreview(pane: pane.id, actions: actions)
+            SecureLock(pane: pane.id, actions: actions)
 
             if let code = chrome.exitedPanes[pane.id] {
                 // A pinned tab's last pane is restarted, not closed.
@@ -152,6 +153,27 @@ private struct LinkPreview: View {
                 .padding(6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 .allowsHitTesting(false)
+        }
+    }
+}
+
+/// A lock at the pane's top-right while secure keyboard input is on for it. Its own view, so only
+/// this redraws when that changes.
+private struct SecureLock: View {
+    let pane: PaneID
+    let actions: ChromeActions
+
+    var body: some View {
+        if actions.isSecure(pane) {
+            Image(systemName: "lock.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(5)
+                .background(.regularMaterial, in: Circle())
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+                .help("Secure keyboard entry is on")
+                .padding(6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
     }
 }

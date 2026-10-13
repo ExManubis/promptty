@@ -20,6 +20,16 @@ final class GhosttyActionTests: XCTestCase {
         XCTAssertEqual(GhosttyAction(action(GHOSTTY_ACTION_RING_BELL)), .ringBell)
     }
 
+    func testSecureInput() {
+        var a = action(GHOSTTY_ACTION_SECURE_INPUT)
+        a.action.secure_input = GHOSTTY_SECURE_INPUT_ON
+        XCTAssertEqual(GhosttyAction(a), .secureInput(.on))
+        a.action.secure_input = GHOSTTY_SECURE_INPUT_OFF
+        XCTAssertEqual(GhosttyAction(a), .secureInput(.off))
+        a.action.secure_input = GHOSTTY_SECURE_INPUT_TOGGLE
+        XCTAssertEqual(GhosttyAction(a), .secureInput(.toggle))
+    }
+
     func testCloseTabMode() {
         var a = action(GHOSTTY_ACTION_CLOSE_TAB)
         a.action.close_tab_mode = GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER

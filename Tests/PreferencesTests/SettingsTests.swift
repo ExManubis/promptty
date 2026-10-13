@@ -33,6 +33,14 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(try JSONDecoder().decode(Settings.self, from: Data(#"{"version":2}"#.utf8)).fullRefreshRate)
     }
 
+    func testSecureKeyboardEntryIsSavedAndOffByDefault() throws {
+        var s = Settings()
+        XCTAssertFalse(s.secureKeyboardEntry)
+        s.secureKeyboardEntry = true
+        XCTAssertTrue(try JSONDecoder().decode(Settings.self, from: JSONEncoder().encode(s)).secureKeyboardEntry)
+        XCTAssertFalse(try JSONDecoder().decode(Settings.self, from: Data(#"{"version":2}"#.utf8)).secureKeyboardEntry)
+    }
+
     func testVimNavigationCanBeTurnedOffAndStaysOnForOlderFiles() throws {
         var s = Settings()
         s.vimNavigation = false
