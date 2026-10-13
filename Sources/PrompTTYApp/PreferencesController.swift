@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Preferences
 import WorkspaceModel
 
@@ -22,6 +22,7 @@ final class PreferencesController {
     private let store: SettingsStore
     private var saver: DebouncedSaver!
     private var lastConfigText: String?
+    private var accentObserver: NSObjectProtocol?
 
     static let legacyTabListHiddenKey = "tabListHidden"
 
@@ -52,6 +53,27 @@ final class PreferencesController {
         saver = DebouncedSaver(delay: .milliseconds(300)) { [weak self] in self?.save() }
         model.onChange = { [weak self] new in self?.settingsDidChange(from: new) }
         save()
+        // An accent-colored cursor follows the accent color chosen in System Settings.
+        accentObserver = NotificationCenter.default.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.model.settings.cursorColor == .accent, (try? self.writeTerminalConfig()) == true else { return }
+                self.onTerminalConfigChanged?()
+            }
+        }
+    }
+
+    /// The system accent color as 0xRRGGBB.
+    static var accentColor: UInt32? {
+        guard let c = NSColor.controlAccentColor.usingColorSpace(.sRGB) else { return nil }
+        func byte(_ v: CGFloat) -> UInt32 { UInt32((min(max(v, 0), 1) * 255).rounded()) }
+        return byte(c.redComponent) << 16 | byte(c.greenComponent) << 8 | byte(c.blueComponent)
+    }
+
+    /// The cursor's color for the input bar's caret; nil for the theme's (the text color).
+    var cursorColor: NSColor? {
+        model.settings.resolvedCursorColor(accent: Self.accentColor).map {
+            NSColor(srgbRed: CGFloat(($0 >> 16) & 0xFF) / 255, green: CGFloat(($0 >> 8) & 0xFF) / 255, blue: CGFloat($0 & 0xFF) / 255, alpha: 1)
+        }
     }
 
     var settings: Settings { model.settings }
@@ -60,7 +82,8 @@ final class PreferencesController {
     /// Writes `terminal.conf` if its text changed. Returns whether it changed.
     @discardableResult
     func writeTerminalConfig() throws -> Bool {
-        let text = TerminalConfigWriter.render(model.settings, knownThemes: themes.names.isEmpty ? nil : Set(themes.names))
+        let text = TerminalConfigWriter.render(model.settings, knownThemes: themes.names.isEmpty ? nil : Set(themes.names),
+                                               accentColor: Self.accentColor)
         guard text != lastConfigText else { return false }
         try FileManager.default.createDirectory(at: terminalConfigURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try text.write(to: terminalConfigURL, atomically: true, encoding: .utf8)

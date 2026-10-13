@@ -52,6 +52,7 @@ struct AppearanceSection: View {
                 }
                 .pickerStyle(.segmented)
                 Toggle("Blink", isOn: $model.settings.cursorBlink)
+                CursorColorRow(color: $model.settings.cursorColor)
             }
 
             Section {
@@ -220,5 +221,72 @@ struct KeyboardSection: View {
         case .conflict(let other):
             return "\(shortcut.displayString) is used by \(other.title)."
         }
+    }
+}
+
+/// The cursor's color: the theme's, the system accent color, or a custom one from a color well.
+private struct CursorColorRow: View {
+    @Binding var color: CursorColor
+
+    private enum Choice: Hashable { case theme, accent, custom }
+
+    /// The last custom color, kept while Theme or Accent is chosen so switching back restores it.
+    @State private var lastCustom: UInt32 = 0xFF9F0A
+
+    private var choice: Binding<Choice> {
+        Binding {
+            switch color {
+            case .theme: .theme
+            case .accent: .accent
+            case .custom: .custom
+            }
+        } set: { choice in
+            switch choice {
+            case .theme: color = .theme
+            case .accent: color = .accent
+            case .custom: color = .custom(lastCustom)
+            }
+        }
+    }
+
+    private var custom: Binding<Color> {
+        Binding {
+            guard case .custom(let rgb) = color else { return Self.swiftUIColor(lastCustom) }
+            return Self.swiftUIColor(rgb)
+        } set: { new in
+            guard let rgb = Self.rgb(new) else { return }
+            lastCustom = rgb
+            color = .custom(rgb)
+        }
+    }
+
+    var body: some View {
+        LabeledContent("Color") {
+            HStack(spacing: 8) {
+                Picker("Color", selection: choice) {
+                    Text("Theme").tag(Choice.theme)
+                    Text("Accent").tag(Choice.accent)
+                    Text("Custom").tag(Choice.custom)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
+                if case .custom = color {
+                    ColorPicker("Cursor color", selection: custom, supportsOpacity: false)
+                        .labelsHidden()
+                }
+            }
+        }
+        .onAppear { if case .custom(let rgb) = color { lastCustom = rgb } }
+    }
+
+    private static func swiftUIColor(_ rgb: UInt32) -> Color {
+        Color(.sRGB, red: Double((rgb >> 16) & 0xFF) / 255, green: Double((rgb >> 8) & 0xFF) / 255, blue: Double(rgb & 0xFF) / 255)
+    }
+
+    private static func rgb(_ color: Color) -> UInt32? {
+        guard let c = NSColor(color).usingColorSpace(.sRGB) else { return nil }
+        func byte(_ v: CGFloat) -> UInt32 { UInt32((min(max(v, 0), 1) * 255).rounded()) }
+        return byte(c.redComponent) << 16 | byte(c.greenComponent) << 8 | byte(c.blueComponent)
     }
 }

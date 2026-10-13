@@ -151,6 +151,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     func configDidReload() {
         EditorStyle.update(family: preferences.settings.fontFamily, size: preferences.settings.fontSize)
         EditorStyle.update(foreground: runtime.configuredForeground, palette: runtime.configuredANSIPalette)
+        EditorStyle.cursor = preferences.cursorColor
         for c in controllers.values {
             applyConfiguredTint(to: c)
             for shell in c.allShells() { shell.styleChanged() }

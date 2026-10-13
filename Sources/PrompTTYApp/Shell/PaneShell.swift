@@ -80,6 +80,8 @@ struct EditorColors {
 enum EditorStyle {
     static var font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     static var colors = EditorColors()
+    /// The caret's color when the cursor color is set (Settings › Appearance); nil for the text's.
+    static var cursor: NSColor?
 
     /// `palette` is the theme's 16 ANSI colors.
     static func update(foreground: (red: UInt8, green: UInt8, blue: UInt8)?, palette: [(red: UInt8, green: UInt8, blue: UInt8)]?) {

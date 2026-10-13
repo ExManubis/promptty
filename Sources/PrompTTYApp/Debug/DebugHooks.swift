@@ -2,6 +2,7 @@
 import AppKit
 import SwiftUI
 import GhosttyBridge
+import Preferences
 import PaneActivity
 import WorkspaceModel
 
@@ -323,7 +324,7 @@ enum DebugHooks {
             let responder = c.window?.firstResponder
             let who = responder === shell.editor.textView ? "bar" : (responder is TerminalSurfaceView ? "terminal" : String(describing: type(of: responder as Any)))
             let tv = shell.editor.textView
-            return "bar=\(shell.bar) phase=\(shell.phase) mode=\(tv.vi.mode) text=\(tv.string.debugDescription) caret=\(tv.selectedRange().location) ghost=\((tv.suggestion ?? "-").debugDescription) height=\(shell.editorHeight) keys=\(who) scroll=\(NSStringFromRect(shell.editor.frame)) tv=\(NSStringFromRect(tv.frame)) container=\(NSStringFromSize(tv.textContainer?.size ?? .zero)) inWindow=\(tv.window != nil) host=\(shell.editor.superview.map { NSStringFromRect($0.frame) } ?? "-") color=\(String(describing: tv.textColor))"
+            return "bar=\(shell.bar) phase=\(shell.phase) mode=\(tv.vi.mode) text=\(tv.string.debugDescription) caret=\(tv.selectedRange().location) ghost=\((tv.suggestion ?? "-").debugDescription) height=\(shell.editorHeight) keys=\(who) scroll=\(NSStringFromRect(shell.editor.frame)) tv=\(NSStringFromRect(tv.frame)) container=\(NSStringFromSize(tv.textContainer?.size ?? .zero)) inWindow=\(tv.window != nil) host=\(shell.editor.superview.map { NSStringFromRect($0.frame) } ?? "-") color=\(String(describing: tv.textColor)) caretColor=\(tv.insertionPointColor.usingColorSpace(.sRGB).map { String(format: "#%02X%02X%02X", Int(($0.redComponent * 255).rounded()), Int(($0.greenComponent * 255).rounded()), Int(($0.blueComponent * 255).rounded())) } ?? "-")"
         }
         // eval bartext <text> — puts text in the focused pane's bar, as if typed (any keyboard layout).
         driver.hooks["bartext"] = { args in
@@ -371,6 +372,13 @@ enum DebugHooks {
             case "tintStrength": coordinator.preferences.update { $0.tintStrength = Double(args[1]) ?? 0.5 }
             case "follow": coordinator.preferences.update { $0.followSystemAppearance = args[1] == "on" }
             case "vim": coordinator.preferences.update { $0.vimNavigation = args[1] == "on" }
+            case "cursor":
+                let value: CursorColor = switch args[1] {
+                case "accent": .accent
+                case let hex where hex.hasPrefix("#"): UInt32(hex.dropFirst(), radix: 16).map(CursorColor.custom) ?? .theme
+                default: .theme
+                }
+                coordinator.preferences.update { $0.cursorColor = value }
             case "theme": coordinator.preferences.update { $0.theme = args[1].replacingOccurrences(of: "_", with: " ") }
             default: return "error: unknown setting"
             }

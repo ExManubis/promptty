@@ -4,7 +4,8 @@ import Foundation
 /// App-only settings (layout, sidebar, session, tint) are not written.
 public enum TerminalConfigWriter {
     /// `knownThemes` nil skips theme validation; otherwise unknown themes fall back to Flexoki.
-    public static func render(_ settings: Settings, knownThemes: Set<String>?) -> String {
+    /// `accentColor` (0xRRGGBB) is the system accent color, for an accent-colored cursor.
+    public static func render(_ settings: Settings, knownThemes: Set<String>?, accentColor: UInt32? = nil) -> String {
         func theme(_ name: String, fallback: String) -> String {
             let clean = sanitize(name)
             guard let knownThemes else { return clean }
@@ -26,6 +27,10 @@ public enum TerminalConfigWriter {
         case .right: optionAsAlt = "right"
         case .off: optionAsAlt = "false"
         }
+        // The theme's cursor unless one was picked; the character under it in black or white.
+        let cursorColor = settings.resolvedCursorColor(accent: accentColor).map {
+            ["cursor-color = \(CursorColor.hex($0))", "cursor-text = \(CursorColor.hex(CursorColor.text(on: $0)))"]
+        } ?? []
         let lines = [
             // Must stay first: PrompTTY's menus own every shortcut; libghostty binds nothing.
             "keybind = clear",
@@ -34,6 +39,7 @@ public enum TerminalConfigWriter {
             themeLine,
             "cursor-style = \(settings.cursorStyle.rawValue)",
             "cursor-style-blink = \(settings.cursorBlink)",
+        ] + cursorColor + [
             "macos-option-as-alt = \(optionAsAlt)",
             "confirm-close-surface = \(settings.confirmCloseRunning)",
             // The rounded pane card supplies the frame; keep the grid off its edges.

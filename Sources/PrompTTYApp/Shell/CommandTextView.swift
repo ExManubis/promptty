@@ -135,7 +135,7 @@ final class CommandTextView: NSTextView {
     func styleChanged() {
         typingAttributes = [.font: EditorStyle.font, .foregroundColor: EditorStyle.colors.text]
         applyParagraphStyle()
-        insertionPointColor = EditorStyle.colors.text
+        insertionPointColor = EditorStyle.cursor ?? EditorStyle.colors.text
         recolor()
         needsDisplay = true
     }

@@ -64,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ShellIntegration.install()
         EditorStyle.update(family: preferences.settings.fontFamily, size: preferences.settings.fontSize)
         EditorStyle.update(foreground: runtime.configuredForeground, palette: runtime.configuredANSIPalette)
+        EditorStyle.cursor = preferences.cursorColor
         coordinator = WorkspaceCoordinator(runtime: runtime, workspace: workspace, preferences: preferences)
         let router = NotificationRouter { [weak self] pane in self?.coordinator.reveal(pane) }
         notificationRouter = router
