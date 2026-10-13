@@ -592,6 +592,13 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         return false
     }
 
+    /// In full screen AppKit moves the (empty) toolbar into a window of its own pinned over the
+    /// top of the content; hidden until the pointer reaches the top edge, as the menu bar is, it
+    /// covers nothing.
+    func window(_ window: NSWindow, willUseFullScreenPresentationOptions proposedOptions: NSApplication.PresentationOptions = []) -> NSApplication.PresentationOptions {
+        proposedOptions.union([.autoHideToolbar, .autoHideMenuBar])
+    }
+
     func windowDidResize(_ notification: Notification) { persistFrame() }
     func windowDidMove(_ notification: Notification) { persistFrame() }
     func windowDidBecomeKey(_ notification: Notification) { focusSelectedPane() }
