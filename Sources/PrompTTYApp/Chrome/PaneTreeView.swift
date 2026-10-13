@@ -93,6 +93,12 @@ struct SplitDivider: NSViewRepresentable {
         view.window?.invalidateCursorRects(for: view)
     }
 
+    /// A divider removed mid-drag (a zoom, a close) gets no mouse-up: the drag ends here, or the
+    /// window would stay in its throttled resize mode.
+    static func dismantleNSView(_ view: SplitDividerView, coordinator: ()) {
+        view.endDrag()
+    }
+
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: SplitDividerView, context: Context) -> CGSize? {
         axis == .horizontal
             ? CGSize(width: ChromeMetrics.paneGap, height: proposal.height ?? 0)
@@ -134,7 +140,9 @@ final class SplitDividerView: NSView {
         onChange?(start.ratio + Double(delta / available))
     }
 
-    override func mouseUp(with event: NSEvent) {
+    override func mouseUp(with event: NSEvent) { endDrag() }
+
+    func endDrag() {
         if dragStart != nil { onDragging?(false) }
         dragStart = nil
     }

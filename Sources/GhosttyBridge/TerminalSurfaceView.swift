@@ -365,7 +365,8 @@ public final class TerminalSurfaceView: NSView {
         let h = UInt32(max(1, (bounds.height * scale).rounded()))
         if !force, let sent = sentSize, sent.width == w, sent.height == h { return }
         let now = CACurrentMediaTime()
-        if !force {
+        // A terminal without any size yet gets one whatever the mode: held, it would have none.
+        if !force, sentSize != nil {
             switch resizeMode {
             case .live: break
             case .held: return

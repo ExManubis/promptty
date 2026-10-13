@@ -27,6 +27,8 @@ final class BlockOverlayView: NSView {
     private var headerModel = StickyHeader.Model()
 
     private var refreshQueued = false
+    /// A refresh was skipped while hidden (another tab, or behind a zoom): one comes when shown.
+    private var staleWhileHidden = false
     private var lastRefresh: CFTimeInterval = 0
     /// The bounds the last layout pass refreshed for.
     private var laidOutBounds: CGRect?
@@ -97,6 +99,24 @@ final class BlockOverlayView: NSView {
         setNeedsRefresh()
     }
 
+    /// Also when an ancestor (the pane's host) is shown again.
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        refreshIfStale()
+    }
+
+    /// Moved to another host, which may be shown.
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        refreshIfStale()
+    }
+
+    private func refreshIfStale() {
+        guard staleWhileHidden, !isHiddenOrHasHiddenAncestor else { return }
+        staleWhileHidden = false
+        setNeedsRefresh()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
@@ -114,6 +134,11 @@ final class BlockOverlayView: NSView {
     /// times a second at the newest output with no block under the pointer or selected, where
     /// only the lines between commands move. Any number of calls before then read once.
     func setNeedsRefresh() {
+        // Nobody sees a hidden pane's blocks: read them once it is shown again.
+        guard !isHiddenOrHasHiddenAncestor else {
+            staleWhileHidden = true
+            return
+        }
         guard !refreshQueued else { return }
         refreshQueued = true
         let calm = snapshot?.viewport.atBottom == true && hovered == nil && selection == nil
@@ -122,6 +147,10 @@ final class BlockOverlayView: NSView {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.refreshQueued = false
+                guard !self.isHiddenOrHasHiddenAncestor else {
+                    self.staleWhileHidden = true
+                    return
+                }
                 self.refresh()
             }
         }

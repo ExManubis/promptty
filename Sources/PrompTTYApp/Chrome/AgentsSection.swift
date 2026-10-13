@@ -131,6 +131,8 @@ private struct AgentRow: View {
                         .foregroundStyle(activity.display >= .attention ? Color.orange : Color.secondary)
                         .monospacedDigit()
                 }
+                // A new schedule when the state's start moves: the one-second ticks start again.
+                .id(activity.agentSince)
             }
             Spacer(minLength: 2)
             StatusProgressRing(status: agent.status)
