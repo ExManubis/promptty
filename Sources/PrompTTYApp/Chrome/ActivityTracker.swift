@@ -1,4 +1,5 @@
 import AppKit
+import GhosttyBridge
 import Observation
 import PaneActivity
 import WorkspaceModel
@@ -16,6 +17,13 @@ final class PaneStatus {
 
     /// Secure keyboard input is on for the pane (it asked for it, or the user forced it).
     private(set) var secure = false
+
+    /// A program waits to read or write the clipboard until the user answers, in the pane's banner.
+    private(set) var clipboardRequest: ClipboardRequestKind?
+
+    func setClipboardRequest(_ kind: ClipboardRequestKind?) {
+        if clipboardRequest != kind { clipboardRequest = kind }
+    }
 
     /// What a program reports of its progress (OSC 9;4); nil when it reports none.
     private(set) var progress: PaneProgress?

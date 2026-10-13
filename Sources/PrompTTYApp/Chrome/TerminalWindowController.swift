@@ -156,6 +156,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func blocks(for pane: PaneID) -> BlockOverlayView? { surfaces[pane]?.overlay as? BlockOverlayView }
     func activity(for pane: PaneID) -> PaneActivity.Visible { coordinator.activity.activity(for: pane) }
     func hoveredLink(for pane: PaneID) -> String? { coordinator.activity.status(for: pane).hoveredLink }
+    func clipboardRequest(for pane: PaneID) -> ClipboardRequestKind? { coordinator.activity.status(for: pane).clipboardRequest }
+    func answerClipboardRequest(_ decision: ClipboardDecision, in pane: PaneID) { surfaces[pane]?.answerClipboardRequest(decision) }
     func progress(for pane: PaneID) -> PaneProgress? { coordinator.activity.status(for: pane).progress }
     func isSecure(_ pane: PaneID) -> Bool { coordinator.activity.status(for: pane).secure }
     var agentList: AgentList { coordinator.agentList }
@@ -186,6 +188,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         view.onFocusChange = { [weak self] focused in self?.coordinator.secureInput.setFocused(pane, focused) }
         coordinator.refreshSecureIndicators()
         view.onAttachedToWindow = { [weak self] in self?.surfaceAttached(pane) }
+        view.onClipboardRequest = { [weak self] kind in self?.coordinator.activity.status(for: pane).setClipboardRequest(kind) }
         view.onLinkHover = { [weak self] link in self?.coordinator.activity.status(for: pane).hover(over: link) }
         // Dropped files: into the bar while it is shown, else typed for the program, quoted.
         view.onFileDrop = { [weak self, weak view] urls in

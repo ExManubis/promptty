@@ -54,6 +54,20 @@ public final class TerminalSurfaceView: NSView {
     /// mouse move over text, so it goes straight to whoever shows it.
     public var onLinkHover: ((String?) -> Void)?
 
+    /// A program asks to read or write the clipboard and waits for the user's answer
+    /// (`answerClipboardRequest`), or that question is gone (nil).
+    public var onClipboardRequest: ((ClipboardRequestKind?) -> Void)?
+    /// What the program waits for; its text (what it would write, or what the clipboard holds)
+    /// stays here and out of logs.
+    struct PendingClipboard {
+        let kind: ClipboardRequestKind
+        let text: String
+        /// libghostty's request state, for a read.
+        let state: UnsafeMutableRawPointer?
+    }
+    var pendingClipboard: PendingClipboard?
+    var clipboardGrants = ClipboardGrants()
+
     /// Size libghostty asked for during `ghostty_surface_new`, before this view had a window.
     public private(set) var pendingInitialSize: CGSize?
     public private(set) var cellSize: CGSize = .zero
@@ -441,6 +455,52 @@ public final class TerminalSurfaceView: NSView {
         string.withCString { ptr in
             ghostty_surface_complete_clipboard_request(surface, ptr, state, confirmed)
         }
+    }
+}
+
+// MARK: Clipboard access by programs
+
+extension TerminalSurfaceView {
+    /// A program waits for the user's answer to a clipboard read or write.
+    public var pendingClipboardKind: ClipboardRequestKind? { pendingClipboard?.kind }
+
+    /// libghostty wants the user's confirmation for a read (`text` is the clipboard) or a write
+    /// (`text` is what the program sets). Answered at once if this pane was allowed for good,
+    /// else shown by `onClipboardRequest`.
+    func askClipboard(_ kind: ClipboardRequestKind, text: String, state: UnsafeMutableRawPointer?) {
+        // One question at a time: an unanswered read must still be completed, so the older
+        // request is denied.
+        if pendingClipboard != nil { finishClipboard(.deny) }
+        pendingClipboard = PendingClipboard(kind: kind, text: text, state: state)
+        if clipboardGrants.allows(kind) {
+            finishClipboard(.allow)
+        } else {
+            onClipboardRequest?(kind)
+        }
+    }
+
+    public func answerClipboardRequest(_ decision: ClipboardDecision) {
+        finishClipboard(decision)
+    }
+
+    private func finishClipboard(_ decision: ClipboardDecision) {
+        guard let request = pendingClipboard else { return }
+        pendingClipboard = nil
+        let allowed = decision != .deny
+        if decision == .alwaysAllow { clipboardGrants.grant(request.kind) }
+        switch request.kind {
+        case .read:
+            // Denying is an empty confirmed reply: libghostty answers the program with an empty
+            // OSC 52 payload and frees the request. An unconfirmed reply would ask again.
+            completeClipboardRequest(allowed ? request.text : "", state: request.state, confirmed: true)
+        case .write:
+            if allowed {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(request.text, forType: .string)
+            }
+        }
+        onClipboardRequest?(nil)
     }
 }
 

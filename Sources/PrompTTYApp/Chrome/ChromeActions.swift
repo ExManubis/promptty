@@ -13,6 +13,9 @@ protocol ChromeActions: AnyObject {
     func activity(for pane: PaneID) -> PaneActivity.Visible
     /// The link under the pointer in a pane (observes that pane alone).
     func hoveredLink(for pane: PaneID) -> String?
+    /// What a program in a pane waits to do with the clipboard (observes that pane alone).
+    func clipboardRequest(for pane: PaneID) -> ClipboardRequestKind?
+    func answerClipboardRequest(_ decision: ClipboardDecision, in pane: PaneID)
     /// A pane's progress report, if it has one (observes that pane alone).
     func progress(for pane: PaneID) -> PaneProgress?
     /// Whether secure keyboard input is on for a pane (observes that pane alone).

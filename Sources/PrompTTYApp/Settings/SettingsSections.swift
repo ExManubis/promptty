@@ -123,6 +123,19 @@ struct TabsSection: View {
                 Toggle("Reopen windows and tabs at launch", isOn: $model.settings.restoreSession)
                 Toggle("Ask before closing a running process", isOn: $model.settings.confirmCloseRunning)
             }
+
+            Section("Clipboard access by programs") {
+                Picker("Reading the clipboard", selection: $model.settings.clipboardRead) {
+                    Text("Ask").tag(ClipboardAccess.ask)
+                    Text("Allow").tag(ClipboardAccess.allow)
+                    Text("Deny").tag(ClipboardAccess.deny)
+                }
+                Picker("Writing to the clipboard", selection: $model.settings.clipboardWrite) {
+                    Text("Ask").tag(ClipboardAccess.ask)
+                    Text("Allow").tag(ClipboardAccess.allow)
+                    Text("Deny").tag(ClipboardAccess.deny)
+                }
+            }
         }
         .formStyle(.grouped)
     }

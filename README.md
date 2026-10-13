@@ -33,12 +33,16 @@ Everything is in **PrompTTY › Settings…** (⌘,) and applies immediately:
   the theme's color the window frame takes on (neutral by default), and whether ProMotion
   displays stay at 120 Hz while a PrompTTY window is in front.
 - **Tabs & Windows:** sidebar or strip, sidebar width, folder for new tabs, session restore,
-  close confirmation.
+  close confirmation, and clipboard access by programs.
 - **Keyboard:** Option as Alt, vim-style navigation, and every shortcut below.
 
 **PrompTTY › Secure Keyboard Entry** keeps other apps from seeing keystrokes while PrompTTY is in
 front (a checkmark; remembered). Separately, whenever a program asks for it, as a password prompt
 does, secure input is on while that pane has the keyboard, and a lock shows at the pane's corner.
+
+**Clipboard access:** a program that asks to read or write the clipboard (OSC 52) is asked about
+in a banner over its pane ("<program> wants to read the clipboard"): Allow, Deny, or Always allow
+for this pane. Settings › Tabs & Windows sets reading and writing to Ask (default), Allow or Deny.
 
 **Progress:** a program that reports progress (OSC 9;4, as `winget`, `systemd` or `printf '\e]9;4;1;40\a'`
 do) gets a small ring on its tab's row and, for an agent, on the agent's row: filled to the percent,

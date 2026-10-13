@@ -228,11 +228,10 @@ private func ghosttyReadClipboard(_ userdata: UnsafeMutableRawPointer?, _ locati
     }
 }
 
-/// MVP policy (no prompt UI yet): OSC 52 *reads* are denied, matching Ghostty's
-/// `clipboard-read = ask` default by refusing in the absence of a prompt. The denial is an empty
-/// reply with `confirmed: true`; replying `confirmed: false` makes libghostty re-ask
-/// synchronously, which recurses forever. Pastes and OSC 52 writes that need confirmation are
-/// approved.
+/// libghostty asks for confirmation: a program reads the clipboard (OSC 52, `clipboard-read =
+/// ask`) or a paste looks unsafe. A read waits for the user's answer in the pane's banner. An
+/// unsafe paste (multi-line text) keeps the earlier behavior and goes through: the user pasted
+/// it themselves, and the input bar is where multi-line text is edited.
 private func ghosttyConfirmReadClipboard(_ userdata: UnsafeMutableRawPointer?, _ string: UnsafePointer<CChar>?, _ state: UnsafeMutableRawPointer?, _ request: ghostty_clipboard_request_e) {
     // Copy the C string before hopping; libghostty only guarantees it for the callback's duration.
     let text = string.map { String(cString: $0) } ?? ""
@@ -242,9 +241,7 @@ private func ghosttyConfirmReadClipboard(_ userdata: UnsafeMutableRawPointer?, _
         guard let userdata else { return }
         let view = Unmanaged<TerminalSurfaceView>.fromOpaque(userdata).takeUnretainedValue()
         if request == GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ {
-            // Deny without a prompt: an empty confirmed reply makes libghostty answer the
-            // program with an empty OSC 52 payload and destroys the request state.
-            view.completeClipboardRequest("", state: state, confirmed: true)
+            view.askClipboard(.read, text: text, state: state)
             return
         }
         view.completeClipboardRequest(text, state: state, confirmed: true)
@@ -253,9 +250,6 @@ private func ghosttyConfirmReadClipboard(_ userdata: UnsafeMutableRawPointer?, _
 
 private func ghosttyWriteClipboard(_ userdata: UnsafeMutableRawPointer?, _ location: ghostty_clipboard_e, _ contents: UnsafePointer<ghostty_clipboard_content_s>?, _ count: Int, _ confirm: Bool) {
     guard location == GHOSTTY_CLIPBOARD_STANDARD, let contents, count > 0 else { return }
-    // The user's config asked for confirmation and there is no prompt UI yet: refuse rather than
-    // write silently.
-    guard !confirm else { return }
     // Copy the text out of the C buffer first; only the resulting String crosses into the main actor.
     var text: String?
     for i in 0..<count {
@@ -267,7 +261,15 @@ private func ghosttyWriteClipboard(_ userdata: UnsafeMutableRawPointer?, _ locat
         }
     }
     guard let text else { return }
+    nonisolated(unsafe) let userdata = userdata
     MainActor.assumeIsolated {
+        // `clipboard-write = ask`: the pane's banner asks first.
+        if confirm {
+            guard let userdata else { return }
+            Unmanaged<TerminalSurfaceView>.fromOpaque(userdata).takeUnretainedValue()
+                .askClipboard(.write, text: text, state: nil)
+            return
+        }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)

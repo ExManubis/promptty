@@ -43,6 +43,7 @@ struct PaneCard: View {
                 .animation(PaneAnimation.focusFade, value: focused)
                 .allowsHitTesting(false)
 
+            ClipboardBanner(pane: pane.id, actions: actions)
             LinkPreview(pane: pane.id, actions: actions)
             SecureLock(pane: pane.id, actions: actions)
             if zoomed { ZoomBadge() }
@@ -158,6 +159,32 @@ private struct LinkPreview: View {
                 .padding(6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 .allowsHitTesting(false)
+        }
+    }
+}
+
+/// "<program> wants to read the clipboard", over the pane's top edge until the user answers. Its
+/// own view, so only this redraws when a request comes or goes.
+private struct ClipboardBanner: View {
+    let pane: PaneID
+    let actions: ChromeActions
+
+    var body: some View {
+        if let kind = actions.clipboardRequest(for: pane) {
+            let program = actions.activity(for: pane).program?.name ?? "A program"
+            let action = kind == .read ? "read" : "write to"
+            BannerView(content: BannerContent(
+                message: "\(program) wants to \(action) the clipboard",
+                actionTitle: "Allow",
+                action: { actions.answerClipboardRequest(.allow, in: pane) },
+                symbol: "doc.on.clipboard",
+                extraActions: [
+                    ("Always allow for this pane", { actions.answerClipboardRequest(.alwaysAllow, in: pane) }),
+                    ("Deny", { actions.answerClipboardRequest(.deny, in: pane) }),
+                ]
+            ))
+            .padding(8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 }
