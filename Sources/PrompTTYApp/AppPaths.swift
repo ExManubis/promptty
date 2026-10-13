@@ -14,6 +14,15 @@ enum AppPaths {
         return base.appendingPathComponent("PrompTTY", isDirectory: true)
     }()
 
+    /// A debug build driven by `script/drive` (launched with `PROMPTTY_DEBUG_DIR`).
+    static let isDriven: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["PROMPTTY_DEBUG_DIR"].map { !$0.isEmpty } ?? false
+        #else
+        return false
+        #endif
+    }()
+
     static var session: URL { support.appendingPathComponent("session.json") }
     static var folderHistory: URL { support.appendingPathComponent("folder-history.jsonl") }
 

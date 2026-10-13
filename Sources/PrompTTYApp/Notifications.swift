@@ -5,6 +5,10 @@ import WorkspaceModel
 enum Notifications {
     /// Posts a notification; clicking one that names a pane brings that pane forward.
     static func post(title: String, body: String, pane: PaneID?) {
+        // A driven run's notices are read by the driver (`eval activity`). Real banners on the
+        // desktop would be about panes nobody looks at, and a click on one (by whoever sits at the
+        // machine) brings its pane forward in the middle of the run.
+        guard !AppPaths.isDriven else { return }
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }

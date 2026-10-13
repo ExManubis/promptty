@@ -629,11 +629,19 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
-    /// The user clicked into (or programmatically focused) a pane's terminal.
+    /// The user clicked into (or programmatically focused) a pane's terminal or input bar.
     func paneDidFocus(_ pane: PaneID) {
-        guard let (state, tab) = workspace.tab(containing: pane), tab.focusedPaneID != pane || state.selectedTabID != tab.id else { return }
+        guard let (state, tab) = workspace.tab(containing: pane) else { return }
+        // Panes out of sight (another tab, or behind a zoom) take no clicks, but AppKit can still
+        // hand them the keys: their input bars are only transparent, so one can be the next key
+        // view when the view with the keys is hidden. That must not switch tabs (or unzoom) under
+        // the user: the keys go back where they belong.
+        guard state.selectedTabID == tab.id, tab.isShown(pane) else {
+            controllers[state.id]?.focusSelectedPane()
+            return
+        }
+        guard tab.focusedPaneID != pane else { return }
         tab.focus(pane)
-        if state.selectedTabID != tab.id { state.select(id: tab.id) }
         controllers[state.id]?.reload()
         modelDidChange()
     }
