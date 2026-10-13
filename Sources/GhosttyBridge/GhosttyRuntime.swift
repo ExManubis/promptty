@@ -147,7 +147,11 @@ public final class GhosttyRuntime {
         let target: GhosttyActionTarget
         switch cTarget.tag {
         case GHOSTTY_TARGET_SURFACE:
-            guard let surface = cTarget.target.surface, let ud = ghostty_surface_userdata(surface) else { return false }
+            guard let surface = cTarget.target.surface, let ud = ghostty_surface_userdata(surface) else {
+                // Never false for a link: libghostty would `open` it itself.
+                if case .openURL = action { return true }
+                return false
+            }
             let view = Unmanaged<TerminalSurfaceView>.fromOpaque(ud).takeUnretainedValue()
             switch action {
             case .initialSize(let w, let h): view.noteInitialSize(CGSize(width: Double(w), height: Double(h)))
@@ -172,6 +176,8 @@ public final class GhosttyRuntime {
         case .mouseShape, .mouseVisibility:
             return true
         default:
+            // A link is always taken: false would make libghostty `open` it itself.
+            if case .openURL = action { _ = sink?.handle(action, target: target); return true }
             return sink?.handle(action, target: target) ?? false
         }
     }

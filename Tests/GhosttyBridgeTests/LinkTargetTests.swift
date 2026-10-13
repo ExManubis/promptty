@@ -100,4 +100,31 @@ final class LinkTargetTests: XCTestCase {
         try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
         XCTAssertEqual(decide(app.path, .text), .refuse)
     }
+
+    func testProfilesAndOtherLaunchableFilesAreRefused() throws {
+        for name in ["a.mobileconfig", "a.configprofile", "a.provisionprofile", "a.jar", "a.scpt", "a.mpkg"] {
+            XCTAssertEqual(decide(try make(name, "<plist/>")), .refuse, name)
+        }
+    }
+
+    func testCaseDoesNotHideAProgram() throws {
+        XCTAssertEqual(decide(try make("B.COMMAND")), .refuse)
+        XCTAssertEqual(decide(try make("C.DMG")), .refuse)
+        let app = folder.appendingPathComponent("Thing.APP")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        XCTAssertEqual(decide(app.path), .refuse)
+        let script = try make("run2.sh", "#!/bin/sh\n", executable: true)
+        XCTAssertEqual(decide("FILE://\(script)"), .refuse)
+        XCTAssertEqual(decide("HTTPS://example.com"), .open(URL(string: "HTTPS://example.com")!))
+        XCTAssertEqual(decide("JavaScript:alert(1)"), .refuse)
+    }
+
+    func testPackageFolderWithoutAppExtensionIsRefused() throws {
+        let bundle = folder.appendingPathComponent("Thing.framework")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        XCTAssertEqual(decide(bundle.path), .refuse)
+        let workflow = folder.appendingPathComponent("Do.workflow")
+        try FileManager.default.createDirectory(at: workflow, withIntermediateDirectories: true)
+        XCTAssertEqual(decide(workflow.path), .refuse)
+    }
 }

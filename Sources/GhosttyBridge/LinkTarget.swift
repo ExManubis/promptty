@@ -25,7 +25,7 @@ public enum LinkTarget {
     private static let launchable: Set<String> = [
         "app", "command", "tool", "terminal", "workflow", "scpt", "scptd", "prefpane", "saver", "action",
         "webloc", "fileloc", "url", "jar", "dmg", "pkg", "mpkg", "sh", "zsh", "bash", "csh", "ksh", "fish",
-        "appex", "xpc", "kext", "plugin", "bundle",
+        "mobileconfig", "configprofile", "provisionprofile", "appex", "xpc", "kext", "plugin", "bundle",
     ]
     private static let launchableTypes: [UTType] = [
         .executable, .script, .shellScript, .application, .applicationBundle, .applicationExtension,

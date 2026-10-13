@@ -621,7 +621,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             if !NSWorkspace.shared.open(url) { NSSound.beep() }
         case .openAsText(let url):
             guard let editor = NSWorkspace.shared.urlForApplication(toOpen: .plainText) else {
-                if !NSWorkspace.shared.open(url) { NSSound.beep() }
+                NSSound.beep()
                 return
             }
             NSWorkspace.shared.open([url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration()) { _, error in
