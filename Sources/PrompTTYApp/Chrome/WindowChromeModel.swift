@@ -30,6 +30,8 @@ final class WindowChromeModel {
     var dropTargetTab: TabID?
     /// A pane is being dragged (drop zones only appear then).
     var draggingPane: PaneID?
+    /// A tab is being dragged: the pinned tabs' drop zone shows even with none pinned.
+    var draggingTab: TabID?
     /// Debug driver: the tab whose preview shows without hovering.
     var forcedPreview: TabID?
     /// Debug driver: the collapsed sidebar peeks in without hovering.
@@ -40,4 +42,24 @@ final class WindowChromeModel {
     var closingPanes: [PaneID: ClosingPane] = [:]
     /// Shows every pane header without hover (debug driver snapshots).
     var forceHeaders = false
+
+    @ObservationIgnored private var tabDragWatch: Task<Void, Never>?
+
+    /// A tab drag started. A drop ends it; a drag let go anywhere else (or cancelled) ends with
+    /// the mouse button, which is watched for since SwiftUI does not say.
+    func beginTabDrag(_ tab: TabID) {
+        draggingTab = tab
+        tabDragWatch?.cancel()
+        tabDragWatch = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard let self else { return }
+                guard self.draggingTab == nil || NSEvent.pressedMouseButtons == 0 else { continue }
+                // A drop is delivered just after the button comes up; let it read the drag first.
+                try? await Task.sleep(for: .milliseconds(50))
+                self.draggingTab = nil
+                return
+            }
+        }
+    }
 }

@@ -73,6 +73,7 @@ struct WindowRootView: View {
                     .frame(width: collapsed ? 0 : width, alignment: .trailing)
                     .clipped()
                     .opacity(collapsed ? 0 : 1)
+                    .environment(\.sidebarOutOfSight, collapsed)
                     .allowsHitTesting(!collapsed)
                     .accessibilityHidden(collapsed)
                 paneArea
@@ -106,7 +107,8 @@ struct WindowRootView: View {
         .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.08), value: showsPeek)
     }
 
-    private var showsPeek: Bool { peeking || chrome.forcedPeek }
+    /// Also while a tab is renamed from it: a tile's rename popover takes the pointer off it.
+    private var showsPeek: Bool { peeking || chrome.forcedPeek || (hidden && chrome.renamingTab != nil) }
 
     /// The traffic lights belong to the sidebar: hidden while it is collapsed, back while it peeks.
     private var trafficLightsShown: Bool {

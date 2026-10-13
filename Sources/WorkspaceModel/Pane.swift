@@ -15,10 +15,13 @@ public final class Pane {
     public var title: String
     /// Last working directory reported via OSC 7 (Ghostty `pwd`), or the launch directory.
     public var workingDirectory: String
+    /// Run at the shell's first prompt (a pinned tab's command), then cleared.
+    @ObservationIgnored public var startupCommand: String?
 
-    public init(id: PaneID = PaneID(), title: String = "", workingDirectory: String) {
+    public init(id: PaneID = PaneID(), title: String = "", workingDirectory: String, startupCommand: String? = nil) {
         self.id = id
         self.title = title
         self.workingDirectory = workingDirectory
+        self.startupCommand = startupCommand
     }
 }

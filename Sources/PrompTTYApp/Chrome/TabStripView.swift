@@ -12,8 +12,14 @@ struct TabStripView: View {
             ScrollView(.horizontal) {
                 HStack(spacing: 4) {
                     ForEach(Array(state.tabs.enumerated()), id: \.element.id) { index, tab in
-                        TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .compact, chrome: chrome, actions: actions)
-                            .frame(minWidth: 110, idealWidth: 180, maxWidth: 220)
+                        if tab.pin != nil {
+                            // Pinned tabs: icon-only pills first, as in a browser's tab strip.
+                            TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .tile, chrome: chrome, actions: actions)
+                                .frame(width: 44, height: 28)
+                        } else {
+                            TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .compact, chrome: chrome, actions: actions)
+                                .frame(minWidth: 110, idealWidth: 180, maxWidth: 220)
+                        }
                     }
                 }
                 .padding(.vertical, 4)

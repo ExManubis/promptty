@@ -20,6 +20,8 @@ enum PaneAnimation {
 extension EnvironmentValues {
     /// How far the current pane animation has run: 0 at its start, 1 at rest (may overshoot 1).
     @Entry var paneMotionProgress: CGFloat = 1
+    /// The sidebar is collapsed out of sight (its peek shows the tabs instead).
+    @Entry var sidebarOutOfSight = false
     /// How far the current tab cross-fade has run: 0 at its start, 1 at rest.
     @Entry var tabFadeProgress: CGFloat = 1
 }

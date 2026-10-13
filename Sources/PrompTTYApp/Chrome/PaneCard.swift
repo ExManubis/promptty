@@ -44,7 +44,8 @@ struct PaneCard: View {
                 .allowsHitTesting(false)
 
             if let code = chrome.exitedPanes[pane.id] {
-                ExitedOverlay(exitCode: code) { actions.requestClosePane(pane.id) }
+                // A pinned tab's last pane is restarted, not closed.
+                ExitedOverlay(exitCode: code, restarts: tab.pin != nil && !tab.hasSplits) { actions.requestClosePane(pane.id) }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
@@ -114,7 +115,10 @@ struct PaneHeader: View {
             HStack(spacing: 2) {
                 HeaderButton(symbol: "rectangle.split.2x1", help: "Split Right") { actions.split(pane.id, direction: .right) }
                 HeaderButton(symbol: "rectangle.split.1x2", help: "Split Down") { actions.split(pane.id, direction: .down) }
-                HeaderButton(symbol: "xmark", help: tab.hasSplits ? "Close Pane" : "Close Tab") { actions.requestClosePane(pane.id) }
+                // A pinned tab cannot be closed: its only pane has no close button.
+                if tab.hasSplits || tab.pin == nil {
+                    HeaderButton(symbol: "xmark", help: tab.hasSplits ? "Close Pane" : "Close Tab") { actions.requestClosePane(pane.id) }
+                }
             }
         }
         .padding(.leading, 2)
@@ -155,6 +159,7 @@ struct HeaderButton: View {
 /// Shown over a pane whose shell has exited.
 struct ExitedOverlay: View {
     let exitCode: UInt32
+    var restarts = false
     let onClose: () -> Void
 
     var body: some View {
@@ -164,7 +169,7 @@ struct ExitedOverlay: View {
                 .foregroundStyle(exitCode == 0 ? Color.secondary : Color.orange)
             Text(exitCode == 0 ? "Process exited" : "Process exited with code \(exitCode)")
                 .font(.system(size: 13, weight: .medium))
-            Button("Close", action: onClose)
+            Button(restarts ? "Restart" : "Close", action: onClose)
                 .controlSize(.regular)
         }
         .padding(.horizontal, 22)

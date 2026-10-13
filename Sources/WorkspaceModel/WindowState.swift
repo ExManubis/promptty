@@ -50,12 +50,16 @@ public final class WindowState {
 
     public func tab(containing pane: PaneID) -> Tab? { tabs.first { $0.pane(pane) != nil } }
 
+    /// The pinned tabs are always the first `pinnedCount` tabs.
+    public var pinnedCount: Int { tabs.prefix { $0.pin != nil }.count }
+
+    /// Opened after the selected tab, but never among the pinned tabs.
     @discardableResult
     public func addTab(title: String, workingDirectory: String, id: TabID = TabID(), customTitle: String? = nil) -> Tab {
         let tab = Tab(id: id, title: title, customTitle: customTitle, workingDirectory: workingDirectory)
         let insertAt: Int
         if let selectedTabID, let i = index(of: selectedTabID) {
-            insertAt = i + 1
+            insertAt = max(i + 1, pinnedCount)
         } else {
             insertAt = tabs.count
         }
@@ -114,14 +118,44 @@ public final class WindowState {
         let (to, overflow) = from.addingReportingOverflow(amount)
         guard !overflow, to >= 0, to < tabs.count, to != from else { return false }
         moveTab(id: selectedTabID, to: to)
-        return true
+        return index(of: selectedTabID) != from
     }
 
+    /// Moves a tab within its group: pinned tabs among the pinned tabs, others after them.
     public func moveTab(id: TabID, to newIndex: Int) {
         guard let from = index(of: id) else { return }
-        let clamped = max(0, min(newIndex, tabs.count - 1))
+        let pinned = pinnedCount
+        let range = tabs[from].pin != nil ? 0...(pinned - 1) : pinned...(tabs.count - 1)
+        let clamped = min(max(newIndex, range.lowerBound), range.upperBound)
         guard clamped != from else { return }
         let tab = tabs.remove(at: from)
         tabs.insert(tab, at: clamped)
+    }
+
+    // MARK: Pinned tabs
+
+    /// Pins a tab (or changes its pin) and places it among the pinned tabs: at `index`, or after
+    /// the last one.
+    public func pin(_ id: TabID, _ pin: TabPin, at index: Int? = nil) {
+        guard let from = self.index(of: id) else { return }
+        let tab = tabs.remove(at: from)
+        let pinned = pinnedCount
+        tab.pin = pin
+        tabs.insert(tab, at: min(max(index ?? pinned, 0), pinned))
+    }
+
+    /// Unpins a tab and places it among the other tabs: at `index`, or first after the pinned tabs.
+    public func unpin(_ id: TabID, at index: Int? = nil) {
+        guard let from = self.index(of: id), tabs[from].pin != nil else { return }
+        let tab = tabs.remove(at: from)
+        tab.pin = nil
+        let pinned = pinnedCount
+        tabs.insert(tab, at: min(max(index ?? pinned, pinned), tabs.count))
+    }
+
+    /// The command a pinned tab runs on relaunch and reset; blank for none.
+    public func setPinnedCommand(_ id: TabID, _ command: String?) {
+        guard let tab = tab(id: id), let pin = tab.pin else { return }
+        tab.pin = TabPin(directory: pin.directory, command: command)
     }
 }

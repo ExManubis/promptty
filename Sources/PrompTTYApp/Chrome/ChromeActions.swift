@@ -14,8 +14,9 @@ protocol ChromeActions: AnyObject {
     func agents() -> [AgentEntry]
     /// Brings a pane forward, in whichever window it is.
     func reveal(_ pane: PaneID)
-    /// Shows a tab's preview beside its sidebar row (`row` in the window's top-left coordinates).
-    func showPreview(of tab: TabID, beside row: CGRect)
+    /// Shows a tab's preview beside its sidebar row (`row` in the window's top-left coordinates),
+    /// `titled` for a pinned tile, which shows no title itself.
+    func showPreview(of tab: TabID, beside row: CGRect, titled: Bool)
     func hidePreview(of tab: TabID)
     /// A pane's visible text, from its terminal if it has one already (a preview never starts a
     /// shell).
@@ -26,6 +27,13 @@ protocol ChromeActions: AnyObject {
     func renameTab(_ id: TabID, to title: String)
     func endRenaming()
     func moveTab(_ id: TabID, to index: Int)
+    /// Pins a tab, at `index` among the pinned tabs (a drop) or after them.
+    func pinTab(_ id: TabID, at index: Int?)
+    /// Unpins a tab, at `index` among the other tabs (a drop) or first after the pinned tabs.
+    func unpinTab(_ id: TabID, at index: Int?)
+    /// Back to the pinned folder, running the pinned command.
+    func resetPinnedTab(_ id: TabID)
+    func editPinnedCommand(_ id: TabID)
     func toggleSidebar()
     /// The window's traffic lights, which go with the sidebar when it collapses.
     func setTrafficLightsShown(_ shown: Bool)

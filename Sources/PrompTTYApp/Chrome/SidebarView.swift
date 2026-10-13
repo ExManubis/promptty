@@ -27,8 +27,10 @@ struct SidebarView: View {
 
             ScrollView(.vertical) {
                 LazyVStack(spacing: 2) {
+                    PinnedTabsGrid(state: state, chrome: chrome, actions: actions)
                     AgentsSection(actions: actions)
-                    ForEach(Array(state.tabs.enumerated()), id: \.element.id) { index, tab in
+                    // The other tabs, after the pinned ones (their indexes are the window's).
+                    ForEach(Array(state.tabs.enumerated()).dropFirst(state.pinnedCount), id: \.element.id) { index, tab in
                         TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .full, chrome: chrome, actions: actions)
                     }
                     NewTabRow(action: actions.newTab)
