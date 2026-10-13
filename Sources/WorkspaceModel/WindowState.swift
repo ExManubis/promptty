@@ -150,6 +150,18 @@ public final class WindowState {
         return id
     }
 
+    // MARK: Pinned tabs
+
+    /// Pins a tab (or changes its pin) and places it among the pinned tabs: at `index`, or after
+    /// the last one.
+    public func pin(_ id: TabID, _ pin: TabPin, at index: Int? = nil) {
+        guard let from = self.index(of: id) else { return }
+        let tab = tabs.remove(at: from)
+        let pinned = pinnedCount
+        tab.pin = pin
+        tabs.insert(tab, at: min(max(index ?? pinned, 0), pinned))
+    }
+
     /// Unpins a tab and places it among the other tabs: at `index`, or first after the pinned tabs.
     public func unpin(_ id: TabID, at index: Int? = nil) {
         guard let from = self.index(of: id), tabs[from].pin != nil else { return }
