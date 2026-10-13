@@ -26,6 +26,8 @@ final class WindowChromeModel {
     var renamingTab: TabID?
     /// The pinned tab whose icon picker is open.
     var iconPickerTab: TabID?
+    /// The project whose icon picker is open.
+    var iconPickerProject: ProjectID?
     /// The pane a dragged pane would land on, and where.
     var dropTarget: (pane: PaneID, edge: PaneEdge)?
     /// The tab row a dragged pane hovers over.

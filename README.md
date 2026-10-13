@@ -82,7 +82,15 @@ plain terminal.
 Each command and its output form a block: ⌘↑/⌘↓ select one, ⌥⌘C copies its output and ⇧⌘C its
 command.
 
-## Tabs and agents
+## Tabs, projects and agents
+
+**Projects** group tabs in the sidebar under a name and a folder. Make one with **New Project…**
+(File menu, a tab's **Move to Project** menu, or the "+ New Tab" row's menu); it starts at the
+selected tab's repository. ⌘T opens the new tab in the selected tab's project; a project header's
+"+" opens one in the project's folder; "+ New Tab" opens one in no project. Drag a tab onto a
+project's header or among its tabs to move it there. A project's menu renames it, gives it an icon
+or another folder, moves it up or down, or removes it (its tabs stay open). Projects and the tabs
+in them are saved with the session; in the tab strip a thin line separates them.
 
 Drag tabs to reorder them. **Pin Tab** (in a tab's context menu, or drag it onto the pinned
 tiles) keeps the tab's folder and the command running in it (`claude`, `npm run dev`): a pinned
@@ -90,9 +98,11 @@ tab comes back on relaunch, restarts instead of closing, and can be reset, given
 or given its own icon (**Change Icon…**).
 
 PrompTTY recognizes coding agents (Claude Code, Codex, Amp, Cline and others) running in a pane.
-While any run, the top of the sidebar lists every agent in every window, grouped by project, with
-whether it is working, waiting or wants your turn, and since when; click one to bring its pane
-forward. The agent in the window's focused pane is highlighted like its tab.
+While any run, the top of the sidebar lists every agent in every window, with whether it is
+working, waiting or wants your turn, and since when; click one to bring its pane forward. Agents are
+grouped under the projects of their tabs, in sidebar order, then (for tabs in no project) by git
+repository. Folding a project folds it in both places. The agent in the window's focused pane is
+highlighted like its tab.
 
 ## Splits
 
@@ -101,11 +111,11 @@ and move focus between panes with the shortcuts above.
 
 ## Layout
 
-    Sources/WorkspaceModel   windows, tabs, panes, pins and the split tree; session JSON (no AppKit)
+    Sources/WorkspaceModel   windows, tabs, panes, pins, projects and the split tree; session JSON (no AppKit)
     Sources/Preferences      settings.json, terminal.conf generation, shortcuts, theme catalog
     Sources/CommandEditing   the input bar's logic: zsh integration, history, completion, vi mode, git status
     Sources/CommandBlocks    command blocks: where each command and its output start and end
-    Sources/PaneActivity     what runs in a pane: foreground process, known programs and agents, projects
+    Sources/PaneActivity     what runs in a pane: foreground process, known programs and agents, repositories
     Sources/GhosttyBridge    the only code that touches libghostty
     Sources/PrompTTYApp      AppKit windows and menus; SwiftUI chrome, input bar and Settings
     Engine/                  libghostty as a local SwiftPM package; patches/ holds PrompTTY's engine patches

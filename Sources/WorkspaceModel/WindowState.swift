@@ -29,8 +29,16 @@ public enum GotoTabTarget: Equatable, Sendable {
 public final class WindowState {
     public let id: WindowID
     public var frame: WindowFrame?
+    /// In the order shown: the pinned tabs, then each project's tabs in `projectOrder`, then the
+    /// tabs in no project. Every change keeps it so, which is why going to tab N, the next tab or
+    /// the previous one just follows the array.
     public private(set) var tabs: [Tab] = []
     public var selectedTabID: TabID?
+    /// The workspace's projects in sidebar order, kept by `Workspace`. A tab whose project is not
+    /// here counts as in no project.
+    public internal(set) var projectOrder: [ProjectID] = [] {
+        didSet { if projectOrder != oldValue { regroup() } }
+    }
 
     public init(id: WindowID = WindowID(), frame: WindowFrame? = nil) {
         self.id = id
@@ -53,15 +61,20 @@ public final class WindowState {
     /// The pinned tabs are always the first `pinnedCount` tabs.
     public var pinnedCount: Int { tabs.prefix { $0.pin != nil }.count }
 
-    /// Opened after the selected tab, but never among the pinned tabs.
+    /// Opened in `project` (nil for none): after the selected tab when that is in the same
+    /// project and not pinned, else first among the project's tabs. Never among the pinned tabs.
     @discardableResult
-    public func addTab(title: String, workingDirectory: String, id: TabID = TabID(), customTitle: String? = nil) -> Tab {
+    public func addTab(title: String, workingDirectory: String, id: TabID = TabID(), customTitle: String? = nil, project: ProjectID? = nil) -> Tab {
         let tab = Tab(id: id, title: title, customTitle: customTitle, workingDirectory: workingDirectory)
+        tab.projectID = project
+        let group = bounds(of: rank(of: tab))
         let insertAt: Int
-        if let selectedTabID, let i = index(of: selectedTabID) {
-            insertAt = max(i + 1, pinnedCount)
+        if let selectedTabID, let i = index(of: selectedTabID), group.contains(i) {
+            insertAt = i + 1
+        } else if selectedTabID == nil {
+            insertAt = group.upperBound
         } else {
-            insertAt = tabs.count
+            insertAt = group.lowerBound
         }
         tabs.insert(tab, at: insertAt)
         self.selectedTabID = tab.id
@@ -121,15 +134,63 @@ public final class WindowState {
         return index(of: selectedTabID) != from
     }
 
-    /// Moves a tab within its group: pinned tabs among the pinned tabs, others after them.
+    /// Moves a tab within its group: pinned tabs among the pinned tabs, a project's tabs among
+    /// that project's, the others among the others.
     public func moveTab(id: TabID, to newIndex: Int) {
         guard let from = index(of: id) else { return }
-        let pinned = pinnedCount
-        let range = tabs[from].pin != nil ? 0...(pinned - 1) : pinned...(tabs.count - 1)
-        let clamped = min(max(newIndex, range.lowerBound), range.upperBound)
+        let range = bounds(of: rank(of: tabs[from]))
+        let clamped = min(max(newIndex, range.lowerBound), range.upperBound - 1)
         guard clamped != from else { return }
         let tab = tabs.remove(at: from)
         tabs.insert(tab, at: clamped)
+    }
+
+    // MARK: Projects
+
+    /// Puts a tab in `project` (nil: in none), at `index` among that project's tabs (a drop) or
+    /// after them. A pinned tab stays among the pinned tabs; its project only groups its agents.
+    public func setProject(_ id: TabID, _ project: ProjectID?, at index: Int? = nil) {
+        guard let from = self.index(of: id) else { return }
+        let tab = tabs[from]
+        if tab.pin != nil {
+            tab.projectID = project
+            return
+        }
+        tabs.remove(at: from)
+        tab.projectID = project
+        let group = bounds(of: rank(of: tab))
+        tabs.insert(tab, at: min(max(index ?? group.upperBound, group.lowerBound), group.upperBound))
+    }
+
+    /// The project a tab counts as in: its own, when the workspace still has it.
+    public func project(of tab: Tab) -> ProjectID? {
+        guard let id = tab.projectID, projectOrder.contains(id) else { return nil }
+        return id
+    }
+
+    /// The pinned tabs are 0, the projects 1…n in order, the tabs in no project n + 1.
+    private func rank(of tab: Tab) -> Int {
+        if tab.pin != nil { return 0 }
+        if let id = tab.projectID, let i = projectOrder.firstIndex(of: id) { return i + 1 }
+        return projectOrder.count + 1
+    }
+
+    /// Where the tabs of `rank` are, or would go: an empty range for a group without tabs.
+    private func bounds(of rank: Int) -> Range<Int> {
+        let start = tabs.firstIndex { self.rank(of: $0) >= rank } ?? tabs.count
+        let end = tabs.firstIndex { self.rank(of: $0) > rank } ?? tabs.count
+        return start..<max(start, end)
+    }
+
+    /// Restores the order after the projects change: groups in rank order, each keeping its own.
+    func regroup() {
+        let ordered = tabs.enumerated()
+            .sorted { a, b in
+                let (ra, rb) = (rank(of: a.element), rank(of: b.element))
+                return ra != rb ? ra < rb : a.offset < b.offset
+            }
+            .map(\.element)
+        if ordered.map(\.id) != tabs.map(\.id) { tabs = ordered }
     }
 
     // MARK: Pinned tabs
@@ -144,13 +205,14 @@ public final class WindowState {
         tabs.insert(tab, at: min(max(index ?? pinned, 0), pinned))
     }
 
-    /// Unpins a tab and places it among the other tabs: at `index`, or first after the pinned tabs.
+    /// Unpins a tab and places it among its project's tabs (or the tabs in no project): at
+    /// `index`, or first among them.
     public func unpin(_ id: TabID, at index: Int? = nil) {
         guard let from = self.index(of: id), tabs[from].pin != nil else { return }
         let tab = tabs.remove(at: from)
         tab.pin = nil
-        let pinned = pinnedCount
-        tabs.insert(tab, at: min(max(index ?? pinned, pinned), tabs.count))
+        let group = bounds(of: rank(of: tab))
+        tabs.insert(tab, at: min(max(index ?? group.lowerBound, group.lowerBound), group.upperBound))
     }
 
     /// The command a pinned tab runs on relaunch and reset; blank for none.

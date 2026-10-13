@@ -2,9 +2,11 @@ import SwiftUI
 import WorkspaceModel
 
 /// The sidebar, flush with the window background like Dia's: a band for the traffic lights,
-/// the tab rows, and a dim "+ New Tab" row.
+/// the pinned tiles, the agents, each project's tabs under its header, the tabs in no project,
+/// and a dim "+ New Tab" row.
 struct SidebarView: View {
     let state: WindowState
+    let workspace: Workspace
     let chrome: WindowChromeModel
     let actions: ChromeActions
     /// Shown as a peek over the panes while the sidebar is collapsed.
@@ -28,12 +30,18 @@ struct SidebarView: View {
             ScrollView(.vertical) {
                 LazyVStack(spacing: 2) {
                     PinnedTabsGrid(state: state, chrome: chrome, actions: actions)
-                    AgentsSection(actions: actions, focusedPane: state.selectedTab?.focusedPaneID)
-                    // The other tabs, after the pinned ones (their indexes are the window's).
-                    ForEach(Array(state.tabs.enumerated()).dropFirst(state.pinnedCount), id: \.element.id) { index, tab in
+                    AgentsSection(actions: actions, focusedPane: state.selectedTab?.focusedPaneID, projects: workspace.projects)
+                    // The other tabs, after the pinned ones (their indexes are the window's): each
+                    // project's, then those in none.
+                    let others = Array(Array(state.tabs.enumerated()).dropFirst(state.pinnedCount))
+                    ForEach(workspace.projects, id: \.id) { project in
+                        ProjectSection(project: project, tabs: others.filter { state.project(of: $0.element) == project.id },
+                                       state: state, chrome: chrome, actions: actions)
+                    }
+                    ForEach(others.filter { state.project(of: $0.element) == nil }, id: \.element.id) { index, tab in
                         TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .full, chrome: chrome, actions: actions)
                     }
-                    NewTabRow(action: actions.newTab)
+                    NewTabRow(action: { actions.newTab(inProject: nil) }, newProject: { actions.newProject(adding: nil) })
                 }
                 .padding(.horizontal, ChromeMetrics.sidebarHorizontalPadding)
                 .padding(.bottom, 8)
@@ -42,6 +50,65 @@ struct SidebarView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tabs")
+    }
+}
+
+/// A project in the tab list: its header, then its tabs unless folded. Dropping a tab on the
+/// header puts it last in the project.
+private struct ProjectSection: View {
+    let project: Project
+    /// The project's tabs in this window, with their indexes in the window.
+    let tabs: [(offset: Int, element: WorkspaceModel.Tab)]
+    let state: WindowState
+    let chrome: WindowChromeModel
+    let actions: ChromeActions
+    @State private var dropTargeted = false
+
+    var body: some View {
+        let holdsSelection = tabs.contains { $0.element.id == state.selectedTabID }
+        GroupHeader(title: project.name, help: WorkspaceModel.Tab.abbreviate(project.directory), symbol: GroupHeader.Symbol(project),
+                    missing: !WorkspaceCoordinator.isFolder(project.directory),
+                    count: tabs.count, noun: "tab", folded: project.folded,
+                    selected: project.folded && holdsSelection, dropTarget: dropTargeted,
+                    onAdd: { actions.newTab(inProject: project.id) }) {
+            withAnimation(.easeOut(duration: 0.15)) { actions.setProjectFolded(project.id, !project.folded) }
+        }
+        .padding(.top, 4)
+        .contextMenu { menu }
+        .onDrop(of: [DragPayload.tab], isTargeted: $dropTargeted) { providers in
+            chrome.draggingTab = nil
+            return DragPayload.loadID(DragPayload.tab, from: providers) { [actions, project] id in
+                actions.placeTab(TabID(rawValue: id), inProject: project.id, at: nil)
+            }
+        }
+        .popover(isPresented: Binding(get: { chrome.iconPickerProject == project.id },
+                                      set: { if !$0, chrome.iconPickerProject == project.id { chrome.iconPickerProject = nil } }),
+                 arrowEdge: .trailing) {
+            PinIconPicker(current: project.icon) { actions.setProjectIcon(project.id, $0) }
+        }
+        if !project.folded {
+            ForEach(tabs, id: \.element.id) { index, tab in
+                TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .full, chrome: chrome, actions: actions)
+                    .padding(.leading, 8)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var menu: some View {
+        Button("New Tab in \(project.name)") { actions.newTab(inProject: project.id) }
+        Divider()
+        Button("Rename…") { actions.renameProject(project.id) }
+        Button("Change Icon…") { chrome.iconPickerProject = project.id }
+        Button("Change Folder…") { actions.changeProjectFolder(project.id) }
+        Divider()
+        let index = actions.projects.firstIndex { $0.id == project.id }
+        Button("Move Up") { actions.moveProject(project.id, by: -1) }
+            .disabled(index == 0)
+        Button("Move Down") { actions.moveProject(project.id, by: 1) }
+            .disabled(index == actions.projects.count - 1)
+        Divider()
+        Button("Remove Project…") { actions.requestRemoveProject(project.id) }
     }
 }
 

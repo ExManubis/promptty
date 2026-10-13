@@ -1,6 +1,6 @@
 # PrompTTY sidebar projects — design
 
-Date: 2026-10-13 · Status: draft, for review (the open questions at the end need answers first)
+Date: 2026-10-13 · Status: approved with the proposals below; implemented (see "As built" at the end)
 
 ## Goal
 
@@ -14,7 +14,7 @@ monorepo the user thinks of as several projects, for several repositories the us
 one, and for work outside git, where every folder becomes its own "project". Tabs are not grouped
 at all.
 
-## Decisions (proposed)
+## Decisions
 
 - **A project is a named group of tabs with a folder.** New tabs in it open in its folder. It is
   a user object; nothing creates one automatically.
@@ -153,7 +153,7 @@ With projects defined, headers always show, so a project's name is visible even 
 - Per-project settings (theme, environment, shell).
 - Automatically assigning tabs to projects by folder.
 
-## Open questions
+## Open questions (resolved: the proposals were taken)
 
 1. **Ungrouped tabs: after the projects, or before them?** Proposed: after, without a header,
    like Arc's unpinned tabs. Before them keeps today's list on top for people with few projects.
@@ -164,3 +164,26 @@ With projects defined, headers always show, so a project's name is visible even 
    ungrouped tab and only the header's "+" opens into a project.
 4. **Should a new tab whose folder is inside a project's folder join it automatically?** Proposed
    no (out of scope above): membership stays explicit and predictable.
+
+## As built (2026-10-13)
+
+Where the implementation differs from the design above:
+
+- **The session version stays 1.** Projects only add fields (`SessionSnapshot.projects`,
+  `TabSnapshot.project`) that older builds ignore, so a session written now still opens in an
+  older build, without its projects. Bumping the version would make older builds refuse the file.
+- **New Project… asks only for the folder** (an open panel starting at the selected tab's
+  repository); the project is named after the folder and can be renamed from its menu. Changing
+  the folder of a project still named after its old folder renames it to the new one.
+- **Projects are reordered with Move Up / Move Down** in the header's menu, not by dragging the
+  header (a third drag payload type would also need registering in `Info.plist`).
+- **A folded project header in the tab list shows no activity dot**, matching the rule that only
+  the Agents section shows activity. It shows the selected style when it holds the selected tab.
+- **A removed project's tabs join the tabs in no project first**, in their order, rather than last.
+- **Tab rows in a project are indented 8 pt** under its header.
+- The tab menu's "None" is **Remove from Project**.
+- Debug driver: `eval project list|add|tab|newtab|fold|move|rename|remove` (see
+  `DebugHooks.swift`).
+
+Not yet verified: none of this has been compiled or run; it was written where no Swift toolchain
+was available. `./script/test` and a driver run from the Testing section are the next step.

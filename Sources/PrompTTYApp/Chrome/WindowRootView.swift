@@ -66,7 +66,7 @@ struct WindowRootView: View {
         let width = settings.settings.sidebarWidth
         return ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
-                SidebarView(state: state, chrome: chrome, actions: actions)
+                SidebarView(state: state, workspace: workspace, chrome: chrome, actions: actions)
                     .frame(width: width)
                     // Narrowing to nothing with the sidebar pinned to its trailing edge: it slides
                     // out to the left.
@@ -92,7 +92,7 @@ struct WindowRootView: View {
             }
 
             if collapsed, showsPeek {
-                SidebarView(state: state, chrome: chrome, actions: actions, collapsed: true)
+                SidebarView(state: state, workspace: workspace, chrome: chrome, actions: actions, collapsed: true)
                     .frame(width: width)
                     .frame(maxHeight: .infinity)
                     .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))

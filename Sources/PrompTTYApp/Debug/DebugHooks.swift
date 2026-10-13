@@ -67,6 +67,57 @@ enum DebugHooks {
             c.unpinTab(c.state.tabs[i].id, at: args.dropFirst().first.flatMap(Int.init))
             return ""
         }
+        // eval project … — sidebar projects without the sheets (projects and tabs by index; tabs
+        // in the first window):
+        //   project list                  each project, then each window's tabs: index, title, project
+        //   project add <folder> [tab]    New Project…, moving the tab into it
+        //   project tab <tab> <p|none>    Move to Project
+        //   project newtab <p>            the header's "+"
+        //   project fold <p> on|off
+        //   project move <p> <offset>     Move Up (-1) / Move Down (1)
+        //   project rename <p> <name…>
+        //   project remove <p>            Remove Project, without asking
+        driver.hooks["project"] = { args in
+            let projects = coordinator.workspace.projects
+            func project(_ s: String?) -> Project? { s.flatMap(Int.init).flatMap { projects.indices.contains($0) ? projects[$0] : nil } }
+            guard let c = coordinator.allControllers.first else { return "error: no window" }
+            func tab(_ s: String?) -> WorkspaceModel.Tab? { s.flatMap(Int.init).flatMap { c.state.tabs.indices.contains($0) ? c.state.tabs[$0] : nil } }
+            switch args.first {
+            case "list":
+                var lines = projects.enumerated().map { "project \($0): \($1.name) \($1.directory)\($1.folded ? " folded" : "")" }
+                for (wi, controller) in coordinator.allControllers.enumerated() {
+                    for (ti, t) in controller.state.tabs.enumerated() {
+                        let p = projects.firstIndex { $0.id == controller.state.project(of: t) }.map(String.init) ?? "-"
+                        lines.append("window \(wi) tab \(ti): \(t.listTitle.debugDescription) project=\(p)\(t.pin != nil ? " pinned" : "")")
+                    }
+                }
+                return lines.joined(separator: "\n")
+            case "add":
+                guard args.count >= 2 else { return "error: project add <folder> [tab]" }
+                coordinator.addProject(directory: args[1], adding: tab(args.dropFirst(2).first)?.id)
+            case "tab":
+                guard let t = tab(args.dropFirst().first), args.count >= 3 else { return "error: project tab <tab> <p|none>" }
+                c.placeTab(t.id, inProject: args[2] == "none" ? nil : project(args[2])?.id, at: nil)
+            case "newtab":
+                guard let p = project(args.dropFirst().first) else { return "error: project newtab <p>" }
+                c.newTab(inProject: p.id)
+            case "fold":
+                guard let p = project(args.dropFirst().first), args.count >= 3 else { return "error: project fold <p> on|off" }
+                c.setProjectFolded(p.id, args[2] == "on")
+            case "move":
+                guard let p = project(args.dropFirst().first), let offset = args.dropFirst(2).first.flatMap(Int.init) else { return "error: project move <p> <offset>" }
+                c.moveProject(p.id, by: offset)
+            case "rename":
+                guard let p = project(args.dropFirst().first), args.count >= 3 else { return "error: project rename <p> <name>" }
+                coordinator.renameProject(p.id, to: args.dropFirst(2).joined(separator: " "))
+            case "remove":
+                guard let p = project(args.dropFirst().first) else { return "error: project remove <p>" }
+                coordinator.removeProject(p.id)
+            default:
+                return "error: project list|add|tab|newtab|fold|move|rename|remove"
+            }
+            return ""
+        }
         // eval resetpin <tab> — Reset Pinned Tab.
         driver.hooks["resetpin"] = { args in
             guard let c = coordinator.allControllers.first, let i = args.first.flatMap(Int.init),

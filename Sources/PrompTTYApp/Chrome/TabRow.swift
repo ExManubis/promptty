@@ -52,7 +52,7 @@ struct TabRow: View {
                 RowBackground(selected: selected, hovering: hovering, dropTarget: paneDropTarget, resting: style == .tile)
             }
             .contentShape(Rectangle())
-            .help(tab.listSubtitle.map { "\(tab.listTitle) — \($0)" } ?? tab.listTitle)
+            .help(tooltip)
             .onHover { inside in
                 hovering = inside
                 updatePreview()
@@ -180,9 +180,29 @@ struct TabRow: View {
         .frame(height: style == .full ? ChromeMetrics.rowHeight : 28)
     }
 
+    /// The title and folder; in the strip, which has no project headers, the project too.
+    private var tooltip: String {
+        let text = tab.listSubtitle.map { "\(tab.listTitle) — \($0)" } ?? tab.listTitle
+        guard style != .full, let project = actions.projects.first(where: { $0.id == tab.projectID }) else { return text }
+        return "\(project.name): \(text)"
+    }
+
     @ViewBuilder
     private var menu: some View {
         Button("Rename…", action: beginRename)
+        let projects = actions.projects
+        Menu("Move to Project") {
+            ForEach(projects, id: \.id) { project in
+                Button(project.name) { actions.placeTab(tab.id, inProject: project.id, at: nil) }
+                    .disabled(tab.projectID == project.id)
+            }
+            if !projects.isEmpty { Divider() }
+            Button("New Project…") { actions.newProject(adding: tab.id) }
+            if projects.contains(where: { $0.id == tab.projectID }) {
+                Divider()
+                Button("Remove from Project") { actions.placeTab(tab.id, inProject: nil, at: nil) }
+            }
+        }
         Button(tab.pin == nil ? "Pin Tab" : "Unpin Tab", action: togglePin)
         if let pin = tab.pin {
             Button("Reset Pinned Tab") { actions.resetPinnedTab(tab.id) }
@@ -241,7 +261,8 @@ struct TabRow: View {
     }
 }
 
-/// Tab rows accept other tabs (reorder) and panes (move the pane into this tab).
+/// Tab rows accept other tabs (reorder, into this row's project) and panes (move the pane into
+/// this tab).
 private struct RowDropDelegate: DropDelegate {
     let tab: WorkspaceModel.Tab
     let index: Int
@@ -279,14 +300,16 @@ private struct RowDropDelegate: DropDelegate {
             }) {
                 return true
             }
-            // Onto a pinned tile it is pinned there, onto a row unpinned there (or just moved).
+            // Onto a pinned tile it is pinned there; onto a row it is unpinned and moved there,
+            // into the row's project (or out of any).
             let pinned = tab.pin != nil
+            let project = tab.projectID
             chrome.draggingTab = nil
             return DragPayload.loadID(DragPayload.tab, from: info.itemProviders(for: [DragPayload.tab])) { [actions] id in
                 if pinned {
                     actions.pinTab(TabID(rawValue: id), at: destination)
                 } else {
-                    actions.unpinTab(TabID(rawValue: id), at: destination)
+                    actions.placeTab(TabID(rawValue: id), inProject: project, at: destination)
                 }
             }
         }
@@ -318,9 +341,10 @@ struct RowBackground: View {
     }
 }
 
-/// The dim "+ New Tab" row that ends the tab list.
+/// The dim "+ New Tab" row that ends the tab list: a tab in no project.
 struct NewTabRow: View {
     let action: () -> Void
+    var newProject: (() -> Void)?
     @State private var hovering = false
 
     var body: some View {
@@ -342,5 +366,9 @@ struct NewTabRow: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help("New Tab")
+        .contextMenu {
+            Button("New Tab", action: action)
+            if let newProject { Button("New Project…", action: newProject) }
+        }
     }
 }

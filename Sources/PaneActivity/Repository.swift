@@ -1,6 +1,6 @@
 import Foundation
 
-/// What `Project.find` needs of the file system.
+/// What `Repository.find` needs of the file system.
 public protocol FileLookup {
     /// True for a folder, false for a file, nil when nothing is there.
     func isFolder(_ path: String) -> Bool?
@@ -21,9 +21,9 @@ public struct DiskFiles: FileLookup {
     }
 }
 
-/// The project a folder belongs to: its git repository (all worktrees of one repository are one
-/// project), or the folder itself outside git.
-public struct Project: Equatable, Hashable, Sendable {
+/// The repository a folder belongs to (all worktrees of one repository are one), or the folder
+/// itself outside git. Agents in tabs outside any sidebar project are grouped by it.
+public struct Repository: Equatable, Hashable, Sendable {
     public let root: String
     /// The branch checked out where the folder is; nil when detached or outside git.
     public let branch: String?
@@ -41,13 +41,13 @@ public struct Project: Equatable, Hashable, Sendable {
         return branch
     }
 
-    public static func find(for directory: String, in files: FileLookup) -> Project {
+    public static func find(for directory: String, in files: FileLookup) -> Repository {
         var folder = directory
         while true {
             let dotGit = (folder as NSString).appendingPathComponent(".git")
             switch files.isFolder(dotGit) {
             case true?:
-                return Project(root: folder, branch: branch(in: dotGit, files))
+                return Repository(root: folder, branch: branch(in: dotGit, files))
             case false?:
                 // A worktree or a submodule: `.git` names the real git folder.
                 guard let line = files.read(dotGit), line.hasPrefix("gitdir:") else { break }
@@ -58,16 +58,16 @@ public struct Project: Equatable, Hashable, Sendable {
                 gitDir = URL(fileURLWithPath: gitDir).standardized.path
                 let branch = branch(in: gitDir, files)
                 if let range = gitDir.range(of: "/.git/worktrees/") {
-                    return Project(root: String(gitDir[..<range.lowerBound]), branch: branch)
+                    return Repository(root: String(gitDir[..<range.lowerBound]), branch: branch)
                 }
-                return Project(root: folder, branch: branch)
+                return Repository(root: folder, branch: branch)
             case nil:
                 break
             }
             guard folder != "/", !folder.isEmpty else { break }
             folder = (folder as NSString).deletingLastPathComponent
         }
-        return Project(root: directory, branch: nil)
+        return Repository(root: directory, branch: nil)
     }
 
     private static func branch(in gitDir: String, _ files: FileLookup) -> String? {
@@ -78,45 +78,74 @@ public struct Project: Equatable, Hashable, Sendable {
     }
 }
 
-/// The sidebar's agents, by project: the most urgent project first, then by name; in each, the
-/// most urgent agent first.
+/// The sidebar's agents, grouped: first under the projects the user made, in their sidebar order
+/// (so the list does not reorder under the pointer); then the agents in no project, by
+/// repository, the most urgent repository first, then by name. In each group the most urgent agent
+/// comes first.
 public enum AgentGroups {
+    public enum Key: Hashable, Sendable {
+        /// A sidebar project, by an ID the caller chooses (`projectOrder` uses the same).
+        case project(String)
+        /// A repository, by its root.
+        case repository(String)
+    }
+
     public struct Item<ID: Hashable>: Equatable {
         public let id: ID
-        public let root: String
+        public let key: Key
         public let display: PaneActivity.Display
 
-        public init(id: ID, root: String, display: PaneActivity.Display) {
+        public init(id: ID, key: Key, display: PaneActivity.Display) {
             self.id = id
-            self.root = root
+            self.key = key
             self.display = display
         }
     }
 
     public struct Group<ID: Hashable>: Equatable {
-        public let root: String
+        public let key: Key
         public let items: [Item<ID>]
         /// The group's most urgent agent.
         public let display: PaneActivity.Display
     }
 
-    public static func group<ID: Hashable>(_ items: [Item<ID>]) -> [Group<ID>] {
-        var order: [String] = []
-        var byRoot: [String: [Item<ID>]] = [:]
+    public static func group<ID: Hashable>(_ items: [Item<ID>], projectOrder: [String] = []) -> [Group<ID>] {
+        var order: [Key] = []
+        var byKey: [Key: [Item<ID>]] = [:]
         for item in items {
-            if byRoot[item.root] == nil { order.append(item.root) }
-            byRoot[item.root, default: []].append(item)
+            if byKey[item.key] == nil { order.append(item.key) }
+            byKey[item.key, default: []].append(item)
         }
-        let groups = order.map { root -> Group<ID> in
+        let groups = order.map { key -> Group<ID> in
             // Stable: equally urgent agents keep their tab order.
-            let sorted = byRoot[root]!.enumerated()
+            let sorted = byKey[key]!.enumerated()
                 .sorted { a, b in a.element.display != b.element.display ? a.element.display > b.element.display : a.offset < b.offset }
                 .map(\.element)
-            return Group(root: root, items: sorted, display: sorted.map(\.display).max() ?? .idle)
+            return Group(key: key, items: sorted, display: sorted.map(\.display).max() ?? .idle)
         }
-        return groups.sorted { a, b in
-            if a.display != b.display { return a.display > b.display }
-            return (a.root as NSString).lastPathComponent.localizedStandardCompare((b.root as NSString).lastPathComponent) == .orderedAscending
+        // A project the order does not name (it should not happen) goes after the others.
+        let position = Dictionary(projectOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        func rank(_ key: Key) -> Int? {
+            guard case .project(let id) = key else { return nil }
+            return position[id] ?? projectOrder.count
+        }
+        let projects = groups.enumerated()
+            .filter { rank($0.element.key) != nil }
+            .sorted { a, b in rank(a.element.key)! != rank(b.element.key)! ? rank(a.element.key)! < rank(b.element.key)! : a.offset < b.offset }
+            .map(\.element)
+        let repositories = groups
+            .filter { rank($0.key) == nil }
+            .sorted { a, b in
+                if a.display != b.display { return a.display > b.display }
+                return name(a.key).localizedStandardCompare(name(b.key)) == .orderedAscending
+            }
+        return projects + repositories
+    }
+
+    private static func name(_ key: Key) -> String {
+        switch key {
+        case .project(let id): return id
+        case .repository(let root): return (root as NSString).lastPathComponent
         }
     }
 }

@@ -102,20 +102,22 @@ final class WorkspaceCoordinator: GhosttyActionSink {
                     guard let program = state.program, program.isAgent else { return nil }
                     let own = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
                     let title = own.isEmpty || own == pane.workingDirectory ? program.name : own
-                    return AgentEntry(pane: pane.id, program: program, title: title, activity: state, project: project(for: activity.agentDirectory(for: pane.id) ?? pane.workingDirectory))
+                    return AgentEntry(pane: pane.id, program: program, title: title, activity: state,
+                                      repository: repository(for: activity.agentDirectory(for: pane.id) ?? pane.workingDirectory),
+                                      projectID: window.project(of: tab))
                 }
             }
         }
     }
 
-    /// Projects by folder, looked up again after a few seconds (an agent may switch branches).
-    private var projects: [String: (project: Project, at: Date)] = [:]
+    /// Repositories by folder, looked up again after a few seconds (an agent may switch branches).
+    private var repositories: [String: (repository: Repository, at: Date)] = [:]
 
-    private func project(for directory: String) -> Project {
-        if let cached = projects[directory], Date().timeIntervalSince(cached.at) < 5 { return cached.project }
-        let project = Project.find(for: directory, in: DiskFiles())
-        projects[directory] = (project, Date())
-        return project
+    private func repository(for directory: String) -> Repository {
+        if let cached = repositories[directory], Date().timeIntervalSince(cached.at) < 5 { return cached.repository }
+        let repository = Repository.find(for: directory, in: DiskFiles())
+        repositories[directory] = (repository, Date())
+        return repository
     }
 
     /// A notification was clicked: its pane comes forward, focused.
@@ -250,10 +252,12 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
-    func newTab(in state: WindowState, workingDirectory: String? = nil) {
+    /// A new tab, in the selected tab's project (if it has one) unless `inheritingProject` is off.
+    func newTab(in state: WindowState, workingDirectory: String? = nil, inheritingProject: Bool = true) {
         let inherited = preferences.settings.newTabDirectory == .currentPane ? state.selectedTab?.workingDirectory : nil
         let dir = workingDirectory ?? inherited ?? NSHomeDirectory()
-        state.addTab(title: "", workingDirectory: dir)
+        let project = inheritingProject ? state.selectedTab.flatMap(state.project(of:)) : nil
+        state.addTab(title: "", workingDirectory: dir, project: project)
         controllers[state.id]?.reload()
         modelDidChange()
     }
@@ -342,6 +346,94 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     func setPinnedCommand(_ id: TabID, _ command: String?) {
         guard let state = workspace.window(containing: id) else { return }
         state.setPinnedCommand(id, command)
+        modelDidChange()
+    }
+
+    // MARK: Projects
+
+    /// Whether `path` is a folder: a project's can be gone (moved, an unmounted volume).
+    static func isFolder(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    /// The folder a new project from `tab` suggests: its repository's root, or its folder.
+    func suggestedProjectFolder(for tab: TabID?) -> String {
+        guard let tab, let state = workspace.window(containing: tab), let directory = state.tab(id: tab)?.workingDirectory else {
+            return NSHomeDirectory()
+        }
+        return Repository.find(for: directory, in: DiskFiles()).root
+    }
+
+    /// Makes a project of `directory`, named after it, and moves `tab` into it.
+    func addProject(directory: String, adding tab: TabID?) {
+        let project = workspace.addProject(name: "", directory: directory)
+        if let tab, let state = workspace.window(containing: tab) {
+            state.setProject(tab, project.id)
+            controllers[state.id]?.reload()
+        }
+        modelDidChange()
+    }
+
+    /// A tab in the project's folder (home when the folder is gone).
+    func newTab(in state: WindowState, project id: ProjectID) {
+        guard let project = workspace.project(id: id) else { return }
+        if project.folded { project.folded = false }
+        let dir = Self.isFolder(project.directory) ? project.directory : NSHomeDirectory()
+        state.addTab(title: "", workingDirectory: dir, project: id)
+        controllers[state.id]?.reload()
+        modelDidChange()
+    }
+
+    func placeTab(_ id: TabID, inProject project: ProjectID?, at index: Int?) {
+        guard let state = workspace.window(containing: id), let tab = state.tab(id: id) else { return }
+        if tab.pin != nil, index != nil { state.unpin(id) }
+        state.setProject(id, project, at: index)
+        controllers[state.id]?.reload()
+        modelDidChange()
+    }
+
+    func renameProject(_ id: ProjectID, to name: String) {
+        guard let project = workspace.project(id: id) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        project.name = trimmed.isEmpty ? Project.defaultName(for: project.directory) : trimmed
+        modelDidChange()
+    }
+
+    func setProjectFolder(_ id: ProjectID, _ directory: String) {
+        guard let project = workspace.project(id: id) else { return }
+        // A name that was the old folder's follows the folder.
+        if project.name == Project.defaultName(for: project.directory) { project.name = Project.defaultName(for: directory) }
+        project.directory = directory
+        modelDidChange()
+    }
+
+    func setProjectIcon(_ id: ProjectID, _ icon: PinIcon?) {
+        workspace.project(id: id)?.icon = icon
+        modelDidChange()
+    }
+
+    func setProjectFolded(_ id: ProjectID, _ folded: Bool) {
+        guard let project = workspace.project(id: id), project.folded != folded else { return }
+        project.folded = folded
+        modelDidChange()
+    }
+
+    func moveProject(_ id: ProjectID, by offset: Int) {
+        guard let from = workspace.projects.firstIndex(where: { $0.id == id }) else { return }
+        workspace.moveProject(id: id, to: from + offset)
+        for c in controllers.values { c.reload() }
+        modelDidChange()
+    }
+
+    /// How many tabs, in every window, are in the project.
+    func tabCount(inProject id: ProjectID) -> Int {
+        workspace.windows.reduce(0) { count, window in count + window.tabs.filter { $0.projectID == id }.count }
+    }
+
+    func removeProject(_ id: ProjectID) {
+        workspace.removeProject(id: id)
+        for c in controllers.values { c.reload() }
         modelDidChange()
     }
 

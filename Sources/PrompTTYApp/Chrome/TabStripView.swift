@@ -17,6 +17,12 @@ struct TabStripView: View {
                             TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .tile, chrome: chrome, actions: actions)
                                 .frame(width: 44, height: 28)
                         } else {
+                            // No project headers here: a thin line where one project's tabs end.
+                            if index > state.pinnedCount, state.project(of: state.tabs[index - 1]) != state.project(of: tab) {
+                                Divider()
+                                    .frame(height: 16)
+                                    .padding(.horizontal, 2)
+                            }
                             TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .compact, chrome: chrome, actions: actions)
                                 .frame(minWidth: 110, idealWidth: 180, maxWidth: 220)
                         }

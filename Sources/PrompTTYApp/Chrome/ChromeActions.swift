@@ -36,6 +36,25 @@ protocol ChromeActions: AnyObject {
     func editPinnedCommand(_ id: TabID)
     /// A pinned tab's own icon; nil shows its programs' logos again.
     func setPinnedIcon(_ id: TabID, _ icon: PinIcon?)
+    // Projects
+    /// The workspace's projects, in sidebar order (observable).
+    var projects: [Project] { get }
+    /// Asks for a folder and makes a project of it; `tab` (if any) moves into it.
+    func newProject(adding tab: TabID?)
+    /// A new tab in the project's folder, in the project; nil: a tab in no project (the "+ New
+    /// Tab" row), where ⌘T would join the selected tab's project.
+    func newTab(inProject project: ProjectID?)
+    /// Puts a tab in a project (nil: in none), at `index` (a drop) or after the project's tabs.
+    /// A pinned tab is unpinned when it has an index (dropped among a project's rows).
+    func placeTab(_ id: TabID, inProject project: ProjectID?, at index: Int?)
+    func renameProject(_ id: ProjectID)
+    func changeProjectFolder(_ id: ProjectID)
+    func setProjectIcon(_ id: ProjectID, _ icon: PinIcon?)
+    func setProjectFolded(_ id: ProjectID, _ folded: Bool)
+    /// Moves a project up (-1) or down (+1) among the projects.
+    func moveProject(_ id: ProjectID, by offset: Int)
+    /// Removes a project after asking; its tabs stay, in no project.
+    func requestRemoveProject(_ id: ProjectID)
     func toggleSidebar()
     /// The window's traffic lights, which go with the sidebar when it collapses.
     func setTrafficLightsShown(_ shown: Bool)
@@ -54,6 +73,8 @@ struct AgentEntry: Identifiable {
     let title: String
     let activity: PaneActivity
     /// The repository (or folder) the agent works in.
-    let project: Project
+    let repository: Repository
+    /// The sidebar project of the agent's tab; nil when it is in none.
+    let projectID: ProjectID?
     var id: PaneID { pane }
 }

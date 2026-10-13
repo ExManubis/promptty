@@ -441,6 +441,97 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             self?.focusSelectedPane()
         }
     }
+
+    // MARK: Projects
+
+    /// A folder sheet, opened at the tab's repository (or folder): Create Project takes the folder
+    /// shown when nothing in it is selected.
+    func newProject(adding tab: TabID?) {
+        let suggested = coordinator.suggestedProjectFolder(for: tab)
+        chooseFolder(title: "New Project", message: "Choose the project's folder. Its new tabs open there.",
+                     prompt: "Create Project", startingAt: suggested) { [weak self] directory in
+            self?.coordinator.addProject(directory: directory, adding: tab)
+        }
+    }
+
+    var projects: [Project] { coordinator.workspace.projects }
+
+    func newTab(inProject project: ProjectID?) {
+        if let project {
+            coordinator.newTab(in: state, project: project)
+        } else {
+            coordinator.newTab(in: state, inheritingProject: false)
+        }
+    }
+
+    func placeTab(_ id: TabID, inProject project: ProjectID?, at index: Int?) {
+        // A tab dragged in from another window is not this window's to place.
+        guard state.tab(id: id) != nil else { return }
+        coordinator.placeTab(id, inProject: project, at: index)
+    }
+
+    func renameProject(_ id: ProjectID) {
+        guard let window, window.attachedSheet == nil, let project = coordinator.workspace.project(id: id) else { return }
+        let alert = NSAlert()
+        alert.messageText = "Rename Project"
+        alert.informativeText = Tab.abbreviate(project.directory)
+        let field = NSTextField(string: project.name)
+        field.placeholderString = Project.defaultName(for: project.directory)
+        field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { [weak self] response in
+            if response == .alertFirstButtonReturn { self?.coordinator.renameProject(id, to: field.stringValue) }
+            self?.focusSelectedPane()
+        }
+    }
+
+    func changeProjectFolder(_ id: ProjectID) {
+        guard let project = coordinator.workspace.project(id: id) else { return }
+        chooseFolder(title: "Change Folder", message: "New tabs in \(project.name) open in this folder.",
+                     prompt: "Choose", startingAt: project.directory) { [weak self] directory in
+            self?.coordinator.setProjectFolder(id, directory)
+        }
+    }
+
+    func setProjectIcon(_ id: ProjectID, _ icon: PinIcon?) { coordinator.setProjectIcon(id, icon) }
+    func setProjectFolded(_ id: ProjectID, _ folded: Bool) { coordinator.setProjectFolded(id, folded) }
+    func moveProject(_ id: ProjectID, by offset: Int) { coordinator.moveProject(id, by: offset) }
+
+    func requestRemoveProject(_ id: ProjectID) {
+        guard let project = coordinator.workspace.project(id: id) else { return }
+        let count = coordinator.tabCount(inProject: id)
+        let tabs = count == 1 ? "Its tab stays open" : "Its \(count) tabs stay open"
+        confirmClose(message: "Remove “\(project.name)”?",
+                     informativeText: count == 0 ? "The project has no tabs." : "\(tabs), in no project.",
+                     confirmTitle: "Remove") { [weak self] in
+            self?.coordinator.removeProject(id)
+            self?.focusSelectedPane()
+        }
+    }
+
+    /// A folder sheet on this window, opened in `directory` (or the closest folder that exists).
+    private func chooseFolder(title: String, message: String, prompt: String, startingAt directory: String, then choose: @escaping (String) -> Void) {
+        guard let window, window.attachedSheet == nil else { return }
+        let panel = NSOpenPanel()
+        panel.title = title
+        panel.message = message
+        panel.prompt = prompt
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        var start = directory
+        while !WorkspaceCoordinator.isFolder(start), start != "/", !start.isEmpty { start = (start as NSString).deletingLastPathComponent }
+        panel.directoryURL = URL(fileURLWithPath: start.isEmpty ? NSHomeDirectory() : start, isDirectory: true)
+        panel.beginSheetModal(for: window) { [weak self] response in
+            if response == .OK, let url = panel.url { choose(url.path) }
+            self?.focusSelectedPane()
+        }
+    }
+
     func toggleSidebar() { coordinator.toggleTabListHidden() }
     func split(_ pane: PaneID, direction: SplitDirection) { coordinator.split(pane, direction: direction) }
 
@@ -472,6 +563,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     // MARK: Menu actions (responder chain)
 
     @objc func newTab(_ sender: Any?) { newTab() }
+    @objc func newProject(_ sender: Any?) { newProject(adding: state.selectedTabID) }
 
     @objc func closeTab(_ sender: Any?) {
         guard let id = state.selectedTabID else { return }
