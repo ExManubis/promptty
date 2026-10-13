@@ -1,4 +1,5 @@
 import AppKit
+import os
 import GhosttyKit
 
 public struct GhosttyRuntimeError: Error, CustomStringConvertible {
@@ -18,7 +19,12 @@ public final class GhosttyRuntime {
 
     var app: UnsafeMutableRawPointer { appHandle }
 
+    /// Whether a tick is already queued on the main queue. Set from any thread by `wakeup_cb`.
+    nonisolated let tickPending = OSAllocatedUnfairLock(initialState: false)
+
     public weak var sink: GhosttyActionSink?
+    /// Called on the main thread at each coalesced wakeup tick: some terminal had output.
+    public var onTick: (() -> Void)?
     public private(set) var configDiagnostics: [String] = []
     /// Called after every reload with the current diagnostics (possibly empty).
     public var onConfigDiagnostics: (([String]) -> Void)?
@@ -59,7 +65,10 @@ public final class GhosttyRuntime {
 
     // MARK: Public API
 
-    public func tick() { ghostty_app_tick(app) }
+    public func tick() {
+        onTick?()
+        ghostty_app_tick(app)
+    }
 
     /// Re-reads `configURL` and applies it to every surface.
     public func reloadConfig() {
@@ -138,7 +147,11 @@ public final class GhosttyRuntime {
         let target: GhosttyActionTarget
         switch cTarget.tag {
         case GHOSTTY_TARGET_SURFACE:
-            guard let surface = cTarget.target.surface, let ud = ghostty_surface_userdata(surface) else { return false }
+            guard let surface = cTarget.target.surface, let ud = ghostty_surface_userdata(surface) else {
+                // Never false for a link: libghostty would `open` it itself.
+                if case .openURL = action { return true }
+                return false
+            }
             let view = Unmanaged<TerminalSurfaceView>.fromOpaque(ud).takeUnretainedValue()
             switch action {
             case .initialSize(let w, let h): view.noteInitialSize(CGSize(width: Double(w), height: Double(h)))
@@ -163,6 +176,8 @@ public final class GhosttyRuntime {
         case .mouseShape, .mouseVisibility:
             return true
         default:
+            // A link is always taken: false would make libghostty `open` it itself.
+            if case .openURL = action { _ = sink?.handle(action, target: target); return true }
             return sink?.handle(action, target: target) ?? false
         }
     }
@@ -176,8 +191,14 @@ public final class GhosttyRuntime {
 private func ghosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
     guard let userdata else { return }
     let runtime = Unmanaged<GhosttyRuntime>.fromOpaque(userdata).takeUnretainedValue()
+    // Output can wake the app thousands of times a second; one queued tick serves them all.
+    guard runtime.tickPending.withLock({ pending in
+        defer { pending = true }
+        return !pending
+    }) else { return }
     DispatchQueue.main.async {
         MainActor.assumeIsolated {
+            runtime.tickPending.withLock { $0 = false }
             runtime.tick()
         }
     }
@@ -207,11 +228,10 @@ private func ghosttyReadClipboard(_ userdata: UnsafeMutableRawPointer?, _ locati
     }
 }
 
-/// MVP policy (no prompt UI yet): OSC 52 *reads* are denied, matching Ghostty's
-/// `clipboard-read = ask` default by refusing in the absence of a prompt. The denial is an empty
-/// reply with `confirmed: true`; replying `confirmed: false` makes libghostty re-ask
-/// synchronously, which recurses forever. Pastes and OSC 52 writes that need confirmation are
-/// approved.
+/// libghostty asks for confirmation: a program reads the clipboard (OSC 52, `clipboard-read =
+/// ask`) or a paste looks unsafe. A read waits for the user's answer in the pane's banner. An
+/// unsafe paste (multi-line text) keeps the earlier behavior and goes through: the user pasted
+/// it themselves, and the input bar is where multi-line text is edited.
 private func ghosttyConfirmReadClipboard(_ userdata: UnsafeMutableRawPointer?, _ string: UnsafePointer<CChar>?, _ state: UnsafeMutableRawPointer?, _ request: ghostty_clipboard_request_e) {
     // Copy the C string before hopping; libghostty only guarantees it for the callback's duration.
     let text = string.map { String(cString: $0) } ?? ""
@@ -221,9 +241,7 @@ private func ghosttyConfirmReadClipboard(_ userdata: UnsafeMutableRawPointer?, _
         guard let userdata else { return }
         let view = Unmanaged<TerminalSurfaceView>.fromOpaque(userdata).takeUnretainedValue()
         if request == GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ {
-            // Deny without a prompt: an empty confirmed reply makes libghostty answer the
-            // program with an empty OSC 52 payload and destroys the request state.
-            view.completeClipboardRequest("", state: state, confirmed: true)
+            view.askClipboard(.read, text: text, state: state)
             return
         }
         view.completeClipboardRequest(text, state: state, confirmed: true)
@@ -232,9 +250,6 @@ private func ghosttyConfirmReadClipboard(_ userdata: UnsafeMutableRawPointer?, _
 
 private func ghosttyWriteClipboard(_ userdata: UnsafeMutableRawPointer?, _ location: ghostty_clipboard_e, _ contents: UnsafePointer<ghostty_clipboard_content_s>?, _ count: Int, _ confirm: Bool) {
     guard location == GHOSTTY_CLIPBOARD_STANDARD, let contents, count > 0 else { return }
-    // The user's config asked for confirmation and there is no prompt UI yet: refuse rather than
-    // write silently.
-    guard !confirm else { return }
     // Copy the text out of the C buffer first; only the resulting String crosses into the main actor.
     var text: String?
     for i in 0..<count {
@@ -246,7 +261,15 @@ private func ghosttyWriteClipboard(_ userdata: UnsafeMutableRawPointer?, _ locat
         }
     }
     guard let text else { return }
+    nonisolated(unsafe) let userdata = userdata
     MainActor.assumeIsolated {
+        // `clipboard-write = ask`: the pane's banner asks first.
+        if confirm {
+            guard let userdata else { return }
+            Unmanaged<TerminalSurfaceView>.fromOpaque(userdata).takeUnretainedValue()
+                .askClipboard(.write, text: text, state: nil)
+            return
+        }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)

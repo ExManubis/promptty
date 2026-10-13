@@ -39,15 +39,19 @@ final class CommandTextView: NSTextView {
     var onSubmit: ((String) -> Void)?
     /// Control keys for the shell: `d` (end of input) on an empty bar, `l` (clear screen).
     var onShellControl: ((Character) -> Void)?
+    /// ⌃R: opens the history search, seeded with the bar's text.
+    var onHistorySearch: ((String) -> Void)?
     var onFocus: (() -> Void)?
     var onTextChange: (() -> Void)?
     /// The terminal next to the bar: ⌘C copies its selection when the bar has none.
     weak var terminal: TerminalSurfaceView?
     /// Newest first.
-    var history: () -> [String] = { [] }
+    var history: () -> MergedHistory = { MergedHistory(newestFirst: []) }
     /// The commands run in the pane's folder and the folders above it, best first: ghost text
     /// prefers them to the whole history.
     var folderHistory: () -> [String] = { [] }
+    /// Changes when `history` or `folderHistory` may have, which ends the incremental scan.
+    var suggestionGeneration: () -> Int = { 0 }
     var isKnownCommand: (String) -> Bool = { _ in true }
 
     private(set) var vi = ViEngine()
@@ -56,11 +60,31 @@ final class CommandTextView: NSTextView {
     private var replacingFromHistory = false
     /// The ghost text after the caret.
     private(set) var suggestion: String?
-    /// Where Tab completion looks: the shell's names and the pane's directory.
-    var completionContext: () -> (sources: CompletionSources, directory: String)? = { nil }
+    private var suggester = IncrementalSuggester()
+    private struct SuggestionKey: Equatable {
+        let text: String
+        let range: NSRange
+        let marked: Bool
+        let generation: Int
+    }
+    private var lastSuggestionKey: SuggestionKey?
+    /// Where Tab completion looks: the pane's directory, and the shell's names (a snapshot with
+    /// nothing fetched yet).
+    var completionDirectory: () -> String? = { nil }
+    var completionNames: () -> CompletionSnapshot? = { nil }
+    /// Read off the main thread by the pane: a folder on a stalled share or a slow `git` must not
+    /// freeze the bar.
+    var listEntries: (String) async -> [(name: String, isDirectory: Bool)] = { _ in [] }
+    var loadBranches: (String) async -> [String] = { _ in [] }
     private let popup = CompletionPopup()
-    /// The sources for the open completion list, so filtering does not ask git again per key.
-    private var popupSources: (sources: CompletionSources, directory: String)?
+    /// What the open completion list filters: fetched once when it opens (and again only when the
+    /// word moves to another folder), so a keystroke does no disk or git work.
+    private var popupSnapshot: (snapshot: CompletionSnapshot, directory: String)?
+    /// Bumped whenever the text, the list or the question changes: a fetch that finishes under an
+    /// older number is stale and dropped.
+    private var completionRequest = 0
+    /// Fetches under way, so a keystroke while one runs waits for it instead of listing again.
+    private var fetches: [CompletionNeed: Task<Void, Never>] = [:]
     /// Each bar keeps its own undo history; the window's is shared by every pane.
     private let ownUndoManager = UndoManager()
     /// Set while the app itself inserts text (completions, suggestions), which normal mode must
@@ -90,7 +114,10 @@ final class CommandTextView: NSTextView {
         // macOS's inline predictions (grey text and their panel) would compete with the bar's own
         // history suggestions.
         inlinePredictionType = .no
-        popup.onClose = { [weak self] in self?.popupSources = nil }
+        popup.onClose = { [weak self] in
+            self?.popupSnapshot = nil
+            self?.completionRequest += 1
+        }
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
@@ -128,6 +155,8 @@ final class CommandTextView: NSTextView {
         popup.close()
         clearText()
         navigator = nil
+        suggester = IncrementalSuggester()
+        lastSuggestionKey = nil
         vi.enterInsert()
         modeChanged()
     }
@@ -261,12 +290,25 @@ final class CommandTextView: NSTextView {
         setSelectedRange(NSRange(location: end, length: 0))
     }
 
+    /// Replaces what is typed with `command`, the caret at its end, as one undoable edit.
+    func setCommand(_ command: String) {
+        let all = NSRange(location: 0, length: (string as NSString).length)
+        breakUndoCoalescing()
+        if shouldChangeText(in: all, replacementString: command) {
+            textStorage?.replaceCharacters(in: all, with: command)
+            didChangeText()
+        }
+        var end = (command as NSString).length
+        if vi.mode == .normal, end > 0 { end -= 1 }
+        setSelectedRange(NSRange(location: end, length: 0))
+    }
+
     // MARK: Completion
 
     private func currentCompletion() -> Completion? {
-        guard let context = popupSources ?? completionContext(), selectedRange().length == 0 else { return nil }
+        guard let context = popupSnapshot, selectedRange().length == 0 else { return nil }
         return CompletionEngine.complete(text: string, cursor: selectedRange().location, directory: context.directory,
-                                         home: NSHomeDirectory(), sources: context.sources)
+                                         home: NSHomeDirectory(), sources: context.snapshot)
     }
 
     /// Tab: one match is inserted; several insert what they share and open the list.
@@ -296,7 +338,7 @@ final class CommandTextView: NSTextView {
     /// at the drop point, or at the caret.
     func insertDroppedFiles(_ urls: [URL], at index: Int? = nil) {
         // Without the pane's folder, paths stay absolute (the app's own folder means nothing here).
-        let directory = completionContext()?.directory ?? ""
+        let directory = completionDirectory() ?? ""
         let words = urls.map { ShellQuoting.pathArgument($0.path, directory: directory, home: NSHomeDirectory()) }
         // A composition in progress is committed first, as a click elsewhere would.
         if hasMarkedText() { unmarkText() }
@@ -336,13 +378,61 @@ final class CommandTextView: NSTextView {
     }
 
     private func complete() {
-        popupSources = completionContext()
+        guard selectedRange().length == 0, let directory = completionDirectory(), let names = completionNames() else {
+            NSSound.beep()
+            return
+        }
+        popupSnapshot = (names, directory)
+        completionRequest += 1
+        whenFetched(thenDo: { $0.finishComplete() })
+    }
+
+    /// Fetches what the text needs that the snapshot lacks, then runs `action`, unless the user
+    /// typed, moved the caret, or closed the list meanwhile (the next keystroke asks again).
+    private func whenFetched(thenDo action: @escaping (CommandTextView) -> Void) {
+        guard let context = popupSnapshot else { return }
+        let caret = selectedRange().location
+        guard let need = CompletionEngine.need(text: string, cursor: caret, directory: context.directory, home: NSHomeDirectory()),
+              !context.snapshot.has(need) else {
+            action(self)
+            return
+        }
+        let request = completionRequest
+        let text = string
+        let fetch = fetches[need] ?? Task { [weak self] in
+            guard let self else { return }
+            switch need {
+            case .directory(let path):
+                let entries = await listEntries(path)
+                popupSnapshot?.snapshot.listings[path] = entries
+            case .gitBranches(let directory):
+                let branches = await loadBranches(directory)
+                popupSnapshot?.snapshot.branches[directory] = branches
+            }
+            fetches[need] = nil
+        }
+        fetches[need] = fetch
+        Task { [weak self] in
+            await fetch.value
+            guard let self, request == completionRequest else { return }
+            guard string == text, selectedRange() == NSRange(location: caret, length: 0) else {
+                // Typing moved on while the list loaded; a refilter has its own request.
+                if popup.isVisible == false { NSSound.beep() }
+                return
+            }
+            action(self)
+        }
+    }
+
+    /// Tab, once the data is in: the rest of `complete`.
+    private func finishComplete() {
         guard let completion = currentCompletion(), completion.candidates.count <= 500 else {
             NSSound.beep()
             return
         }
         let range = NSRange(location: completion.replacement.lowerBound, length: completion.replacement.count)
         if let single = completion.singleInsertion {
+            popupSnapshot = nil
             insertProgrammatically(single, replacing: range)
             return
         }
@@ -356,7 +446,12 @@ final class CommandTextView: NSTextView {
     }
 
     private func refilterCompletions() {
-        guard let completion = currentCompletion(), completion.candidates.count <= 500 else {
+        completionRequest += 1
+        whenFetched(thenDo: { $0.applyRefilter() })
+    }
+
+    private func applyRefilter() {
+        guard popup.isVisible, let completion = currentCompletion(), completion.candidates.count <= 500 else {
             popup.close()
             return
         }
@@ -365,7 +460,9 @@ final class CommandTextView: NSTextView {
 
     private func acceptCompletion() {
         defer { popup.close() }
-        guard let item = popup.selectedItem, let completion = currentCompletion() else { return }
+        // A list still waiting for its folder may hold another folder's names: insert only what the
+        // current text completes to.
+        guard let item = popup.selectedItem, let completion = currentCompletion(), completion.candidates.contains(item) else { return }
         let range = NSRange(location: completion.replacement.lowerBound, length: completion.replacement.count)
         insertProgrammatically(item.hasSuffix("/") ? item : item + " ", replacing: range)
     }
@@ -373,9 +470,18 @@ final class CommandTextView: NSTextView {
     // MARK: Suggestions
 
     private func updateSuggestion() {
+        let text = string
         let range = selectedRange()
-        let atEnd = range.length == 0 && range.location == (string as NSString).length
-        let next = atEnd && !hasMarkedText() ? Autosuggester.suggestion(for: string, local: folderHistory(), history: history()) : nil
+        let atEnd = range.length == 0 && range.location == (text as NSString).length
+        let marked = hasMarkedText()
+        // Typing a key reports a new selection and then the text change; the second finds nothing new.
+        let key = SuggestionKey(text: text, range: range, marked: marked, generation: suggestionGeneration())
+        if key == lastSuggestionKey { return }
+        lastSuggestionKey = key
+        var next: String?
+        if atEnd, !marked, !text.isEmpty, !text.contains("\n") {
+            next = suggester.suggestion(for: text, local: folderHistory(), history: history(), generation: key.generation)
+        }
         if next != suggestion {
             suggestion = next
             needsDisplay = true
@@ -487,6 +593,8 @@ final class CommandTextView: NSTextView {
             onShellControl?("d")
         case "l":
             onShellControl?("l")
+        case "r":
+            onHistorySearch?(string)
         case "u":
             let caret = selectedRange().location
             let lineStart = (string as NSString).lineRange(for: NSRange(location: caret, length: 0)).location

@@ -125,3 +125,60 @@ final class GitStatusTests: XCTestCase {
         XCTAssertNil(GitStatus.parse(porcelainV2: "fatal: not a git repository\n"))
     }
 }
+
+/// Completion over a snapshot fetched once: the per-keystroke filtering reads memory only.
+final class CompletionSnapshotTests: XCTestCase {
+    private func need(_ marked: String) -> CompletionNeed? {
+        let cursor = (marked as NSString).range(of: "|", options: .backwards).location
+        let text = (marked as NSString).replacingCharacters(in: NSRange(location: cursor, length: 1), with: "")
+        return CompletionEngine.need(text: text, cursor: cursor, directory: "/repo", home: "/Users/me")
+    }
+
+    private func complete(_ marked: String, _ snapshot: CompletionSnapshot) -> [String]? {
+        let cursor = (marked as NSString).range(of: "|", options: .backwards).location
+        let text = (marked as NSString).replacingCharacters(in: NSRange(location: cursor, length: 1), with: "")
+        return CompletionEngine.complete(text: text, cursor: cursor, directory: "/repo", home: "/Users/me", sources: snapshot)?.candidates
+    }
+
+    func testNeeds() {
+        XCTAssertEqual(need("cat |"), .directory("/repo"))
+        XCTAssertEqual(need("cat Sou|"), .directory("/repo"))
+        XCTAssertEqual(need("cat Sources/Co|"), .directory("/repo/Sources"))
+        XCTAssertEqual(need("cat ../|"), .directory("/"))
+        XCTAssertEqual(need("cat ~/De|"), .directory("/Users/me"))
+        XCTAssertEqual(need("cat /etc/ho|"), .directory("/etc"))
+        XCTAssertEqual(need("git switch |"), .gitBranches("/repo"))
+        XCTAssertEqual(need("git branch -D m|"), .gitBranches("/repo"))
+    }
+
+    func testNoNeedForNamesAndSubcommands() {
+        XCTAssertNil(need("g|"))
+        XCTAssertNil(need("echo $PA|"))
+        XCTAssertNil(need("git ch|"))
+    }
+
+    func testTypingWithinOneDirectoryNeedsTheSameListing() {
+        XCTAssertEqual(need("cat S|"), need("cat Sour|"))
+        XCTAssertNotEqual(need("cat Sources|"), need("cat Sources/|"))
+    }
+
+    func testFiltersCachedEntriesPerKeystroke() {
+        var snapshot = CompletionSnapshot(commands: [], exports: [])
+        XCTAssertFalse(snapshot.has(.directory("/repo")))
+        snapshot.listings["/repo"] = [("Sources", true), ("Package.swift", false), ("Podfile", false), (".git", true)]
+        XCTAssertTrue(snapshot.has(.directory("/repo")))
+        XCTAssertEqual(complete("cat |", snapshot), ["Package.swift", "Podfile", "Sources/"])
+        XCTAssertEqual(complete("cat P|", snapshot), ["Package.swift", "Podfile"])
+        XCTAssertEqual(complete("cat Pa|", snapshot), ["Package.swift"])
+        XCTAssertEqual(complete("cat .|", snapshot), [".git/"])
+        XCTAssertNil(complete("cat Z|", snapshot))
+    }
+
+    func testBranchesFromTheSnapshot() {
+        var snapshot = CompletionSnapshot(commands: ["git"], exports: [])
+        XCTAssertNil(complete("git switch m|", snapshot))
+        snapshot.branches["/repo"] = ["main", "mvp", "input-bar"]
+        XCTAssertTrue(snapshot.has(.gitBranches("/repo")))
+        XCTAssertEqual(complete("git switch m|", snapshot), ["main", "mvp"])
+    }
+}

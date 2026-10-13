@@ -14,6 +14,8 @@ final class FolderHistoryStore {
     private let writes = DispatchQueue(label: "dev.promptty.folder-history", qos: .utility)
     /// Lines in the file, which only grows between rewrites.
     private var fileLines = 0
+    /// Changes whenever a ranking may have changed.
+    private(set) var revision = 0
 
     init(url: URL) {
         self.url = url
@@ -28,6 +30,7 @@ final class FolderHistoryStore {
                     self.history = FolderHistory(entries: loaded.entries + added)
                     self.fileLines = lines + added.count
                     self.cached = nil
+                    self.revision += 1
                 }
             }
         }
@@ -45,6 +48,7 @@ final class FolderHistoryStore {
     func add(_ command: String, in directory: String, persist: Bool) {
         guard let entry = history.add(command: command, directory: directory, date: Date()) else { return }
         cached = nil
+        revision += 1
         guard persist else { return }
         let url = url
         // The file keeps only the newest entries: rewritten whole once it has grown well past them.

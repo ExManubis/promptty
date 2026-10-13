@@ -8,6 +8,10 @@ struct PaneCard: View {
     let pane: Pane
     let tab: WorkspaceModel.Tab
     let visible: Bool
+    /// This pane fills the tab.
+    var zoomed = false
+    /// Another pane is zoomed: this one is kept alive, occluded, at the size it had.
+    var hidden = false
     let chrome: WindowChromeModel
     let actions: ChromeActions
 
@@ -23,7 +27,7 @@ struct PaneCard: View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 if let surface = actions.surfaceView(for: pane) {
-                    PaneHost(surface: surface, visible: visible)
+                    PaneHost(surface: surface, visible: visible, holdSize: hidden)
                 }
                 if let shell = actions.shell(for: pane.id), shell.bar != .hidden {
                     InputBarView(shell: shell, dark: chrome.panelIsDark)
@@ -38,6 +42,11 @@ struct PaneCard: View {
                 .opacity(tab.hasSplits && !focused ? 1 : 0)
                 .animation(PaneAnimation.focusFade, value: focused)
                 .allowsHitTesting(false)
+
+            ClipboardBanner(pane: pane.id, actions: actions)
+            LinkPreview(pane: pane.id, actions: actions)
+            SecureLock(pane: pane.id, actions: actions)
+            if zoomed { ZoomBadge() }
 
             if let code = chrome.exitedPanes[pane.id] {
                 // A pinned tab's last pane is restarted, not closed.
@@ -128,5 +137,102 @@ struct FlatSurface: View {
             .fill(colorScheme == .dark ? Color(white: 0.17) : Color.white)
             .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0.10), radius: 4, y: 1)
             .overlay(shape.strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
+    }
+}
+
+/// The link under the pointer, at the pane's bottom-left like a browser's status bar. Its own view,
+/// so the hover changes redraw only this.
+private struct LinkPreview: View {
+    let pane: PaneID
+    let actions: ChromeActions
+
+    var body: some View {
+        if let link = actions.hoveredLink(for: pane) {
+            Text(link)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+                .padding(6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
+/// "<program> wants to read the clipboard", over the pane's top edge until the user answers. Its
+/// own view, so only this redraws when a request comes or goes.
+private struct ClipboardBanner: View {
+    let pane: PaneID
+    let actions: ChromeActions
+    /// The request whose buttons work: they do only a moment after it appears, so a click meant
+    /// for the one before cannot land on the one now shown.
+    @State private var armedID: Int?
+
+    var body: some View {
+        if let ticket = actions.clipboardRequest(for: pane) {
+            let program = actions.activity(for: pane).program?.name ?? "A program"
+            let action = ticket.kind == .read ? "read" : "write to"
+            BannerView(content: BannerContent(
+                message: "\(program) wants to \(action) the clipboard",
+                actionTitle: "Allow",
+                action: { actions.answerClipboardRequest(.allow, id: ticket.id, in: pane) },
+                symbol: "doc.on.clipboard",
+                extraActions: [
+                    ("Always allow for this pane", { actions.answerClipboardRequest(.alwaysAllow, id: ticket.id, in: pane) }),
+                    ("Deny", { actions.answerClipboardRequest(.deny, id: ticket.id, in: pane) }),
+                ]
+            ))
+            .disabled(armedID != ticket.id)
+            .task(id: ticket.id) {
+                try? await Task.sleep(for: .milliseconds(500))
+                if !Task.isCancelled { armedID = ticket.id }
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
+}
+
+/// A lock at the pane's top-right while secure keyboard input is on for it. Its own view, so only
+/// this redraws when that changes.
+private struct SecureLock: View {
+    let pane: PaneID
+    let actions: ChromeActions
+
+    var body: some View {
+        if actions.isSecure(pane) {
+            PaneBadge(symbol: "lock.fill", help: "Secure keyboard entry is on", alignment: .topTrailing)
+        }
+    }
+}
+
+/// Marks the zoomed pane, at its top-left.
+private struct ZoomBadge: View {
+    var body: some View {
+        PaneBadge(symbol: "arrow.up.left.and.arrow.down.right", help: "Zoomed. Press the zoom shortcut again to show all panes.", alignment: .topLeading)
+            .accessibilityLabel("Zoomed pane")
+    }
+}
+
+/// A small round mark in a corner of the pane.
+private struct PaneBadge: View {
+    let symbol: String
+    let help: String
+    let alignment: Alignment
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(5)
+            .background(.regularMaterial, in: Circle())
+            .overlay(Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+            .help(help)
+            .padding(6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
     }
 }

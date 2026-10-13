@@ -22,6 +22,13 @@ struct InputBarView: View {
             LongLivedViewHost(view: shell.editor, dark: dark)
                 .frame(height: shell.editorHeight)
                 .opacity(shell.bar == .active ? 1 : 0.45)
+                .popover(isPresented: Binding(get: { shell.historyPicker != nil },
+                                              set: { if !$0 { shell.closeHistorySearch() } }), arrowEdge: .top) {
+                    if let picker = shell.historyPicker {
+                        HistoryPickerView(model: picker, choose: { shell.chooseHistoryCommand($0) },
+                                          cancel: { shell.closeHistorySearch(returningKeys: true) })
+                    }
+                }
             Spacer(minLength: 12)
         }
         .padding(.horizontal, 14)

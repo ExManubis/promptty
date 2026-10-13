@@ -26,6 +26,8 @@ public final class TerminalSurfaceView: NSView {
     public var token: AnyHashable?
     /// Called when the view becomes first responder (a click or programmatic focus).
     public var onFocus: (() -> Void)?
+    /// The terminal has the keyboard (its window key, it first responder) or lost it.
+    public var onFocusChange: ((Bool) -> Void)?
     /// Called each time the view joins a window. Hosts that move the view between containers use
     /// it to restore focus, which AppKit drops when a first responder leaves the window.
     public var onAttachedToWindow: (() -> Void)?
@@ -39,8 +41,34 @@ public final class TerminalSurfaceView: NSView {
     /// Drawn over the terminal by whatever hosts it, and moved with it. The terminal is a
     /// layer-hosting view (libghostty owns its layer), so it cannot have subviews of its own.
     public var overlay: NSView?
+    /// A menu for a right-click, or nil to leave the click to the terminal.
+    public var contextMenu: ((NSEvent) -> NSMenu?)?
     /// The pointer moved over the terminal (the event), or left it (nil).
     public var onPointerMoved: ((NSEvent?) -> Void)?
+    /// The screen scrolled, the scrollback grew, or the cells changed size: whatever is drawn over
+    /// the terminal in step with its rows has moved. Reaching the overlay directly saves the
+    /// app looking this surface's pane up on every one of these (thousands a second in a stream).
+    public var onLayoutChange: (() -> Void)?
+
+    /// The pointer is over a link in the output (its text), or left it (nil). Arrives with every
+    /// mouse move over text, so it goes straight to whoever shows it.
+    public var onLinkHover: ((String?) -> Void)?
+
+    /// A program asks to read or write the clipboard and waits for the user's answer
+    /// (`answerClipboardRequest`), or that question is gone (nil).
+    public var onClipboardRequest: ((ClipboardTicket?) -> Void)?
+    /// What the program waits for; its text (what it would write, or what the clipboard holds)
+    /// stays here and out of logs.
+    struct PendingClipboard {
+        let id: Int
+        let kind: ClipboardRequestKind
+        let text: String
+        /// libghostty's request state, for a read.
+        let state: UnsafeMutableRawPointer?
+    }
+    var pendingClipboard: PendingClipboard?
+    var clipboardGrants = ClipboardGrants()
+    var lastClipboardID = 0
 
     /// Size libghostty asked for during `ghostty_surface_new`, before this view had a window.
     public private(set) var pendingInitialSize: CGSize?
@@ -190,6 +218,10 @@ public final class TerminalSurfaceView: NSView {
     /// Frees the surface exactly once. Safe to call from both the tab-close path and `close_surface_cb`.
     public func teardown() {
         guard let handle = surface, !isFreed else { return }
+        // A read still pending must be completed while the surface exists.
+        denyClipboardRequest()
+        // A freed surface reports nothing more: whoever tracks its focus is told it lost it.
+        onFocusChange?(false)
         // Clear state first so nothing re-entering during the free sees a live handle.
         surface = nil
         isFreed = true
@@ -273,6 +305,13 @@ public final class TerminalSurfaceView: NSView {
         super.viewDidChangeBackingProperties()
         guard let surface, let window, window.backingScaleFactor != sentScale else { return }
         sentScale = window.backingScaleFactor
+        // libghostty's layer is not told the new scale by AppKit; without this a window moved
+        // from a Retina to a 1x screen draws four times the pixels, and the other way is blurry.
+        // As upstream Ghostty does, without an implicit animation.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.contentsScale = window.backingScaleFactor
+        CATransaction.commit()
         let scale = Double(window.backingScaleFactor)
         ghostty_surface_set_content_scale(surface, scale, scale)
         sizeDidChange(force: true)
@@ -290,6 +329,34 @@ public final class TerminalSurfaceView: NSView {
     /// activity of their own.
     public private(set) var lastResize: Date?
     public internal(set) var lastKeyPress: Date?
+    /// The last key that answers a prompt for a choice (`PromptAnswerKey`): it ends an agent's
+    /// permission prompt.
+    public internal(set) var lastAnswerKey: Date?
+
+    /// How the terminal follows this view's size.
+    public enum ResizeMode: Sendable {
+        /// Every new size goes to the terminal at once.
+        case live
+        /// At most one new size per `ResizeThrottle.interval`, and the latest one always arrives
+        /// (a split divider being dragged).
+        case throttled
+        /// The terminal keeps its size, drawn from the view's top-left corner, and gets the view's
+        /// size when this ends (the sidebar sliding: one resize instead of one per frame).
+        case held
+    }
+
+    public var resizeMode: ResizeMode = .live {
+        didSet {
+            guard resizeMode != oldValue else { return }
+            trailingResize?.cancel()
+            trailingResize = nil
+            sizeDidChange()
+        }
+    }
+
+    private var throttle = ResizeThrottle()
+    /// The size skipped while throttled, sent once the interval is up.
+    private var trailingResize: Task<Void, Never>?
 
     private func sizeDidChange(force: Bool = false) {
         guard let surface else { return }
@@ -297,6 +364,27 @@ public final class TerminalSurfaceView: NSView {
         let w = UInt32(max(1, (bounds.width * scale).rounded()))
         let h = UInt32(max(1, (bounds.height * scale).rounded()))
         if !force, let sent = sentSize, sent.width == w, sent.height == h { return }
+        let now = CACurrentMediaTime()
+        // A terminal without any size yet gets one whatever the mode: held, it would have none.
+        if !force, sentSize != nil {
+            switch resizeMode {
+            case .live: break
+            case .held: return
+            case .throttled:
+                let wait = throttle.wait(at: now)
+                guard wait > 0 else { break }
+                if trailingResize == nil {
+                    trailingResize = Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .seconds(wait))
+                        guard !Task.isCancelled, let self else { return }
+                        self.trailingResize = nil
+                        self.sizeDidChange()
+                    }
+                }
+                return
+            }
+        }
+        throttle.noteSent(at: now)
         sentSize = (w, h)
         lastResize = Date()
         #if DEBUG
@@ -312,26 +400,26 @@ public final class TerminalSurfaceView: NSView {
     // new focus state explicitly instead of deriving it.
     public override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
-        if let surface {
-            ghostty_surface_set_focus(surface, ok && (window?.isKeyWindow ?? false))
-        }
+        setSurfaceFocus(ok && (window?.isKeyWindow ?? false))
         if ok { onFocus?() }
         return ok
     }
 
     public override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
-        if ok, let surface {
-            ghostty_surface_set_focus(surface, false)
-        }
+        if ok { setSurfaceFocus(false) }
         return ok
     }
 
     /// For window key/resign notifications, where `firstResponder` is already settled.
     private func focusDidChange() {
+        setSurfaceFocus((window?.isKeyWindow ?? false) && window?.firstResponder === self)
+    }
+
+    private func setSurfaceFocus(_ focused: Bool) {
         guard let surface else { return }
-        let focused = (window?.isKeyWindow ?? false) && window?.firstResponder === self
         ghostty_surface_set_focus(surface, focused)
+        onFocusChange?(focused)
     }
 
     /// The display the window is on, for the renderer's display link. A focused surface draws
@@ -353,10 +441,15 @@ public final class TerminalSurfaceView: NSView {
         updateOcclusion()
     }
 
+    /// The visibility last sent: every call wakes the renderer, and these are called often.
+    private var sentVisible: Bool?
+
     private func updateOcclusion() {
         guard let surface else { return }
         let windowVisible = window?.occlusionState.contains(.visible) ?? false
         let visible = windowVisible && !isHiddenOrHasHiddenAncestor && !explicitlyOccluded
+        guard visible != sentVisible else { return }
+        sentVisible = visible
         ghostty_surface_set_occlusion(surface, visible)
     }
 
@@ -370,6 +463,64 @@ public final class TerminalSurfaceView: NSView {
         string.withCString { ptr in
             ghostty_surface_complete_clipboard_request(surface, ptr, state, confirmed)
         }
+    }
+}
+
+// MARK: Clipboard access by programs
+
+extension TerminalSurfaceView {
+    /// A program waits for the user's answer to a clipboard read or write.
+    public var pendingClipboardKind: ClipboardRequestKind? { pendingClipboard?.kind }
+
+    /// The clipboard settings changed: refuses whatever waits and forgets "always allow".
+    public func resetClipboardPolicy() {
+        denyClipboardRequest()
+        clipboardGrants = ClipboardGrants()
+    }
+
+    /// Refuses whatever waits, whoever asked (a settings change, the pane closing).
+    public func denyClipboardRequest() { finishClipboard(.deny) }
+
+    /// libghostty wants the user's confirmation for a read (`text` is the clipboard) or a write
+    /// (`text` is what the program sets). Answered at once if this pane was allowed for good,
+    /// else shown by `onClipboardRequest`.
+    func askClipboard(_ kind: ClipboardRequestKind, text: String, state: UnsafeMutableRawPointer?) {
+        // One question at a time: an unanswered read must still be completed, so the older
+        // request is denied.
+        if pendingClipboard != nil { finishClipboard(.deny) }
+        lastClipboardID += 1
+        let request = PendingClipboard(id: lastClipboardID, kind: kind, text: text, state: state)
+        pendingClipboard = request
+        if clipboardGrants.allows(kind) {
+            finishClipboard(.allow)
+        } else {
+            onClipboardRequest?(ClipboardTicket(id: request.id, kind: kind))
+        }
+    }
+
+    /// The user's answer to the request `id`; an answer to one that is no longer pending denies.
+    public func answerClipboardRequest(_ decision: ClipboardDecision, id: Int) {
+        finishClipboard(ClipboardAnswer.resolve(decision, answering: id, pending: pendingClipboard?.id))
+    }
+
+    private func finishClipboard(_ decision: ClipboardDecision) {
+        guard let request = pendingClipboard else { return }
+        pendingClipboard = nil
+        let allowed = decision != .deny
+        if decision == .alwaysAllow { clipboardGrants.grant(request.kind) }
+        switch request.kind {
+        case .read:
+            // Denying is an empty confirmed reply: libghostty answers the program with an empty
+            // OSC 52 payload and frees the request. An unconfirmed reply would ask again.
+            completeClipboardRequest(allowed ? request.text : "", state: request.state, confirmed: true)
+        case .write:
+            if allowed {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(request.text, forType: .string)
+            }
+        }
+        onClipboardRequest?(nil)
     }
 }
 

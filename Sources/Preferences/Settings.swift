@@ -8,6 +8,11 @@ public enum OptionAsAlt: String, Codable, CaseIterable, Sendable {
     case both, left, right, off
 }
 
+/// What a program may do with the clipboard (OSC 52): libghostty's `clipboard-read`/`clipboard-write`.
+public enum ClipboardAccess: String, Codable, CaseIterable, Sendable {
+    case ask, allow, deny
+}
+
 public enum NewTabDirectory: String, Codable, CaseIterable, Sendable {
     case currentPane, home
 }
@@ -57,6 +62,14 @@ public struct Settings: Equatable, Sendable {
     public var optionAsAlt = OptionAsAlt.both
     /// ⌥H/J/K/L focus panes and ⌥⇧J/K switch tabs (`VimNavigation`), taken from the terminal.
     public var vimNavigation = true
+    /// Forces macOS secure keyboard entry on while PrompTTY is in front (programs asking for it,
+    /// as at a password prompt, get it regardless).
+    public var secureKeyboardEntry = false
+
+    // Programs
+    /// Whether a program may read the clipboard (OSC 52), and write to it.
+    public var clipboardRead = ClipboardAccess.ask
+    public var clipboardWrite = ClipboardAccess.ask
     /// `ShortcutAction.rawValue` → shortcut, only for actions that differ from the defaults.
     public var shortcuts: [String: Shortcut] = [:]
 
@@ -83,7 +96,8 @@ extension Settings: Codable {
     enum CodingKeys: String, CodingKey {
         case version, fontFamily, fontSize, followSystemAppearance, lightTheme, darkTheme, theme
         case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, tabLayout, sidebarWidth, tabListHidden
-        case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, shortcuts
+        case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, secureKeyboardEntry, shortcuts
+        case clipboardRead, clipboardWrite
     }
 
     public init(from decoder: Decoder) throws {
@@ -112,6 +126,9 @@ extension Settings: Codable {
         s.confirmCloseRunning = value(.confirmCloseRunning, s.confirmCloseRunning)
         s.optionAsAlt = value(.optionAsAlt, s.optionAsAlt)
         s.vimNavigation = value(.vimNavigation, s.vimNavigation)
+        s.secureKeyboardEntry = value(.secureKeyboardEntry, s.secureKeyboardEntry)
+        s.clipboardRead = value(.clipboardRead, s.clipboardRead)
+        s.clipboardWrite = value(.clipboardWrite, s.clipboardWrite)
         // Decode shortcuts one by one so a single bad entry does not drop the rest.
         if let raw = try? c.decodeIfPresent([String: String].self, forKey: .shortcuts) {
             s.shortcuts = raw.compactMapValues(Shortcut.init(string:))
@@ -147,6 +164,9 @@ extension Settings: Codable {
         try c.encode(confirmCloseRunning, forKey: .confirmCloseRunning)
         try c.encode(optionAsAlt, forKey: .optionAsAlt)
         try c.encode(vimNavigation, forKey: .vimNavigation)
+        try c.encode(secureKeyboardEntry, forKey: .secureKeyboardEntry)
+        try c.encode(clipboardRead, forKey: .clipboardRead)
+        try c.encode(clipboardWrite, forKey: .clipboardWrite)
         try c.encode(shortcuts, forKey: .shortcuts)
     }
 }

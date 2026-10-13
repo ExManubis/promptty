@@ -1,6 +1,7 @@
 import AppKit
 import PaneActivity
 import SwiftUI
+import WorkspaceModel
 
 /// A program's logo in its brand color, or the terminal symbol for a shell or an unknown program.
 struct ProgramIcon: View {
@@ -54,7 +55,8 @@ struct ProgramIcon: View {
 }
 
 /// A pane's or tab's activity as a dot: green while something runs, blue for what finished
-/// unseen, red for what failed, a pulsing orange when a program wants the user.
+/// unseen, red for what failed, a pulsing orange when a program wants the user; an orange shield
+/// when an agent asks for permission.
 struct ActivityIndicator: View {
     let display: PaneActivity.Display
 
@@ -65,6 +67,11 @@ struct ActivityIndicator: View {
             switch display {
             case .idle:
                 Color.clear
+            case .permission:
+                Image(systemName: "exclamationmark.shield.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(ProgramStack.color(for: display))
+                    .fixedSize()
             case .attention where !reduceMotion:
                 // Pulses until seen, breathes while the agent works: both in Core Animation (see
                 // `LoopingDot`).
@@ -89,8 +96,121 @@ struct ActivityIndicator: View {
         case .finished: "Finished"
         case .failed(let code): "Failed with exit code \(code)"
         case .attention: "Needs attention"
+        case .permission: "Needs permission"
         }
     }
+}
+
+/// A pane's progress report as a small ring: filled to the percent for a set one, spinning for
+/// an indeterminate one, red for an error, yellow for a pause.
+struct ProgressRing: View {
+    let progress: PaneProgress
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    static let size: CGFloat = 12
+    private static let line: CGFloat = 2
+
+    private var color: Color {
+        switch progress.kind {
+        case .set, .indeterminate: Color.accentColor
+        case .error: Color.red
+        case .pause: Color.yellow
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            Circle().strokeBorder(color.opacity(0.28), lineWidth: Self.line)
+            if let fraction = progress.fraction {
+                Circle()
+                    .trim(from: 0, to: max(fraction, 0.02))
+                    .stroke(color, style: StrokeStyle(lineWidth: Self.line, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(Self.line / 2)
+            } else if reduceMotion {
+                Circle()
+                    .trim(from: 0, to: 0.25)
+                    .stroke(color, style: StrokeStyle(lineWidth: Self.line, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(Self.line / 2)
+            } else {
+                // Turns in Core Animation (see `LoopingDot`).
+                SpinningArc(color: NSColor(color), lineWidth: Self.line)
+            }
+        }
+        .frame(width: Self.size, height: Self.size)
+        .accessibilityElement()
+        .accessibilityLabel(Self.label(for: progress))
+    }
+
+    static func label(for progress: PaneProgress) -> String {
+        let percent = progress.fraction.map { " \(Int(($0 * 100).rounded())) percent" } ?? ""
+        switch progress.kind {
+        case .set: return "Progress\(percent)"
+        case .indeterminate: return "In progress"
+        case .error: return "Progress failed\(percent)"
+        case .pause: return "Progress paused\(percent)"
+        }
+    }
+}
+
+/// The ring of one pane's box, observed on its own: only the ring redraws as the report changes.
+struct StatusProgressRing: View {
+    let status: PaneStatus
+
+    var body: some View {
+        if let progress = status.progress { ProgressRing(progress: progress) }
+    }
+}
+
+/// The ring of a tab: the report of its first pane that has one (the focused pane first).
+struct TabProgressRing: View {
+    let panes: [PaneID]
+    let actions: ChromeActions
+
+    var body: some View {
+        if let progress = panes.lazy.compactMap({ actions.progress(for: $0) }).first { ProgressRing(progress: progress) }
+    }
+}
+
+private struct SpinningArc: NSViewRepresentable {
+    let color: NSColor
+    let lineWidth: CGFloat
+
+    func makeNSView(context: Context) -> LoopingLayerView {
+        let view = LoopingLayerView()
+        let color = color
+        let lineWidth = lineWidth
+        view.configure = { layer, bounds in
+            let arc = (layer.sublayers?.first as? CAShapeLayer) ?? {
+                let arc = CAShapeLayer()
+                layer.addSublayer(arc)
+                return arc
+            }()
+            arc.frame = bounds
+            let rect = bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
+            arc.path = CGPath(ellipseIn: rect, transform: nil)
+            arc.fillColor = nil
+            arc.strokeColor = color.cgColor
+            arc.lineWidth = lineWidth
+            arc.lineCap = .round
+            arc.strokeStart = 0
+            arc.strokeEnd = 0.3
+            return arc
+        }
+        view.animate = { _ in
+            let animation = CABasicAnimation(keyPath: "transform.rotation.z")
+            animation.fromValue = 0
+            animation.toValue = -2 * Double.pi
+            animation.duration = 0.9
+            animation.repeatCount = .infinity
+            return animation
+        }
+        return view
+    }
+
+    func updateNSView(_ view: LoopingLayerView, context: Context) {}
 }
 
 /// A tab's panes as a stack of tiles, like Rex's: the focused pane's logo on a light card in
@@ -177,7 +297,7 @@ struct ProgramStack: View {
         case .running, .working: .green
         case .finished: .blue
         case .failed: .red
-        case .attention: .orange
+        case .attention, .permission: .orange
         }
     }
 

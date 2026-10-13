@@ -20,6 +20,16 @@ final class GhosttyActionTests: XCTestCase {
         XCTAssertEqual(GhosttyAction(action(GHOSTTY_ACTION_RING_BELL)), .ringBell)
     }
 
+    func testSecureInput() {
+        var a = action(GHOSTTY_ACTION_SECURE_INPUT)
+        a.action.secure_input = GHOSTTY_SECURE_INPUT_ON
+        XCTAssertEqual(GhosttyAction(a), .secureInput(.on))
+        a.action.secure_input = GHOSTTY_SECURE_INPUT_OFF
+        XCTAssertEqual(GhosttyAction(a), .secureInput(.off))
+        a.action.secure_input = GHOSTTY_SECURE_INPUT_TOGGLE
+        XCTAssertEqual(GhosttyAction(a), .secureInput(.toggle))
+    }
+
     func testCloseTabMode() {
         var a = action(GHOSTTY_ACTION_CLOSE_TAB)
         a.action.close_tab_mode = GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER
@@ -135,5 +145,50 @@ final class GhosttyActionTests: XCTestCase {
         XCTAssertEqual(GhosttyAction(a), .unhandled(tag: GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL.rawValue))
         XCTAssertFalse(GhosttyAction(a).isImplemented)
         XCTAssertTrue(GhosttyAction.newTab.isImplemented)
+    }
+
+    func testOpenURLUsesItsLengthNotATerminator() {
+        var a = action(GHOSTTY_ACTION_OPEN_URL)
+        a.action.open_url.kind = GHOSTTY_ACTION_OPEN_URL_KIND_TEXT
+        let decoded: GhosttyAction = "https://example.com/abc".withCString { ptr in
+            a.action.open_url.url = ptr
+            a.action.open_url.len = 19
+            return GhosttyAction(a)
+        }
+        XCTAssertEqual(decoded, .openURL(kind: .text, url: "https://example.com"))
+        a.action.open_url.kind = GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
+        a.action.open_url.url = nil
+        a.action.open_url.len = 0
+        XCTAssertEqual(GhosttyAction(a), .openURL(kind: .unknown, url: ""))
+    }
+
+    func testMouseOverLink() {
+        var a = action(GHOSTTY_ACTION_MOUSE_OVER_LINK)
+        let over: GhosttyAction = "https://example.com".withCString { ptr in
+            a.action.mouse_over_link.url = ptr
+            a.action.mouse_over_link.len = 19
+            return GhosttyAction(a)
+        }
+        XCTAssertEqual(over, .mouseOverLink("https://example.com"))
+        a.action.mouse_over_link.url = nil
+        a.action.mouse_over_link.len = 0
+        XCTAssertEqual(GhosttyAction(a), .mouseOverLink(nil))
+    }
+
+    func testProgressReport() {
+        var a = action(GHOSTTY_ACTION_PROGRESS_REPORT)
+        let cases: [(ghostty_action_progress_report_state_e, ProgressState)] = [
+            (GHOSTTY_PROGRESS_STATE_REMOVE, .remove), (GHOSTTY_PROGRESS_STATE_SET, .set),
+            (GHOSTTY_PROGRESS_STATE_ERROR, .error), (GHOSTTY_PROGRESS_STATE_INDETERMINATE, .indeterminate),
+            (GHOSTTY_PROGRESS_STATE_PAUSE, .pause),
+        ]
+        for (raw, state) in cases {
+            a.action.progress_report.state = raw
+            a.action.progress_report.progress = 40
+            XCTAssertEqual(GhosttyAction(a), .progressReport(state, percent: 40))
+        }
+        a.action.progress_report.state = GHOSTTY_PROGRESS_STATE_ERROR
+        a.action.progress_report.progress = -1
+        XCTAssertEqual(GhosttyAction(a), .progressReport(.error, percent: nil))
     }
 }

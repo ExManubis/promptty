@@ -53,6 +53,9 @@ public final class WindowState {
 
     public func tab(containing pane: PaneID) -> Tab? { tabs.first { $0.pane(pane) != nil } }
 
+    /// Every pane, tab by tab, in reading order.
+    public var paneIDs: [PaneID] { tabs.flatMap { $0.orderedPanes.map(\.id) } }
+
     /// The pinned tabs are always the first `pinnedCount` tabs.
     public var pinnedCount: Int { tabs.prefix { $0.pin != nil }.count }
 

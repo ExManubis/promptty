@@ -20,9 +20,10 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     case gotoTab1, gotoTab2, gotoTab3, gotoTab4, gotoTab5, gotoTab6, gotoTab7, gotoTab8, gotoTab9
     case toggleSidebar, toggleTabLayout
     case splitRight, splitDown, closePane
-    case focusPaneLeft, focusPaneUp, focusPaneRight, focusPaneDown, equalizePanes
+    case focusPaneLeft, focusPaneUp, focusPaneRight, focusPaneDown, equalizePanes, zoomPane
     case copy, paste, selectAll, clear, biggerFont, smallerFont, actualSizeFont
-    case selectPreviousCommand, selectNextCommand, copyOutput, copyCommand
+    case selectPreviousCommand, selectNextCommand, selectPreviousFailed, selectNextFailed
+    case copyOutput, copyCommand, rerunCommand
 
     public var title: String {
         switch self {
@@ -44,6 +45,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .focusPaneRight: return "Focus Pane Right"
         case .focusPaneDown: return "Focus Pane Below"
         case .equalizePanes: return "Equalize Panes"
+        case .zoomPane: return "Zoom Pane"
         case .copy: return "Copy"
         case .paste: return "Paste"
         case .selectAll: return "Select All"
@@ -55,6 +57,9 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .selectNextCommand: return "Select Next Command"
         case .copyOutput: return "Copy Output"
         case .copyCommand: return "Copy Command"
+        case .selectPreviousFailed: return "Select Previous Failed Command"
+        case .selectNextFailed: return "Select Next Failed Command"
+        case .rerunCommand: return "Rerun Command"
         }
     }
 
@@ -64,10 +69,11 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .newTab, .closeTab, .nextTab, .previousTab, .toggleSidebar, .toggleTabLayout,
              .gotoTab1, .gotoTab2, .gotoTab3, .gotoTab4, .gotoTab5, .gotoTab6, .gotoTab7, .gotoTab8, .gotoTab9:
             return .tabs
-        case .splitRight, .splitDown, .closePane, .focusPaneLeft, .focusPaneUp, .focusPaneRight, .focusPaneDown, .equalizePanes:
+        case .splitRight, .splitDown, .closePane, .focusPaneLeft, .focusPaneUp, .focusPaneRight, .focusPaneDown, .equalizePanes, .zoomPane:
             return .panes
         case .copy, .paste, .selectAll, .clear, .biggerFont, .smallerFont, .actualSizeFont,
-             .selectPreviousCommand, .selectNextCommand, .copyOutput, .copyCommand:
+             .selectPreviousCommand, .selectNextCommand, .copyOutput, .copyCommand,
+             .selectPreviousFailed, .selectNextFailed, .rerunCommand:
             return .terminal
         }
     }
@@ -104,6 +110,7 @@ public struct ShortcutMap: Equatable, Sendable {
         .focusPaneRight: s("opt+cmd+right"),
         .focusPaneDown: s("opt+cmd+down"),
         .equalizePanes: s("ctrl+cmd+="),
+        .zoomPane: s("shift+cmd+return"),
         .copy: s("cmd+c"),
         .paste: s("cmd+v"),
         .selectAll: s("cmd+a"),
@@ -115,6 +122,9 @@ public struct ShortcutMap: Equatable, Sendable {
         .selectNextCommand: s("cmd+down"),
         .copyOutput: s("opt+cmd+c"),
         .copyCommand: s("shift+cmd+c"),
+        .selectPreviousFailed: s("ctrl+cmd+up"),
+        .selectNextFailed: s("ctrl+cmd+down"),
+        .rerunCommand: s("shift+cmd+r"),
     ]
 
     /// Fixed menu shortcuts that cannot be assigned: Quit, Hide, Hide Others, Minimize, Settings, Full Screen.

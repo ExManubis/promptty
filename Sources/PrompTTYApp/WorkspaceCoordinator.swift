@@ -1,8 +1,12 @@
+import AgentHooks
 import AppKit
+import Carbon.HIToolbox
 import CommandEditing
 import GhosttyBridge
+import Observation
 import PaneActivity
 import Preferences
+import UniformTypeIdentifiers
 import WorkspaceModel
 
 /// Owns the mapping between the model, window controllers, and surfaces, and is libghostty's action sink.
@@ -14,6 +18,12 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     private var controllers: [WindowID: TerminalWindowController] = [:]
     /// What runs in each pane and what happened there unseen.
     let activity = ActivityTracker()
+    /// macOS secure keyboard input: forced by the menu, or asked for by a pane at a password prompt.
+    let secureInput = SecureInputOwner<PaneID>(
+        appActive: NSApp.isActive,
+        enable: { EnableSecureEventInput() == noErr },
+        disable: { DisableSecureEventInput() == noErr }
+    )
     /// Schedules a session save.
     var onModelChanged: (() -> Void)?
 
@@ -22,9 +32,25 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         self.workspace = workspace
         self.preferences = preferences
         activity.panes = { [weak self] in self?.watchedPanes() ?? [] }
+        activity.isSeen = { [weak self] in self?.isSeen($0) ?? false }
         activity.onNotice = { [weak self] pane, notice in self?.post(notice, for: pane) }
         activity.onSeen = { Notifications.remove(for: $0) }
+        activity.allPanes = { [weak self] in Set(self?.allPaneIDs ?? []) }
+        activity.afterTick = { [weak self] in self?.lookUpRepositories() }
+        secureInput.global = preferences.settings.secureKeyboardEntry
+        secureInput.onChange = { [weak self] in self?.refreshSecureIndicators() }
     }
+
+    /// Every pane's lock follows the owner: shown on a pane that asked for secure input itself, or
+    /// on all of them while the menu forces it.
+    func refreshSecureIndicators() {
+        for pane in allPaneIDs {
+            activity.status(for: pane).setSecure(secureInput.isSecure(pane))
+        }
+    }
+
+    /// Every pane, window by window, tab by tab.
+    private var allPaneIDs: [PaneID] { workspace.windows.flatMap(\.paneIDs) }
 
     /// Opens a controller for every window in the model; creates a default window if none.
     func start() {
@@ -38,32 +64,78 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         }
         controllers.values.first?.window?.makeKeyAndOrderFront(nil)
         activity.start()
+        startHooks()
+        refreshAgents()
+    }
+
+    /// Listens for agents' hooks (`promptty-hook`, run by Claude Code inside a pane). Without the
+    /// socket, agents are still followed by their screens.
+    private func startHooks() {
+        // Delivered on the main queue.
+        let listener = HookListener(path: AppPaths.hookSocket) { [weak self] message in
+            MainActor.assumeIsolated { self?.activity.hookMessage(message) }
+        }
+        do {
+            try listener.start()
+            hookListener = listener
+        } catch HookListener.Failure.inUse {
+            // Another PrompTTY on the same data folder: its panes' hooks are its own.
+            NSLog("PrompTTY: another app listens at \(AppPaths.hookSocket); hooks go there")
+        } catch {
+            NSLog("PrompTTY: no hook socket at \(AppPaths.hookSocket): \(error)")
+        }
+    }
+
+    private var hookListener: HookListener?
+
+    /// Takes the hook socket away (at quit).
+    func stopHooks() {
+        hookListener?.stop()
+        hookListener = nil
     }
 
     // MARK: Activity
 
-    /// Every pane with a terminal, and whether the user sees it: the app in front, its window key
-    /// and on screen, its tab selected.
+    /// Whether the user looks at a window: the app in front, the window main and on screen. Main,
+    /// not key: a sheet, a picker's popover or the Settings window can have the keys while the
+    /// user looks at this window.
+    private func isSeen(_ window: NSWindow?) -> Bool {
+        NSApp.isActive && window?.isMainWindow == true && window?.occlusionState.contains(.visible) == true
+    }
+
+    /// Whether the user sees one pane: its tab selected in a window they look at, and not hidden
+    /// behind another pane's zoom.
+    private func isSeen(_ pane: PaneID) -> Bool {
+        guard let (state, tab) = workspace.tab(containing: pane), let controller = controllers[state.id] else { return false }
+        return controller.state.selectedTabID == tab.id && tab.isShown(pane) && isSeen(controller.window)
+    }
+
+    /// Every pane with a terminal, and whether the user sees it. Built once per tick, so the pids
+    /// are read lazily: only for the panes whose checks are due.
     private func watchedPanes() -> [ActivityTracker.Watched] {
-        let active = NSApp.isActive
         var watched: [ActivityTracker.Watched] = []
         for controller in controllers.values {
             let window = controller.window
-            // Main, not key: a sheet, a picker's popover or the Settings window can have the keys
-            // while the user looks at this window.
-            let windowSeen = active && window?.isMainWindow == true && window?.occlusionState.contains(.visible) == true
+            let windowSeen = isSeen(window)
+            let windowVisible = window?.occlusionState.contains(.visible) == true
             for tab in controller.state.tabs {
-                let tabSeen = windowSeen && controller.state.selectedTabID == tab.id
+                let selected = controller.state.selectedTabID == tab.id
                 for pane in tab.orderedPanes {
                     guard let surface = controller.existingSurface(for: pane.id) else { continue }
+                    let id = pane.id
+                    // A pane hidden behind another's zoom is not looked at.
+                    let shown = selected && tab.isShown(id)
                     watched.append(ActivityTracker.Watched(
-                        pane: pane.id,
-                        foregroundPID: surface.foregroundPID,
-                        shellPID: controller.shell(for: pane.id)?.state.shellPID,
-                        seen: tabSeen,
+                        pane: id,
+                        foregroundPID: { [weak surface] in surface?.foregroundPID },
+                        shellPID: { [weak controller] in controller?.shell(for: id)?.state.shellPID },
+                        visible: windowVisible && shown,
+                        seen: windowSeen && shown,
+                        checkShell: { [weak controller] in controller?.shell(for: id)?.checkForeground() },
                         screen: { [weak surface] in surface?.activeScreenText() },
                         quietUntil: [surface.lastResize.map { $0.addingTimeInterval(1.5) },
-                                     surface.lastKeyPress.map { $0.addingTimeInterval(1) }].compactMap { $0 }.max()
+                                     surface.lastKeyPress.map { $0.addingTimeInterval(1) }].compactMap { $0 }.max(),
+                        lastAnswerKey: surface.lastAnswerKey
                     ))
                 }
             }
@@ -93,31 +165,70 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     var postedNotices: [String] = []
     #endif
 
-    /// Every pane running an agent, window by window, tab by tab.
-    func agents() -> [AgentEntry] {
-        workspace.windows.flatMap { window in
+    /// Every pane running an agent, window by window, tab by tab, for the sidebars.
+    let agentList = AgentList()
+    private var agentsScheduled = false
+    /// The folders the agents work in, as the list last found them.
+    private var agentFolders: Set<String> = []
+    private var repositories = RepositoryCache()
+
+    /// The list is worked out again on the next turn of the run loop: changes made together are
+    /// one update.
+    private func scheduleAgents() {
+        guard !agentsScheduled else { return }
+        agentsScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { self?.refreshAgents() }
+        }
+    }
+
+    /// Works the agents out, watching what that read (the windows, tabs and panes, the panes'
+    /// titles and folders, what runs in each), and publishes them when they changed.
+    private func refreshAgents() {
+        agentsScheduled = false
+        let entries = withObservationTracking { agentEntries() } onChange: { [weak self] in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.scheduleAgents() } }
+        }
+        if entries != agentList.entries { agentList.entries = entries }
+        lookUpRepositories()
+    }
+
+    private func agentEntries() -> [AgentEntry] {
+        var folders = Set<String>()
+        let entries = workspace.windows.flatMap { window in
             window.tabs.flatMap { tab in
                 tab.orderedPanes.compactMap { pane -> AgentEntry? in
-                    let state = activity.activity(for: pane.id)
-                    guard let program = state.program, program.isAgent else { return nil }
-                    let own = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let title = own.isEmpty || own == pane.workingDirectory ? program.name : own
-                    return AgentEntry(pane: pane.id, tab: tab.id, program: program, title: title, activity: state,
-                                      repository: repository(for: activity.agentDirectory(for: pane.id) ?? pane.workingDirectory),
-                                      projectID: window.project(of: tab))
+                    let status = activity.status(for: pane.id)
+                    guard let program = status.activity.program, program.isAgent else { return nil }
+                    // The agent's own folder: it may differ from the shell's (`cd x && claude`).
+                    let folder = activity.agentDirectory(for: pane.id) ?? pane.workingDirectory
+                    folders.insert(folder)
+                    return AgentEntry(pane: pane.id, tab: tab.id, program: program,
+                                      title: AgentListing.title(paneTitle: pane.title, workingDirectory: pane.workingDirectory, program: program),
+                                      display: status.activity.display,
+                                      repository: repositories.repository(for: folder) ?? Repository(root: folder, branch: nil),
+                                      projectID: window.project(of: tab), status: status)
                 }
+            }
+        }
+        agentFolders = folders
+        return entries
+    }
+
+    /// Looks up the repositories of the agents' folders off the main thread: new folders at once,
+    /// the others again every few seconds (an agent may switch branches). Called after every
+    /// activity tick too.
+    private func lookUpRepositories() {
+        for folder in repositories.due(agentFolders, at: Date()) {
+            Task.detached(priority: .utility) { [weak self] in
+                let repository = Repository.find(for: folder, in: DiskFiles())
+                await self?.found(repository, for: folder)
             }
         }
     }
 
-    /// Repositories by folder, looked up again after a few seconds (an agent may switch branches).
-    private var repositories: [String: (repository: Repository, at: Date)] = [:]
-
-    private func repository(for directory: String) -> Repository {
-        if let cached = repositories[directory], Date().timeIntervalSince(cached.at) < 5 { return cached.repository }
-        let repository = Repository.find(for: directory, in: DiskFiles())
-        repositories[directory] = (repository, Date())
-        return repository
+    private func found(_ repository: Repository, for folder: String) {
+        if repositories.resolved(folder, repository, at: Date()) { scheduleAgents() }
     }
 
     /// A notification was clicked: its pane comes forward, focused.
@@ -226,6 +337,10 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             workspace.tabLayout = layout
             modelDidChange()
         }
+        if secureInput.global != settings.secureKeyboardEntry {
+            secureInput.global = settings.secureKeyboardEntry
+            refreshSecureIndicators()
+        }
         if lastTintStrength != settings.tintStrength {
             lastTintStrength = settings.tintStrength
             configDidReload()
@@ -240,6 +355,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     /// it is in front.
     func appActivationChanged() {
         for c in controllers.values { c.updateRefreshRate() }
+        secureInput.setAppActive(NSApp.isActive)
     }
 
     // MARK: Windows and tabs
@@ -314,7 +430,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         } else {
             let pane = tab.focusedPaneID
             let shell = controller.shell(for: pane)
-            let running = activity.activity(for: pane).isRunning || shell?.phase == .running
+            let running = activity.state(for: pane).isRunning || shell?.phase == .running
             // The program in front, not the shell itself (`-zsh`).
             let arguments = controller.existingSurface(for: pane)?.foregroundPID
                 .flatMap { pid in running && pid > 0 && pid != shell?.state.shellPID ? ProcessArguments.read(pid: Int32(pid))?.arguments : nil }
@@ -463,6 +579,11 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     func windowWillClose(_ id: WindowID) {
         guard let controller = controllers.removeValue(forKey: id) else { return }
+        // Before the surfaces are freed: a freed one reports no more, and a pane left in the owner
+        // would hold secure input on for the whole system.
+        if let state = workspace.windows.first(where: { $0.id == id }) {
+            secureInput.remove(state.paneIDs)
+        }
         for view in controller.allSurfaces() { view.teardown() }
         controller.stopShells()
         workspace.removeWindow(id: id)
@@ -509,11 +630,19 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
-    /// The user clicked into (or programmatically focused) a pane's terminal.
+    /// The user clicked into (or programmatically focused) a pane's terminal or input bar.
     func paneDidFocus(_ pane: PaneID) {
-        guard let (state, tab) = workspace.tab(containing: pane), tab.focusedPaneID != pane || state.selectedTabID != tab.id else { return }
+        guard let (state, tab) = workspace.tab(containing: pane) else { return }
+        // Panes out of sight (another tab, or behind a zoom) take no clicks, but AppKit can still
+        // hand them the keys: their input bars are only transparent, so one can be the next key
+        // view when the view with the keys is hidden. That must not switch tabs (or unzoom) under
+        // the user: the keys go back where they belong.
+        guard state.selectedTabID == tab.id, tab.isShown(pane) else {
+            controllers[state.id]?.focusSelectedPane()
+            return
+        }
+        guard tab.focusedPaneID != pane else { return }
         tab.focus(pane)
-        if state.selectedTabID != tab.id { state.select(id: tab.id) }
         controllers[state.id]?.reload()
         modelDidChange()
     }
@@ -551,6 +680,41 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
+    // MARK: Links
+
+    /// Carries out what `LinkTarget` decided; a refusal or a failure beeps. Nothing is ever run.
+    private func openLink(_ decision: LinkDecision) {
+        switch decision {
+        case .open(let url):
+            if !NSWorkspace.shared.open(url) { NSSound.beep() }
+        case .openAsText(let url):
+            guard let editor = NSWorkspace.shared.urlForApplication(toOpen: .plainText) else {
+                NSSound.beep()
+                return
+            }
+            NSWorkspace.shared.open([url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+                if error != nil { NSSound.beep() }
+            }
+        case .reveal(let url):
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        case .confirm(let url):
+            let alert = NSAlert()
+            alert.messageText = "Open this link?"
+            alert.informativeText = url.absoluteString
+            // The first button is the default one.
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Open")
+            if alert.runModal() == .alertSecondButtonReturn, !NSWorkspace.shared.open(url) { NSSound.beep() }
+        case .refuse:
+            NSSound.beep()
+        }
+    }
+
+    /// The clipboard policy may have changed: requests asked under the old one are refused.
+    func denyClipboardRequests() {
+        for controller in controllers.values { controller.denyClipboardRequests() }
+    }
+
     // MARK: Lookup
 
     private func locate(_ view: TerminalSurfaceView) -> (WindowState, Tab, Pane, TerminalWindowController)? {
@@ -568,6 +732,31 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     // MARK: GhosttyActionSink
 
     func handle(_ action: GhosttyAction, target: GhosttyActionTarget) -> Bool {
+        // The screen moved in the scrollback, the scrollback grew, or rows changed height: the
+        // command blocks moved. These arrive constantly in a stream, so no `locate` for them.
+        switch action {
+        case .scrollbar, .cellSize:
+            if case .surface(let view) = target { view.onLayoutChange?() }
+            return true
+        case .mouseOverLink(let link):
+            // On every mouse move over text, so straight to the pane's card.
+            if case .surface(let view) = target { view.onLinkHover?(link) }
+            return true
+        case .progressReport(let state, let percent):
+            // Often while a program runs, so straight to the pane's box.
+            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
+            let kind: PaneProgress.Kind?
+            switch state {
+            case .remove: kind = nil
+            case .set: kind = .set
+            case .error: kind = .error
+            case .indeterminate: kind = .indeterminate
+            case .pause: kind = .pause
+            }
+            activity.reportProgress(pane, kind: kind, percent: percent)
+            return true
+        default: break
+        }
         let located: (WindowState, Tab, Pane, TerminalWindowController)?
         if case .surface(let view) = target { located = locate(view) } else { located = nil }
         let state = located?.0 ?? keyWindowState
@@ -641,10 +830,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             located.3.applyInitialTerminalSize(CGSize(width: Double(w), height: Double(h)))
             return true
         case .scrollbar, .cellSize:
-            // The screen moved in the scrollback, the scrollback grew, or rows changed height:
-            // the command blocks moved.
-            if let located { located.3.blocks(for: located.2.id)?.setNeedsRefresh() }
-            return true
+            return true // handled above, before the pane lookup
         case .render, .configChange:
             return true
         case .colorChange(let kind, let r, let g, let b):
@@ -686,10 +872,33 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         case .commandFinished(let code, let duration):
             guard let located else { return false }
             activity.exitReported(located.2.id, code: Int(code))
+            activity.clearProgress(located.2.id)
             located.3.shell(for: located.2.id)?.commandFinished(code: code, durationNs: duration)
             located.3.blocks(for: located.2.id)?.setNeedsRefresh()
             return true
-        case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .unhandled:
+        case .secureInput(let request):
+            guard let located else { return false }
+            let pane = located.2.id
+            switch request {
+            case .on: secureInput.setRequested(pane, true)
+            case .off: secureInput.setRequested(pane, false)
+            case .toggle: secureInput.setRequested(pane, !secureInput.isRequested(pane))
+            }
+            refreshSecureIndicators()
+            return true
+        case .openURL(let kind, let text):
+            // Always true, even when refused: false would make libghostty `open` the text itself,
+            // past every refusal of `LinkTarget`.
+            let decision = LinkTarget.decide(text, kind: kind, relativeTo: located?.2.workingDirectory)
+            // Carried out on the next turn of the run loop, never inside this callback: a ⌘-click
+            // reaches here with libghostty holding the terminal's lock, and the confirmation's
+            // modal alert (or another app coming forward) takes the keys from the window, whose
+            // focus change calls back into libghostty for that same lock on this thread.
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated { self?.openLink(decision) }
+            }
+            return true
+        case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .mouseOverLink, .progressReport, .unhandled:
             // Config, mouse-shape and mouse-visibility actions are handled by the runtime.
             return false
         }

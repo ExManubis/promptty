@@ -130,8 +130,12 @@ final class PaneShell {
     private(set) var directory: String
     private(set) var git: GitStatus?
     private(set) var stateFile: ShellStateFile?
-    private(set) var history = CommandHistory(fileEntries: [])
+    /// The commands the bar offers: this pane's own on top of the history file's, which the panes
+    /// using the same HISTFILE share (until the shell reports which that is, a file of its own).
+    @ObservationIgnored private(set) var history = CommandHistory()
     private(set) var bar: BarPresentation = .hidden
+    /// ⌃R's history search, while it is open.
+    var historyPicker: HistoryPickerModel?
     /// The last command run from the bar or a picker, for a notification when it finishes unseen.
     @ObservationIgnored private(set) var lastCommand: String?
     /// The editor's height for its current text (one to eight lines).
@@ -148,7 +152,6 @@ final class PaneShell {
     @ObservationIgnored weak var surface: TerminalSurfaceView?
 
     @ObservationIgnored private var poll: Timer?
-    @ObservationIgnored private var historyDate: Date?
     @ObservationIgnored private var stateFileDate: Date?
     /// ⏎ was pressed while a quick command still ran: the bar's text runs at the next prompt.
     @ObservationIgnored private var queuedSubmit = false
@@ -160,6 +163,8 @@ final class PaneShell {
     /// How many polls that program may keep the terminal before it gets the keys.
     @ObservationIgnored private var handOverPolls = 4
     @ObservationIgnored private var gitGeneration = 0
+    @ObservationIgnored private var stateFileGeneration = 0
+    @ObservationIgnored private var commandsGeneration = 0
 
     /// Run from the bar at the first prompt (a pinned tab's command).
     @ObservationIgnored private var startupCommand: String?
@@ -178,13 +183,19 @@ final class PaneShell {
     /// signal, which is not a real directory and must not reach the pane's model.
     func directoryReported(_ path: String) -> Bool {
         guard integrated, let dir = ZshIntegration.readyDirectory(fromReportedPath: path) else {
-            moveTo(path)
+            // A command that changes directory is followed by a prompt, which reads the status
+            // once the command is done: not once here and again there.
+            moveTo(path, refreshingGit: !integrated || state.phase == .idle)
             return false
         }
-        moveTo(dir)
-        guard let pid = surface?.foregroundPID, state.promptReady(foregroundPID: pid) else { return true }
+        let moved = moveTo(dir, refreshingGit: false)
+        guard let pid = surface?.foregroundPID, state.promptReady(foregroundPID: pid) else {
+            if moved { refreshGit() }
+            return true
+        }
         reloadStateFileIfChanged()
-        reloadHistoryIfChanged()
+        branchCache = [:]
+        branchEpoch += 1
         refreshGit()
         phaseChanged()
         if startupCommand != nil {
@@ -201,10 +212,13 @@ final class PaneShell {
         return true
     }
 
-    private func moveTo(_ dir: String) {
-        guard dir != directory else { return }
+    /// Returns whether the directory changed.
+    @discardableResult
+    private func moveTo(_ dir: String, refreshingGit: Bool = true) -> Bool {
+        guard dir != directory else { return false }
         directory = dir
-        refreshGit()
+        if refreshingGit { refreshGit() }
+        return true
     }
 
     func commandFinished(code: Int16, durationNs: UInt64) {
@@ -220,18 +234,26 @@ final class PaneShell {
         text.styleChanged()
         text.terminal = surface
         text.onSubmit = { [weak self] in self?.submit($0) }
-        text.history = { [weak self] in self?.history.newestFirst ?? [] }
+        text.history = { [weak self] in self?.history.merged ?? MergedHistory(newestFirst: []) }
+        text.suggestionGeneration = { [weak self] in
+            guard let self else { return 0 }
+            var hasher = Hasher()
+            hasher.combine(self.history.version)
+            hasher.combine(self.directory)
+            hasher.combine(FolderHistoryStore.shared.revision)
+            return hasher.finalize()
+        }
         text.folderHistory = { [weak self] in self.map { FolderHistoryStore.shared.ranked(for: $0.directory) } ?? [] }
         text.isKnownCommand = { [weak self] in self?.isKnownCommand($0) ?? true }
-        text.completionContext = { [weak self] in
-            guard let self else { return nil }
-            let sources = ShellCompletionSources(
-                commands: self.knownCommands.union(self.stateFile?.commandNames ?? []),
-                exports: self.stateFile?.exports ?? [],
-                git: Self.executable("git", in: self.stateFile?.path ?? []) ?? "/usr/bin/git"
-            )
-            return (sources, self.directory)
+        text.completionDirectory = { [weak self] in self?.directory }
+        text.completionNames = { [weak self] in
+            self.map { CompletionSnapshot(commands: $0.completionCommandNames, exports: $0.stateFile?.exports ?? []) }
         }
+        text.listEntries = { path in
+            await Task.detached(priority: .userInitiated) { DirectoryListing.entries(inDirectory: path) }.value
+        }
+        text.loadBranches = { [weak self] directory in await self?.localBranches(in: directory) ?? [] }
+        text.onHistorySearch = { [weak self] in self?.openHistorySearch(seed: $0) }
         text.onShellControl = { [weak self] in self?.surface?.sendControl($0) }
         text.onTextChange = { [weak self] in self?.editorTextChanged() }
         return view
@@ -259,21 +281,55 @@ final class PaneShell {
         return knownCommands.isEmpty || knownCommands.contains(name)
     }
 
+    /// `knownCommands` and the shell's own names together, merged once (thousands of names) and
+    /// again only when either changes.
+    @ObservationIgnored private var mergedCommandNames: Set<String>?
+
+    private var completionCommandNames: Set<String> {
+        if let merged = mergedCommandNames { return merged }
+        let merged = knownCommands.union(stateFile?.commandNames ?? [])
+        mergedCommandNames = merged
+        return merged
+    }
+
+    /// The local branches by directory, kept across completion lists and dropped at every prompt:
+    /// a checkout or a new branch happens between prompts.
+    @ObservationIgnored private var branchCache: [String: [String]] = [:]
+    @ObservationIgnored private var branchEpoch = 0
+    @ObservationIgnored private var branchLookups: [String: Task<[String]?, Never>] = [:]
+
+    /// The local branches of the repository at `directory`; empty when it is none. Never blocks the
+    /// main thread.
+    func localBranches(in directory: String) async -> [String] {
+        if let cached = branchCache[directory] { return cached }
+        if let running = branchLookups[directory] { return await running.value ?? [] }
+        let epoch = branchEpoch
+        let path = stateFile?.path ?? []
+        let lookup = Task.detached(priority: .userInitiated) { () -> [String]? in
+            await Self.git(["for-each-ref", "--format=%(refname:short)", "refs/heads"], in: directory, path: path, timeout: 1)
+                .map { $0.split(separator: "\n").map(String.init) }
+        }
+        branchLookups[directory] = lookup
+        let branches = await lookup.value
+        branchLookups[directory] = nil
+        // A failure or timeout is not remembered: the next Tab asks again.
+        if let branches, epoch == branchEpoch { branchCache[directory] = branches }
+        return branches ?? []
+    }
+
     private func listCommands() {
         guard let stateFile else { return }
         let names = stateFile.commandNames
         let path = stateFile.path
+        commandsGeneration += 1
+        let generation = commandsGeneration
         Task.detached(priority: .utility) {
-            var all = names
-            let fm = FileManager.default
-            for dir in path {
-                for entry in (try? fm.contentsOfDirectory(atPath: dir)) ?? [] where fm.isExecutableFile(atPath: (dir as NSString).appendingPathComponent(entry)) {
-                    all.insert(entry)
-                }
-            }
+            // One scan per distinct PATH for all panes.
+            let all = await PathCommandCache.shared.commands(on: path).union(names)
             await MainActor.run { [weak self] in
-                guard let self else { return }
+                guard let self, generation == self.commandsGeneration else { return }
                 self.knownCommands = all
+                self.mergedCommandNames = nil
                 self.editor.textView.recolor()
             }
         }
@@ -309,6 +365,37 @@ final class PaneShell {
         editor.textView.commandRan()
         state.submitted()
         phaseChanged()
+    }
+
+    /// Puts `command` in the bar in place of its text, for the user to run with Return: only at a
+    /// prompt with the bar active. False otherwise (a program runs, or the bar is hidden).
+    func rerun(_ command: String) -> Bool {
+        guard state.phase == .idle, bar == .active else { return false }
+        let text = editor.textView
+        text.setCommand(command)
+        text.window?.makeFirstResponder(text)
+        return true
+    }
+
+    /// ⌃R in the bar: merges the history once and opens the search over it.
+    func openHistorySearch(seed: String) {
+        guard bar == .active, historyPicker == nil else { return }
+        historyPicker = HistoryPickerModel(history: history.merged,
+                                           folder: FolderHistoryStore.shared.ranked(for: directory), seed: seed)
+    }
+
+    /// Puts `command` in the bar without running it.
+    func chooseHistoryCommand(_ command: String) {
+        historyPicker = nil
+        editor.textView.setCommand(command)
+        returnKeysToBar()
+    }
+
+    /// Esc, or a click outside (which leaves the keys where that click put them).
+    func closeHistorySearch(returningKeys: Bool = false) {
+        guard historyPicker != nil else { return }
+        historyPicker = nil
+        if returningKeys { returnKeysToBar() }
     }
 
     /// After a picker closes from its own keys or a click on a row: the keys go back to the bar.
@@ -352,9 +439,9 @@ final class PaneShell {
     /// The repository's branches for the branch picker; nil when git cannot list them.
     func listBranches() async -> BranchListing? {
         let dir = directory
-        let git = Self.executable("git", in: stateFile?.path ?? []) ?? "/usr/bin/git"
+        let path = stateFile?.path ?? []
         return await Task.detached(priority: .userInitiated) {
-            Self.run(git, ["-C", dir, "for-each-ref", "--sort=-committerdate", "--format=%(refname)%09%(worktreepath)", "refs/heads", "refs/remotes"], timeout: 2)
+            await Self.git(["for-each-ref", "--sort=-committerdate", "--format=%(refname)%09%(worktreepath)", "refs/heads", "refs/remotes"], in: dir, path: path, timeout: 2)
                 .map(BranchListing.init(forEachRef:))
         }.value
     }
@@ -419,13 +506,6 @@ final class PaneShell {
             queuedSubmit = false
             bar = .hidden
         }
-        if state.phase == .idle {
-            // Something other than the shell can take the terminal without a command from the bar
-            // (`fg`, a program started by a hook): watch the foreground process while idle.
-            poll = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.checkForeground() }
-            }
-        }
         onPhaseChange?(state.phase)
     }
 
@@ -452,8 +532,10 @@ final class PaneShell {
         onPhaseChange?(state.phase)
     }
 
-    private func checkForeground() {
-        guard let pid = surface?.foregroundPID else { return }
+    /// Something other than the shell can take the terminal without a command from the bar (`fg`,
+    /// a program started by a hook): the activity tracker's shared timer calls this for idle shells.
+    func checkForeground() {
+        guard state.phase == .idle, let pid = surface?.foregroundPID else { return }
         let before = state.phase
         state.foregroundChanged(to: pid)
         if state.phase != before { phaseChanged() }
@@ -464,37 +546,53 @@ final class PaneShell {
     /// The integration rewrites the state file at every prompt (PATH and aliases change: direnv,
     /// nvm, a new alias); reread it when it changed.
     private func reloadStateFileIfChanged() {
+        stateFileGeneration += 1
+        let generation = stateFileGeneration
         let url = ShellIntegration.stateFile(for: pane)
-        let date = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
-        guard let date, date != stateFileDate, let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        let lastDate = stateFileDate
+        Task.detached(priority: .userInitiated) {
+            let date = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+            var read: (date: Date, file: ShellStateFile)?
+            if let date, date != lastDate, let text = try? String(contentsOf: url, encoding: .utf8) {
+                read = (date, ShellStateFile.parse(text))
+            }
+            await MainActor.run { [weak self] in
+                // A later prompt has asked again: its answer is the newer one.
+                guard let self, generation == self.stateFileGeneration else { return }
+                let before = self.stateFile?.path
+                if let read, self.applyStateFile(read.file, date: read.date) { self.listCommands() }
+                // The first status ran with the fallback git: run it again with the shell's.
+                if before != self.stateFile?.path { self.refreshGit() }
+                // The history file is the one the state file names.
+                self.reloadHistoryIfChanged()
+            }
+        }
+    }
+
+    /// Returns whether the command names changed.
+    private func applyStateFile(_ parsed: ShellStateFile, date: Date) -> Bool {
         stateFileDate = date
-        let parsed = ShellStateFile.parse(text)
-        guard parsed != stateFile else { return }
+        guard parsed != stateFile else { return false }
         let namesChanged = parsed.path != stateFile?.path || parsed.commandNames != stateFile?.commandNames
         stateFile = parsed
-        if namesChanged { listCommands() }
+        if namesChanged { mergedCommandNames = nil }
+        return namesChanged
     }
 
     private func reloadHistoryIfChanged() {
         guard let path = stateFile?.historyFile else { return }
-        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        let date = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
-        guard let date, date != historyDate else { return }
-        historyDate = date
-        Task.detached(priority: .utility) {
-            guard let data = try? Data(contentsOf: url) else { return }
-            let entries = ZshHistory.parse(data)
-            await MainActor.run { [weak self] in self?.history.replaceFileEntries(entries) }
-        }
+        let store = HistoryStore.shared(forPath: path)
+        history.use(store)
+        store.reloadIfChanged()
     }
 
     private func refreshGit() {
         gitGeneration += 1
         let generation = gitGeneration
         let dir = directory
-        let git = Self.executable("git", in: stateFile?.path ?? []) ?? "/usr/bin/git"
+        let path = stateFile?.path ?? []
         Task.detached(priority: .utility) {
-            let status = Self.run(git, ["-C", dir, "--no-optional-locks", "status", "--porcelain=v2", "--branch"], timeout: 1)
+            let status = await Self.git(["--no-optional-locks", "status", "--porcelain=v2", "--branch", "--ignore-submodules=dirty"], in: dir, path: path, timeout: 1)
                 .flatMap { GitStatus.parse(porcelainV2: $0) }
             await MainActor.run { [weak self] in
                 guard let self, generation == self.gitGeneration else { return }
@@ -503,50 +601,14 @@ final class PaneShell {
         }
     }
 
+    /// Runs the shell's git (the first on its PATH, else the system's) in `directory`; its output,
+    /// or nil when it failed or timed out. Call off the main thread: the lookup touches the disk.
+    nonisolated static func git(_ arguments: [String], in directory: String, path: [String], timeout: TimeInterval) async -> String? {
+        let git = executable("git", in: path) ?? "/usr/bin/git"
+        return await ProcessRunner.run(git, ["-C", directory] + arguments, timeout: timeout)
+    }
+
     nonisolated static func executable(_ name: String, in path: [String]) -> String? {
         path.map { ($0 as NSString).appendingPathComponent(name) }.first { FileManager.default.isExecutableFile(atPath: $0) }
-    }
-
-    /// Runs a program and returns its standard output, or nil on failure or after `timeout` seconds.
-    nonisolated static func run(_ executable: String, _ arguments: [String], timeout: TimeInterval) -> String? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: executable)
-        p.arguments = arguments
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
-        p.standardInput = FileHandle.nullDevice
-        // Read as output arrives: a full pipe would otherwise stall the program until the timeout.
-        let collected = OutputBuffer()
-        out.fileHandleForReading.readabilityHandler = { collected.append($0.availableData) }
-        let done = DispatchSemaphore(value: 0)
-        p.terminationHandler = { _ in done.signal() }
-        do { try p.run() } catch { return nil }
-        guard done.wait(timeout: .now() + timeout) == .success else {
-            p.terminate()
-            out.fileHandleForReading.readabilityHandler = nil
-            return nil
-        }
-        out.fileHandleForReading.readabilityHandler = nil
-        collected.append(out.fileHandleForReading.readDataToEndOfFile())
-        guard p.terminationStatus == 0 else { return nil }
-        return String(decoding: collected.data, as: UTF8.self)
-    }
-}
-
-private final class OutputBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage = Data()
-
-    func append(_ data: Data) {
-        lock.lock()
-        storage.append(data)
-        lock.unlock()
-    }
-
-    var data: Data {
-        lock.lock()
-        defer { lock.unlock() }
-        return storage
     }
 }

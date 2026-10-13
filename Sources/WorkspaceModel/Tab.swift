@@ -26,6 +26,9 @@ public final class Tab {
     public private(set) var panes: [PaneID: Pane]
     /// Always a leaf of `root`.
     public private(set) var focusedPaneID: PaneID
+    /// The pane filling the tab while the others stay hidden and alive; nil when not zoomed. Always
+    /// the focused pane, and not part of the session snapshot.
+    public private(set) var zoomedPaneID: PaneID?
 
     public init(id: TabID = TabID(), title: String, customTitle: String? = nil, workingDirectory: String, paneID: PaneID = PaneID()) {
         self.id = id
@@ -50,7 +53,23 @@ public final class Tab {
 
     public func focus(_ pane: PaneID) {
         guard panes[pane] != nil else { return }
+        if pane != focusedPaneID { zoomedPaneID = nil }
         focusedPaneID = pane
+    }
+
+    /// Whether `pane` is on screen when the tab is: not hidden behind another pane's zoom.
+    public func isShown(_ pane: PaneID) -> Bool { zoomedPaneID == nil || zoomedPaneID == pane }
+
+    /// Shows every pane again.
+    public func unzoom() { zoomedPaneID = nil }
+
+    /// Zooms the focused pane, or unzooms. A tab with one pane has nothing to zoom.
+    public func toggleZoom() {
+        if zoomedPaneID != nil {
+            zoomedPaneID = nil
+        } else if hasSplits {
+            zoomedPaneID = focusedPaneID
+        }
     }
 
     /// Splits `pane`, putting a new pane on the `direction` side, and focuses the new pane.
@@ -58,6 +77,7 @@ public final class Tab {
     public func split(_ pane: PaneID, direction: SplitDirection, workingDirectory: String) -> Pane {
         let new = Pane(workingDirectory: workingDirectory)
         guard panes[pane] != nil else { return new }
+        zoomedPaneID = nil
         root = root.splitting(pane, direction: direction, newPane: new.id)
         panes[new.id] = new
         focusedPaneID = new.id
@@ -74,6 +94,7 @@ public final class Tab {
     /// Removes `pane` without discarding it (for moves). Nil if it is unknown or the last pane.
     public func detach(_ pane: PaneID) -> Pane? {
         guard let removed = panes[pane], let newRoot = root.removing(pane) else { return nil }
+        zoomedPaneID = nil
         if focusedPaneID == pane {
             focusedPaneID = Self.replacement(for: pane, in: root) ?? newRoot.leaves[0]
         }
@@ -85,6 +106,7 @@ public final class Tab {
     /// Inserts `pane` on `edge` of `target` and focuses it.
     public func attach(_ pane: Pane, at target: PaneID, edge: PaneEdge) {
         guard panes[target] != nil, panes[pane.id] == nil else { return }
+        zoomedPaneID = nil
         root = root.inserting(pane.id, at: target, edge: edge)
         panes[pane.id] = pane
         focusedPaneID = pane.id
@@ -93,6 +115,7 @@ public final class Tab {
     @discardableResult
     public func moveFocus(_ direction: SplitDirection) -> Bool {
         guard let next = root.neighbor(of: focusedPaneID, direction: direction) else { return false }
+        zoomedPaneID = nil
         focusedPaneID = next
         return true
     }
@@ -112,6 +135,7 @@ public final class Tab {
         root = .leaf(pane.id)
         panes = [pane.id: pane]
         focusedPaneID = pane.id
+        zoomedPaneID = nil
         return removed
     }
 

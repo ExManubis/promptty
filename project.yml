@@ -56,6 +56,14 @@ targets:
         product: PaneActivity
       - package: PrompTTYCore
         product: CommandBlocks
+      - package: PrompTTYCore
+        product: AgentHooks
+      # The hook helper, in Contents/MacOS beside the app (Claude Code's settings point at it).
+      - target: promptty-hook
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
     settings:
       base:
         PRODUCT_NAME: PrompTTY
@@ -71,6 +79,27 @@ targets:
       # Release builds are for distribution (script/release): signed with the Developer ID, with
       # the hardened runtime and a secure timestamp that notarization requires. Only this target:
       # the Swift packages' resource bundles sign themselves. Debug stays ad hoc, needing no key.
+      configs:
+        Release:
+          CODE_SIGN_IDENTITY: "Developer ID Application"
+          DEVELOPMENT_TEAM: RQ2CW4W282
+          ENABLE_HARDENED_RUNTIME: YES
+          OTHER_CODE_SIGN_FLAGS: "--timestamp"
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+  # Run by Claude Code's hooks inside a pane (Sources/promptty-hook); also a SwiftPM executable for
+  # the tests.
+  promptty-hook:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/promptty-hook
+    dependencies:
+      - package: PrompTTYCore
+        product: AgentHooks
+    settings:
+      base:
+        PRODUCT_NAME: promptty-hook
+        SKIP_INSTALL: YES
       configs:
         Release:
           CODE_SIGN_IDENTITY: "Developer ID Application"

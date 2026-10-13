@@ -6,7 +6,7 @@ import WorkspaceModel
 
 @main
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var runtime: GhosttyRuntime!
     private var workspace: Workspace!
     private var coordinator: WorkspaceCoordinator!
@@ -30,6 +30,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Forgets which commands ran in which folder (the bar's per-folder suggestions).
     @objc func clearFolderHistory(_ sender: Any?) {
         FolderHistoryStore.shared.clear()
+    }
+
+    /// Forces secure keyboard entry on while PrompTTY is in front, or lets go of that.
+    @objc func toggleSecureKeyboardEntry(_ sender: Any?) {
+        preferences.update { $0.secureKeyboardEntry.toggle() }
+    }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(toggleSecureKeyboardEntry(_:)) {
+            item.state = preferences?.settings.secureKeyboardEntry == true ? .on : .off
+        }
+        return true
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -69,7 +81,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let router = NotificationRouter { [weak self] pane in self?.coordinator.reveal(pane) }
         notificationRouter = router
         UNUserNotificationCenter.current().delegate = router
-        preferences.onTerminalConfigChanged = { [weak self] in self?.runtime.reloadConfig() }
+        preferences.onTerminalConfigChanged = { [weak self] in
+            self?.coordinator.denyClipboardRequests()
+            self?.runtime.reloadConfig()
+        }
         preferences.onShortcutsChanged = { NSApp.mainMenu = MainMenu.build(shortcuts: $0) }
         // Shifted punctuation shortcuts are declared per keyboard layout; rebuild when it changes.
         layoutObserver = DistributedNotificationCenter.default().addObserver(
@@ -85,6 +100,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         saver = DebouncedSaver(delay: .seconds(1)) { [weak self] in self?.saveSession() }
         coordinator.onModelChanged = { [weak self] in self?.saver.schedule() }
         runtime.sink = coordinator
+        // Output in any terminal wakes the runtime (`.render` is never sent on macOS). The 120 Hz
+        // link runs only in the key window, so that is the only one told.
+        runtime.onTick = {
+            #if DEBUG
+            // A driven app has no key window.
+            if NSApp.keyWindow == nil { (NSApp.windows.first { $0 is TerminalWindow } as? TerminalWindow)?.activityObserver?(); return }
+            #endif
+            (NSApp.keyWindow as? TerminalWindow)?.activityObserver?()
+        }
         runtime.onConfigDiagnostics = { [weak self] diags in
             self?.coordinator.configDidReload()
             self?.coordinator.showConfigDiagnostics(diags)
@@ -153,6 +177,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         guard sessionStore != nil else { return }
         preferences?.flush()
+        coordinator?.secureInput.shutDown()
+        coordinator?.stopHooks()
         saver?.flush()
         saveSession()
     }

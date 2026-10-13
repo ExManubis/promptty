@@ -19,7 +19,7 @@ struct AgentsSection: View {
     @State private var collapsed: Set<String> = []
 
     var body: some View {
-        let agents = actions.agents()
+        let agents = actions.agentList.entries
         if !agents.isEmpty || !projects.isEmpty {
             let byPane = Dictionary(uniqueKeysWithValues: agents.map { ($0.pane, $0) })
             let known = Set(projects.map { Self.key(for: $0.id) })
@@ -27,7 +27,7 @@ struct AgentsSection: View {
                 agents.map { agent in
                     let project = agent.projectID.map(Self.key(for:)).flatMap { known.contains($0) ? $0 : nil }
                     return AgentGroups.Item(id: agent.pane, key: project.map(AgentGroups.Key.project) ?? .repository(agent.repository.root),
-                                            display: agent.activity.display)
+                                            display: agent.display)
                 },
                 projectOrder: projects.map { Self.key(for: $0.id) }
             )
@@ -113,25 +113,30 @@ private struct AgentRow: View {
     private func open() { actions.reveal(agent.pane) }
 
     var body: some View {
+        let activity = agent.status.activity
         // A tap, not a Button: a Button would swallow the drag.
         HStack(spacing: 8) {
-            ProgramStack(cards: [ProgramStack.Card(id: agent.pane, program: agent.program, display: agent.activity.display)])
+            ProgramStack(cards: [ProgramStack.Card(id: agent.pane, program: agent.program, display: activity.display)])
                 .frame(minWidth: 18, alignment: .leading)
             VStack(alignment: .leading, spacing: 0) {
                 Text(agent.title)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                // Durations tick while the row is shown; the branch tells parallel agents apart.
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text([agent.repository.notableBranch, Self.state(of: agent.activity, now: context.date)].compactMap { $0 }.joined(separator: " · "))
+                // Durations tick while the row is shown, each second only while they show
+                // seconds; the branch tells parallel agents apart.
+                TimelineView(SinceSchedule(since: activity.agentSince)) { context in
+                    Text([agent.repository.notableBranch, Self.state(of: activity, now: context.date)].compactMap { $0 }.joined(separator: " · "))
                         .font(.system(size: 10.5))
-                        .foregroundStyle(agent.activity.display == .attention ? Color.orange : Color.secondary)
+                        .foregroundStyle(activity.display >= .attention ? Color.orange : Color.secondary)
                         .monospacedDigit()
                 }
+                // A new schedule when the state's start moves: the one-second ticks start again.
+                .id(activity.agentSince)
             }
             Spacer(minLength: 2)
-            ActivityIndicator(display: agent.activity.display)
+            StatusProgressRing(status: agent.status)
+            ActivityIndicator(display: agent.display)
         }
         .padding(.leading, 8)
         .padding(.trailing, 6)
@@ -174,23 +179,33 @@ private struct AgentRow: View {
         }
     }
 
-    /// "Working · 1 min 20 s", "Waiting · 5 min", "Your turn · 2 min".
-    static func state(of activity: PaneActivity, now: Date) -> String {
-        let label: String
+    /// "Working · 1 min 20 s", "Working · Bash · 20 s" (the tool, when the agent's hooks say),
+    /// "Needs permission · Bash · 5 s", "Waiting · 5 min", "Your turn · 2 min".
+    static func state(of activity: PaneActivity.Visible, now: Date) -> String {
+        var label: String
         switch activity.display {
+        case .permission: label = "Needs permission"
         case .attention: label = "Your turn"
         case .working: label = "Working"
         default: label = "Waiting"
         }
+        if let tool = activity.tool, activity.display == .working || activity.display == .permission { label += " · \(tool)" }
         guard let since = activity.agentSince else { return label }
-        return "\(label) · \(Self.format(now.timeIntervalSince(since)))"
+        return "\(label) · \(AgentListing.elapsed(now.timeIntervalSince(since)))"
     }
+}
 
-    static func format(_ seconds: TimeInterval) -> String {
-        let total = max(0, Int(seconds))
-        if total < 60 { return "\(total) s" }
-        let minutes = total / 60
-        if minutes < 60 { return "\(minutes) min" }
-        return "\(minutes / 60) h \(minutes % 60) min"
+/// An agent row's clock: when its "since" label next reads differently (every second for the
+/// first minute, then every minute); never without one.
+private struct SinceSchedule: TimelineSchedule {
+    let since: Date?
+
+    func entries(from startDate: Date, mode: TimelineScheduleMode) -> AnyIterator<Date> {
+        var next: Date? = startDate
+        return AnyIterator {
+            guard let date = next else { return nil }
+            next = since.map { AgentListing.nextChange(since: $0, after: date) }
+            return date
+        }
     }
 }

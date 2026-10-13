@@ -8,6 +8,9 @@ struct BannerContent {
     var message: String
     var actionTitle: String?
     var action: (() -> Void)?
+    var symbol = "exclamationmark.triangle.fill"
+    /// Further buttons, shown before the main one.
+    var extraActions: [(title: String, action: () -> Void)] = []
 }
 
 /// Per-window state the SwiftUI chrome shows that is not part of the workspace model.

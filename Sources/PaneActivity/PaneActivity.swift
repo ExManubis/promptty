@@ -12,6 +12,8 @@ public struct PaneActivity: Equatable, Sendable {
         case finished
         case failed(Int)
         case attention
+        /// An agent asks for permission (to run a tool): it is stuck until the user answers.
+        case permission
 
         private var rank: Int {
             switch self {
@@ -21,6 +23,7 @@ public struct PaneActivity: Equatable, Sendable {
             case .finished: 3
             case .failed: 4
             case .attention: 5
+            case .permission: 6
             }
         }
 
@@ -66,6 +69,16 @@ public struct PaneActivity: Equatable, Sendable {
     /// An agent is waiting once its screen has been still this long.
     static let agentQuiet: TimeInterval = 3
 
+    /// What the agent last said of itself (its hooks), if it says: reported again at every tick,
+    /// so a report already applied changes nothing.
+    private var lastReport: AgentReport?
+    /// The agent waits for the user to allow a tool; it stands until the agent reports otherwise.
+    private var awaitingPermission = false
+    /// What is unseen is a permission prompt or a question in a turn, which goes once it is answered.
+    private var unseenPermission = false
+    /// The tool the agent runs (or asks to run), as it reports it.
+    private var tool: String?
+
     /// Commands that take at least this long notify when they finish unseen.
     public static let notifyAfter: TimeInterval = 10
     /// With exit reports: how long the shell may be in front without one before the command is
@@ -75,7 +88,8 @@ public struct PaneActivity: Equatable, Sendable {
     public init() {}
 
     public var display: Display {
-        switch unseen {
+        if awaitingPermission { return .permission }
+        return switch unseen {
         case .attention: .attention
         case .failed(let code): .failed(code)
         case .finished: .finished
@@ -89,10 +103,12 @@ public struct PaneActivity: Equatable, Sendable {
         public let display: Display
         public let program: Program?
         public let agentSince: Date?
+        /// The tool an agent runs, when it says.
+        public let tool: String?
     }
 
     public var visible: Visible {
-        Visible(display: display, program: program, agentSince: agentSince)
+        Visible(display: display, program: program, agentSince: agentSince, tool: tool)
     }
 
     /// Whether something happened here the user has not seen.
@@ -154,7 +170,8 @@ public struct PaneActivity: Equatable, Sendable {
         return Notice(kind: code == 0 ? .finished : .failed(code), program: ran, duration: duration)
     }
 
-    /// An agent's screen, checked about once a second: whether it changed since the last check.
+    /// An agent's screen, checked every half second where the user looks and every 1.5 s elsewhere:
+    /// whether it changed since the last check.
     /// Returns the notice to post when the agent finished a long turn where the user was not
     /// looking.
     @discardableResult
@@ -193,7 +210,102 @@ public struct PaneActivity: Equatable, Sendable {
         return Notice(kind: .waiting, program: program, duration: duration)
     }
 
+    /// What an agent says it does, through its hooks.
+    public enum AgentReport: Equatable, Sendable {
+        /// A session started: waiting for a first prompt.
+        case ready
+        case working(tool: String?)
+        /// Asks to be allowed to use a tool; the agent's message.
+        case permission(String?)
+        /// Waits for the user to write; the agent's message.
+        case waitingForInput(String?)
+        /// Finished its turn.
+        case turnEnded
+    }
+
+    /// The agent reported its state; `since` is when that state began. The hooks say exactly what
+    /// the screen only suggests, so while they report, they alone set the agent's state. Returns
+    /// the notice to post: a permission prompt, a question or a long turn's end the user did not
+    /// see.
+    @discardableResult
+    public mutating func agentReported(_ report: AgentReport, since: Date, at now: Date, seen: Bool) -> Notice? {
+        guard program?.isAgent == true, report != lastReport else { return nil }
+        lastReport = report
+        let busy = isWorking || awaitingPermission
+        switch report {
+        case .ready:
+            isWorking = false
+            awaitingPermission = false
+            tool = nil
+            workStarted = nil
+            agentSince = since
+            return nil
+        case .working(let tool):
+            self.tool = tool
+            awaitingPermission = false
+            // The prompt was answered (elsewhere, or without the pane coming into view): the agent
+            // is not waiting for the user any more.
+            if unseenPermission, unseen == .attention { unseen = nil }
+            unseenPermission = false
+            if !isWorking {
+                isWorking = true
+                // Back to work after a permission prompt: the same turn.
+                workStarted = workStarted ?? since
+                agentSince = workStarted
+            }
+            return nil
+        case .permission(let message):
+            awaitingPermission = true
+            isWorking = false
+            agentSince = since
+            guard !seen else { return nil }
+            if unseen != .attention { unseenPermission = true }
+            unseen = .attention
+            return Notice(kind: .permission(message), program: program, duration: nil)
+        case .waitingForInput(let message):
+            isWorking = false
+            awaitingPermission = false
+            tool = nil
+            // A question in the middle of a turn (AskUserQuestion) is part of the turn, like a
+            // permission prompt; after a turn there is no work to count.
+            if !busy { workStarted = nil }
+            if busy || agentSince == nil { agentSince = since }
+            guard !seen, unseen != .attention else { return nil }
+            unseen = .attention
+            unseenPermission = busy
+            return Notice(kind: .attention(message), program: program, duration: nil)
+        case .turnEnded:
+            return endTurn(at: since, seen: seen, busy: busy)
+        }
+    }
+
+    /// The agent said its turn ended, and says nothing else (Codex): its work is read off the
+    /// screen, its end is known exactly.
+    @discardableResult
+    public mutating func agentTurnEnded(at now: Date, seen: Bool) -> Notice? {
+        guard program?.isAgent == true else { return nil }
+        return endTurn(at: now, seen: seen, busy: true)
+    }
+
+    private mutating func endTurn(at end: Date, seen: Bool, busy: Bool) -> Notice? {
+        let duration = workStarted.map { end.timeIntervalSince($0) } ?? 0
+        isWorking = false
+        awaitingPermission = false
+        tool = nil
+        workStarted = nil
+        firstChange = nil
+        if busy || agentSince == nil { agentSince = end }
+        guard busy, !seen, unseen != .attention else { return nil }
+        unseen = .attention
+        guard duration >= Self.notifyAfter else { return nil }
+        return Notice(kind: .waiting, program: program, duration: duration)
+    }
+
     private mutating func resetAgent() {
+        lastReport = nil
+        unseenPermission = false
+        awaitingPermission = false
+        tool = nil
         isWorking = false
         agentSince = nil
         lastScreenChange = nil
@@ -214,6 +326,7 @@ public struct PaneActivity: Equatable, Sendable {
     /// The user looked at the pane.
     public mutating func seen() {
         unseen = nil
+        unseenPermission = false
     }
 }
 
@@ -225,6 +338,8 @@ public struct Notice: Equatable, Sendable {
         case attention(String?)
         /// An agent finished its turn.
         case waiting
+        /// An agent asks for permission to use a tool; its message.
+        case permission(String?)
     }
 
     public let kind: Kind
@@ -250,7 +365,8 @@ public struct Notice: Equatable, Sendable {
         case .finished: "Finished in \(Self.format(duration ?? 0))"
         case .failed(let code): "Failed (exit \(code)) after \(Self.format(duration ?? 0))"
         case .attention(let message): message.flatMap { $0.isEmpty ? nil : $0 } ?? "Needs your attention"
-        case .waiting: "Waiting for you after \(Self.format(duration ?? 0))"
+        case .waiting: "Done after \(Self.format(duration ?? 0)), your turn"
+        case .permission(let message): message.flatMap { $0.isEmpty ? nil : $0 } ?? "Needs your permission"
         }
     }
 

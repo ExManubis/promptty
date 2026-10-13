@@ -1,3 +1,4 @@
+import AgentHooks
 import AppKit
 import CommandEditing
 import GhosttyBridge
@@ -60,6 +61,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         window.minSize = NSSize(width: 520, height: 320)
         super.init(window: window)
         window.delegate = self
+        window.activityObserver = { [weak self] in self?.noteRefreshActivity() }
         window.keyInterceptor = { [weak self] event in
             guard let self else { return false }
             return self.handleVimNavigation(event) || self.handleBlockKeys(event)
@@ -127,6 +129,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         guard state.tab(containing: pane.id) != nil else { return nil }
         let environment = ShellIntegration.environment(for: pane.id)
         let integrated = !environment.isEmpty
+        // Every pane, whatever its shell: where an agent's hooks report, and for which pane.
+        let hookEnvironment = HookEnvironment.variables(pane: pane.id.rawValue, socket: AppPaths.hookSocket)
         // A pinned tab's command: run from the bar at the first prompt, or typed ahead into a
         // shell without the integration.
         let startup = pane.startupCommand
@@ -136,7 +140,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             configuration: TerminalSurfaceConfiguration(
                 workingDirectory: pane.workingDirectory,
                 inheritFrom: pendingInherit.removeValue(forKey: pane.id),
-                environment: environment,
+                environment: environment.merging(hookEnvironment) { shell, _ in shell },
                 initialInput: integrated ? nil : startup.map { $0 + "\n" }
             )
         )
@@ -153,8 +157,14 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     func shell(for pane: PaneID) -> PaneShell? { shells[pane] }
     func blocks(for pane: PaneID) -> BlockOverlayView? { surfaces[pane]?.overlay as? BlockOverlayView }
-    func activity(for pane: PaneID) -> PaneActivity { coordinator.activity.activity(for: pane) }
-    func agents() -> [AgentEntry] { coordinator.agents() }
+    func activity(for pane: PaneID) -> PaneActivity.Visible { coordinator.activity.activity(for: pane) }
+    func hoveredLink(for pane: PaneID) -> String? { coordinator.activity.status(for: pane).hoveredLink }
+    func clipboardRequest(for pane: PaneID) -> ClipboardTicket? { coordinator.activity.status(for: pane).clipboardRequest }
+    func answerClipboardRequest(_ decision: ClipboardDecision, id: Int, in pane: PaneID) { surfaces[pane]?.answerClipboardRequest(decision, id: id) }
+    func denyClipboardRequests() { surfaces.values.forEach { $0.resetClipboardPolicy() } }
+    func progress(for pane: PaneID) -> PaneProgress? { coordinator.activity.status(for: pane).progress }
+    func isSecure(_ pane: PaneID) -> Bool { coordinator.activity.status(for: pane).secure }
+    var agentList: AgentList { coordinator.agentList }
     func reveal(_ pane: PaneID) { coordinator.reveal(pane) }
     func screenText(for pane: PaneID) -> String? { surfaces[pane]?.visibleText() }
 
@@ -179,7 +189,26 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     private func bind(_ view: TerminalSurfaceView, to pane: PaneID) {
         view.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
+        view.onFocusChange = { [weak self] focused in self?.coordinator.secureInput.setFocused(pane, focused) }
+        coordinator.refreshSecureIndicators()
         view.onAttachedToWindow = { [weak self] in self?.surfaceAttached(pane) }
+        view.onClipboardRequest = { [weak self] kind in
+            guard let self else { return }
+            self.coordinator.activity.status(for: pane).setClipboardRequest(kind)
+            // The question is asked in the pane's banner: a pane hidden behind another's zoom
+            // comes back into view to show it. On the next turn of the run loop: this is called
+            // from inside libghostty, and a new layout resizes and shows surfaces.
+            guard kind != nil else { return }
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, let tab = self.state.tab(containing: pane), !tab.isShown(pane),
+                          self.coordinator.activity.status(for: pane).clipboardRequest != nil else { return }
+                    tab.unzoom()
+                    self.reload()
+                }
+            }
+        }
+        view.onLinkHover = { [weak self] link in self?.coordinator.activity.status(for: pane).hover(over: link) }
         // Dropped files: into the bar while it is shown, else typed for the program, quoted.
         view.onFileDrop = { [weak self, weak view] urls in
             if let shell = self?.shells[pane], shell.bar != .hidden {
@@ -188,6 +217,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
                 view?.sendText(urls.map { ShellQuoting.escape($0.path) }.joined(separator: " ") + " ")
             }
             return true
+        }
+        (view.overlay as? BlockOverlayView)?.onRerun = { [weak self] command in
+            self?.shells[pane]?.rerun(command) ?? false
         }
         guard let shell = shells[pane] else { return }
         // At a prompt the bar takes the keys, even after a click into the terminal's output
@@ -249,6 +281,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     /// tab is on screen, the surface lives on for a moment so its card can shrink away.
     func removeSurface(for pane: PaneID, closingOutOf tab: TabID? = nil) {
         pendingInherit[pane] = nil
+        coordinator.secureInput.remove(pane)
         chrome.exitedPanes[pane] = nil
         shells.removeValue(forKey: pane)?.stop()
         guard let view = surfaces.removeValue(forKey: pane) else { return }
@@ -638,6 +671,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     @objc func equalizePanes(_ sender: Any?) { state.selectedTab?.equalize() }
 
+    /// The focused pane fills the tab, the others hidden but running; again, or any focus move,
+    /// split or close, brings them back.
+    @objc func zoomPane(_ sender: Any?) { state.selectedTab?.toggleZoom() }
+
     @objc func clearTerminal(_ sender: Any?) {
         focusedSurface?.performBindingAction("clear_screen")
         (focusedSurface?.overlay as? BlockOverlayView)?.commandStarted()
@@ -648,12 +685,18 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         case #selector(focusPaneLeft(_:)), #selector(focusPaneUp(_:)), #selector(focusPaneRight(_:)),
              #selector(focusPaneDown(_:)), #selector(equalizePanes(_:)):
             return state.selectedTab?.hasSplits ?? false
+        case #selector(zoomPane(_:)):
+            let tab = state.selectedTab
+            item.title = tab?.zoomedPaneID == nil ? "Zoom Pane" : "Unzoom Pane"
+            return tab?.hasSplits ?? false
         case #selector(gotoTab(_:)):
             return item.tag <= state.tabs.count
         case #selector(previousTab(_:)), #selector(nextTab(_:)):
             return state.tabs.count > 1
         case #selector(selectPreviousCommand(_:)), #selector(selectNextCommand(_:)),
-             #selector(copyCommandOutput(_:)), #selector(copyCommandLine(_:)):
+             #selector(copyCommandOutput(_:)), #selector(copyCommandLine(_:)),
+             #selector(selectPreviousFailedCommand(_:)), #selector(selectNextFailedCommand(_:)),
+             #selector(copyCommandMarkdown(_:)), #selector(rerunCommand(_:)):
             return focusedBlocks?.hasBlocks ?? false
         case #selector(togglePinTab(_:)):
             item.title = state.selectedTab?.pin == nil ? "Pin Tab" : "Unpin Tab"
@@ -707,7 +750,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func windowDidMove(_ notification: Notification) { persistFrame() }
     func windowDidBecomeKey(_ notification: Notification) {
         focusSelectedPane()
-        updateRefreshRate()
+        noteRefreshActivity()
     }
     func windowDidResignKey(_ notification: Notification) { updateRefreshRate() }
     func windowDidChangeOcclusionState(_ notification: Notification) { updateRefreshRate() }
@@ -728,14 +771,26 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     /// Asks for the display's full refresh rate (Settings › Appearance › Display). A ProMotion
     /// display otherwise lowers its rate when little changes, down to 24 Hz, and the frame for
     /// the next keystroke can wait up to a refresh of that length. Runs only while this window
-    /// is in front, visible, of the active app.
+    /// is in front, visible, of the active app, and only while something is changing: it starts
+    /// on key input or terminal output and stops after `refreshIdleSeconds` without either.
     private var refreshLink: CADisplayLink?
+    /// When a key was last pressed or the terminal last drew.
+    private var lastRefreshActivity: CFTimeInterval = 0
+    private static let refreshIdleSeconds: CFTimeInterval = 1
     /// Display link callbacks, for the debug driver: the rate the system granted.
     private(set) var refreshTicks = 0
     #if DEBUG
-    /// Debug driver: runs the display link without the app in front (a driven app never is).
+    /// Debug driver: allows the display link without the app in front (a driven app never is);
+    /// it still starts and stops with activity.
     var forceFullRefreshRate = false
     #endif
+
+    /// Key input or terminal output: keeps the link running, or starts it. Called at every
+    /// runtime wakeup, so it only stamps the time while the link runs.
+    func noteRefreshActivity() {
+        lastRefreshActivity = CACurrentMediaTime()
+        if refreshLink == nil { updateRefreshRate() }
+    }
 
     func updateRefreshRate() {
         var wanted = coordinator.preferences.settings.fullRefreshRate && NSApp.isActive
@@ -749,14 +804,28 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             link.preferredFrameRateRange = CAFrameRateRange(minimum: rate, maximum: rate, preferred: rate)
             link.add(to: .main, forMode: .common)
             refreshLink = link
+            lastRefreshActivity = CACurrentMediaTime() // activation or the setting turning on counts
         } else if !wanted, let link = refreshLink {
             link.invalidate()
             refreshLink = nil
         }
     }
 
+    /// Output that redraws in place (full-screen programs, spinners, progress lines, coding
+    /// agents) wakes the runtime no more than a still screen does, so a program running in the
+    /// focused pane counts as activity too. Only an idle shell prompt lets the link stop.
+    private var focusedPaneIsBusy: Bool {
+        guard let id = state.selectedTab?.focusedPaneID, let shell = shells[id] else { return false }
+        return shell.phase != .idle
+    }
+
     @objc private func refreshTick(_ link: CADisplayLink) {
         refreshTicks &+= 1
+        if focusedPaneIsBusy { lastRefreshActivity = CACurrentMediaTime() }
+        if CACurrentMediaTime() - lastRefreshActivity > Self.refreshIdleSeconds {
+            link.invalidate()
+            refreshLink = nil
+        }
     }
 
     private func persistFrame() {
@@ -773,14 +842,19 @@ final class TerminalWindow: NSWindow {
     var keyInterceptor: ((NSEvent) -> Bool)?
     /// Told of every click before it is delivered.
     var mouseDownObserver: ((NSEvent) -> Void)?
+    /// Told of every key press, whichever view takes it (terminal or input bar), and of each
+    /// wakeup of the terminal runtime (output).
+    var activityObserver: (() -> Void)?
 
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown { activityObserver?() }
         if event.type == .keyDown, keyInterceptor?(event) == true { return }
         if event.type == .leftMouseDown { mouseDownObserver?(event) }
         super.sendEvent(event)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.type == .keyDown { activityObserver?() }
         if event.type == .keyDown, keyInterceptor?(event) == true { return true }
         return super.performKeyEquivalent(with: event)
     }

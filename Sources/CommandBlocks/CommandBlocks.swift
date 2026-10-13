@@ -56,58 +56,98 @@ public struct BlockViewport: Equatable, Sendable {
     }
 }
 
-/// The blocks of one terminal, oldest first, and where its screen is.
+/// Blocks of one terminal, oldest first, and where its screen is: all of them (the newest that fit),
+/// or those on screen and the one before them, with `newer` counting those below the screen.
 public struct BlockSnapshot: Equatable, Sendable {
     public var blocks: [CommandBlock]
     public var viewport: BlockViewport
+    /// Blocks after the last in `blocks`.
+    public var newer: Int
 
-    public init(blocks: [CommandBlock], viewport: BlockViewport) {
+    public init(blocks: [CommandBlock], viewport: BlockViewport, newer: Int = 0) {
         self.blocks = blocks
         self.viewport = viewport
+        self.newer = newer
     }
+
+    /// Whether the terminal has any block, listed here or not.
+    public var hasBlocks: Bool { !blocks.isEmpty || newer > 0 }
 }
 
-/// A selected block, counted from the newest (0). Old blocks drop off the top of the scrollback
-/// and their rows shift; counted from the end, the selection stays on the same command until a
-/// new one runs (which clears it).
+/// A block, counted from the newest (0). Old blocks drop off the top of the scrollback and their
+/// rows shift; counted from the end, it stays on the same command until a new one runs (which
+/// clears a selection), and it stays put in a snapshot of another part of the screen.
 public struct BlockSelection: Equatable, Sendable {
     public var fromEnd: Int
 
     public init(fromEnd: Int) { self.fromEnd = fromEnd }
 
-    init(index: Int, count: Int) { fromEnd = count - 1 - index }
+    /// The block at `index` in `snapshot.blocks`.
+    public init(index: Int, in snapshot: BlockSnapshot) {
+        fromEnd = snapshot.blocks.count - 1 - index + snapshot.newer
+    }
 
-    /// Its index in `blocks`, or nil when it is no longer there.
-    public func index(in blocks: [CommandBlock]) -> Int? {
-        let index = blocks.count - 1 - fromEnd
-        return blocks.indices.contains(index) ? index : nil
+    /// Its index in `snapshot.blocks`, or nil when it is not there.
+    public func index(in snapshot: BlockSnapshot) -> Int? {
+        let index = snapshot.blocks.count - 1 - (fromEnd - snapshot.newer)
+        return snapshot.blocks.indices.contains(index) ? index : nil
     }
 }
 
-/// Moving the selection between blocks (⌘↑ and ⌘↓) and bringing the selected one into view.
+/// Moving the selection between blocks (⌘↑ and ⌘↓) and bringing the selected one into view, in a
+/// snapshot of all blocks.
 public enum BlockNavigation {
     /// The block above: with nothing selected, the last block that starts on or above the screen.
     /// The oldest stays selected.
     public static func previous(from selection: BlockSelection?, in snapshot: BlockSnapshot) -> BlockSelection? {
         let blocks = snapshot.blocks
         guard !blocks.isEmpty else { return nil }
-        if let current = selection?.index(in: blocks) {
-            return BlockSelection(index: max(0, current - 1), count: blocks.count)
+        if let current = selection?.index(in: snapshot) {
+            return BlockSelection(index: max(0, current - 1), in: snapshot)
         }
         let screenEnd = snapshot.viewport.top + snapshot.viewport.rows
         guard let index = blocks.lastIndex(where: { $0.row < screenEnd }) else { return nil }
-        return BlockSelection(index: index, count: blocks.count)
+        return BlockSelection(index: index, in: snapshot)
     }
 
     /// The block below: with nothing selected, the first block that starts on or below the top of
     /// the screen. Past the newest, nothing is selected.
     public static func next(from selection: BlockSelection?, in snapshot: BlockSnapshot) -> BlockSelection? {
         let blocks = snapshot.blocks
-        if let current = selection?.index(in: blocks) {
-            return current + 1 < blocks.count ? BlockSelection(index: current + 1, count: blocks.count) : nil
+        if let current = selection?.index(in: snapshot) {
+            return current + 1 < blocks.count ? BlockSelection(index: current + 1, in: snapshot) : nil
         }
         guard let index = blocks.firstIndex(where: { $0.row >= snapshot.viewport.top }) else { return nil }
-        return BlockSelection(index: index, count: blocks.count)
+        return BlockSelection(index: index, in: snapshot)
+    }
+
+    /// The failed block above: from the selection, or with nothing selected from the last block
+    /// that starts on or above the screen. Nil when there is none.
+    public static func previousFailed(from selection: BlockSelection?, in snapshot: BlockSnapshot) -> BlockSelection? {
+        let blocks = snapshot.blocks
+        let before: Int
+        if let current = selection?.index(in: snapshot) {
+            before = current
+        } else {
+            let screenEnd = snapshot.viewport.top + snapshot.viewport.rows
+            before = (blocks.lastIndex(where: { $0.row < screenEnd }) ?? -1) + 1
+        }
+        guard let index = blocks[..<max(0, before)].lastIndex(where: \.failed) else { return nil }
+        return BlockSelection(index: index, in: snapshot)
+    }
+
+    /// The failed block below: from the selection, or with nothing selected from the first block
+    /// that starts on or below the top of the screen. Nil when there is none.
+    public static func nextFailed(from selection: BlockSelection?, in snapshot: BlockSnapshot) -> BlockSelection? {
+        let blocks = snapshot.blocks
+        let from: Int
+        if let current = selection?.index(in: snapshot) {
+            from = current + 1
+        } else {
+            from = blocks.firstIndex(where: { $0.row >= snapshot.viewport.top }) ?? blocks.count
+        }
+        guard from < blocks.count, let index = blocks[from...].firstIndex(where: \.failed) else { return nil }
+        return BlockSelection(index: index, in: snapshot)
     }
 
     /// The top row that brings `block` into view, or nil when it already is. Coming from below,
@@ -175,5 +215,26 @@ public enum BlockLayout {
     public static func block(atY y: CGFloat, in snapshot: BlockSnapshot) -> Int? {
         let row = snapshot.viewport.row(atY: y)
         return snapshot.blocks.firstIndex { $0.row <= row && row <= $0.endRow }
+    }
+}
+
+/// A block as Markdown, to paste into an issue or a chat.
+public enum BlockMarkdown {
+    /// The command after a `$` and its output, in a fenced `console` block. A command that spans
+    /// lines continues with `>`; the fence is longer than any run of backticks in the text.
+    public static func format(command: String, output: String) -> String {
+        var lines = command.split(separator: "\n", omittingEmptySubsequences: false).enumerated().map { i, line in
+            (i == 0 ? "$ " : "> ") + line
+        }
+        var body = output
+        while body.hasSuffix("\n") { body.removeLast() }
+        if !body.isEmpty { lines.append(body) }
+        var longest = 0, run = 0
+        for ch in lines.joined(separator: "\n") {
+            run = ch == "`" ? run + 1 : 0
+            longest = max(longest, run)
+        }
+        let fence = String(repeating: "`", count: max(3, longest + 1))
+        return "\(fence)console\n\(lines.joined(separator: "\n"))\n\(fence)"
     }
 }

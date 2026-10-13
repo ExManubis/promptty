@@ -35,6 +35,10 @@ extension TerminalSurfaceView {
         if redirect(event) { return }
         guard let surface else { return }
         lastKeyPress = Date()
+        if PromptAnswerKey.answers(keyCode: event.keyCode, characters: event.charactersIgnoringModifiers,
+                                   command: event.modifierFlags.contains(.command), control: event.modifierFlags.contains(.control)) {
+            lastAnswerKey = lastKeyPress
+        }
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
         // Let the text system run first so IME, dead keys, and `insertText` happen; we collect the
         // resulting text and send one key event with it attached.
@@ -140,8 +144,19 @@ extension TerminalSurfaceView {
 
     public override func mouseDown(with event: NSEvent) { sendMouseButton(GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, event) }
     public override func mouseUp(with event: NSEvent) { sendMouseButton(GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, event) }
-    public override func rightMouseDown(with event: NSEvent) { sendMouseButton(GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, event) }
-    public override func rightMouseUp(with event: NSEvent) { sendMouseButton(GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, event) }
+    public override func rightMouseDown(with event: NSEvent) {
+        // A menu from the host, unless the program running here takes the mouse for itself.
+        if let surface, !ghostty_surface_mouse_captured(surface), let menu = contextMenu?(event) {
+            window?.makeFirstResponder(self)
+            // Returns once the menu closes; its tracking loop takes the mouse-up.
+            NSMenu.popUpContextMenu(menu, with: event, for: self)
+            return
+        }
+        sendMouseButton(GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, event)
+    }
+    public override func rightMouseUp(with event: NSEvent) {
+        sendMouseButton(GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, event)
+    }
     public override func otherMouseDown(with event: NSEvent) {
         // Middle-click pastes the selection; at a prompt that belongs in the input bar.
         if event.buttonNumber == 2, let target = keyRedirect?(), let window {

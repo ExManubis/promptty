@@ -108,6 +108,16 @@ final class TerminalConfigWriterTests: XCTestCase {
         }
     }
 
+    func testClipboardAccessLines() {
+        var s = Settings()
+        XCTAssertTrue(lines(s).contains("clipboard-read = ask"))
+        XCTAssertTrue(lines(s).contains("clipboard-write = ask"))
+        s.clipboardRead = .deny
+        s.clipboardWrite = .allow
+        XCTAssertTrue(lines(s).contains("clipboard-read = deny"))
+        XCTAssertTrue(lines(s).contains("clipboard-write = allow"))
+    }
+
     func testFractionalFontSizeAndCursor() {
         var s = Settings()
         s.fontSize = 13.5

@@ -22,10 +22,10 @@ private let blocks = [block(0, 30), block(31, 31, exit: 1), block(32, 60), block
     @Test func previousFromNothingScrolledUpSelectsTheLastBlockStartingOnScreen() {
         // Rows 35–44 are on screen: inside the third block, whose command is above.
         let snap = BlockSnapshot(blocks: blocks, viewport: viewport(top: 35))
-        #expect(BlockNavigation.previous(from: nil, in: snap)?.index(in: snap.blocks) == 2)
+        #expect(BlockNavigation.previous(from: nil, in: snap)?.index(in: snap) == 2)
         // Rows 28–37: the second and third blocks start on screen.
         let up = BlockSnapshot(blocks: blocks, viewport: viewport(top: 28))
-        #expect(BlockNavigation.previous(from: nil, in: up)?.index(in: up.blocks) == 2)
+        #expect(BlockNavigation.previous(from: nil, in: up)?.index(in: up) == 2)
     }
 
     @Test func previousStopsAtTheOldest() {
@@ -43,7 +43,7 @@ private let blocks = [block(0, 30), block(31, 31, exit: 1), block(32, 60), block
 
     @Test func nextFromNothingSelectsTheFirstBlockStartingOnScreen() {
         let snap = BlockSnapshot(blocks: blocks, viewport: viewport(top: 25))
-        #expect(BlockNavigation.next(from: nil, in: snap)?.index(in: snap.blocks) == 1)
+        #expect(BlockNavigation.next(from: nil, in: snap)?.index(in: snap) == 1)
         let bottom = BlockSnapshot(blocks: blocks, viewport: viewport(top: 90))
         #expect(BlockNavigation.next(from: nil, in: bottom) == nil)
     }
@@ -52,12 +52,31 @@ private let blocks = [block(0, 30), block(31, 31, exit: 1), block(32, 60), block
         let snap = BlockSnapshot(blocks: [], viewport: viewport(top: 0))
         #expect(BlockNavigation.previous(from: nil, in: snap) == nil)
         #expect(BlockNavigation.next(from: nil, in: snap) == nil)
-        #expect(BlockSelection(fromEnd: 0).index(in: []) == nil)
+        #expect(BlockSelection(fromEnd: 0).index(in: snap) == nil)
+        #expect(!snap.hasBlocks)
     }
 
     @Test func aSelectionPastTheOldestIsGone() {
-        #expect(BlockSelection(fromEnd: 4).index(in: blocks) == nil)
-        #expect(BlockSelection(fromEnd: 0).index(in: blocks) == 3)
+        let snap = BlockSnapshot(blocks: blocks, viewport: viewport(top: 90))
+        #expect(BlockSelection(fromEnd: 4).index(in: snap) == nil)
+        #expect(BlockSelection(fromEnd: 0).index(in: snap) == 3)
+    }
+
+    @Test func aBlockKeepsItsCountFromTheEndInASnapshotOfTheScreen() {
+        // The second and third blocks, around rows 31–40; the fourth starts below the screen.
+        let all = BlockSnapshot(blocks: blocks, viewport: viewport(top: 31))
+        let screen = BlockSnapshot(blocks: Array(blocks[1...2]), viewport: viewport(top: 31), newer: 1)
+        #expect(screen.hasBlocks)
+        for index in 1...2 {
+            let block = BlockSelection(index: index, in: all)
+            #expect(BlockSelection(index: index - 1, in: screen) == block)
+            #expect(block.index(in: screen) == index - 1)
+        }
+        // The newest and the oldest are not in it.
+        #expect(BlockSelection(fromEnd: 0).index(in: screen) == nil)
+        #expect(BlockSelection(fromEnd: 3).index(in: screen) == nil)
+        // Only blocks below the screen: still blocks.
+        #expect(BlockSnapshot(blocks: [], viewport: viewport(top: 0), newer: 2).hasBlocks)
     }
 }
 
@@ -125,5 +144,84 @@ private let blocks = [block(0, 30), block(31, 31, exit: 1), block(32, 60), block
     @Test func atBottom() {
         #expect(viewport(top: 90).atBottom)
         #expect(!viewport(top: 89).atBottom)
+    }
+}
+
+@Suite struct FailedNavigationTests {
+    // Blocks 1 and 4 failed; the last one is still running.
+    private let list = [block(0, 10), block(11, 20, exit: 1), block(21, 30), block(31, 40, exit: 2), block(41, 50), block(51, 55, exit: nil)]
+
+    @Test func previousFailedSkipsTheOnesThatSucceeded() {
+        let snap = BlockSnapshot(blocks: list, viewport: viewport(top: 90))
+        let from = BlockSelection(fromEnd: 0)
+        let first = BlockNavigation.previousFailed(from: from, in: snap)
+        #expect(first?.index(in: snap) == 3)
+        #expect(BlockNavigation.previousFailed(from: first, in: snap)?.index(in: snap) == 1)
+    }
+
+    @Test func previousFailedWithNoOlderOneIsNil() {
+        let snap = BlockSnapshot(blocks: list, viewport: viewport(top: 90))
+        #expect(BlockNavigation.previousFailed(from: BlockSelection(index: 1, in: snap), in: snap) == nil)
+    }
+
+    @Test func previousFailedFromNothingStartsAtTheScreen() {
+        // Rows 25–34 on screen: block 3 starts there, so it is the last that starts on screen.
+        let snap = BlockSnapshot(blocks: list, viewport: viewport(top: 25))
+        #expect(BlockNavigation.previousFailed(from: nil, in: snap)?.index(in: snap) == 3)
+        // Rows 12–21: blocks up to 2 start on screen; the failed one is block 1.
+        let up = BlockSnapshot(blocks: list, viewport: viewport(top: 12))
+        #expect(BlockNavigation.previousFailed(from: nil, in: up)?.index(in: up) == 1)
+    }
+
+    @Test func nextFailedSkipsTheOnesThatSucceeded() {
+        let snap = BlockSnapshot(blocks: list, viewport: viewport(top: 0))
+        let first = BlockNavigation.nextFailed(from: BlockSelection(index: 0, in: snap), in: snap)
+        #expect(first?.index(in: snap) == 1)
+        #expect(BlockNavigation.nextFailed(from: first, in: snap)?.index(in: snap) == 3)
+        #expect(BlockNavigation.nextFailed(from: BlockSelection(index: 3, in: snap), in: snap) == nil)
+    }
+
+    @Test func nextFailedFromNothingStartsAtTheScreen() {
+        let snap = BlockSnapshot(blocks: list, viewport: viewport(top: 25))
+        #expect(BlockNavigation.nextFailed(from: nil, in: snap)?.index(in: snap) == 3)
+        let bottom = BlockSnapshot(blocks: list, viewport: viewport(top: 90))
+        #expect(BlockNavigation.nextFailed(from: nil, in: bottom) == nil)
+    }
+
+    @Test func noFailuresNoSelection() {
+        let snap = BlockSnapshot(blocks: [block(0, 3), block(4, 6, exit: nil)], viewport: viewport(top: 0))
+        #expect(BlockNavigation.previousFailed(from: nil, in: snap) == nil)
+        #expect(BlockNavigation.nextFailed(from: nil, in: snap) == nil)
+    }
+
+    @Test func worksWithASnapshotOfOnlyTheNewestBlocks() {
+        // Counted from the end, with older blocks left out and newer ones not listed.
+        let snap = BlockSnapshot(blocks: Array(list[1...3]), viewport: viewport(top: 0), newer: 2)
+        let from = BlockSelection(fromEnd: 2)   // block 3 of the list
+        #expect(BlockNavigation.previousFailed(from: from, in: snap)?.fromEnd == 4)
+    }
+}
+
+@Suite struct MarkdownTests {
+    @Test func commandAndOutputInAConsoleFence() {
+        #expect(BlockMarkdown.format(command: "ls -l", output: "a\nb") == "```console\n$ ls -l\na\nb\n```")
+    }
+
+    @Test func noOutputIsJustTheCommand() {
+        #expect(BlockMarkdown.format(command: "true", output: "") == "```console\n$ true\n```")
+        #expect(BlockMarkdown.format(command: "true", output: "\n\n") == "```console\n$ true\n```")
+    }
+
+    @Test func trailingNewlinesAreDropped() {
+        #expect(BlockMarkdown.format(command: "echo hi", output: "hi\n") == "```console\n$ echo hi\nhi\n```")
+    }
+
+    @Test func aFenceInTheOutputGetsALongerOne() {
+        let md = BlockMarkdown.format(command: "cat x.md", output: "```swift\nlet a = 1\n```")
+        #expect(md == "````console\n$ cat x.md\n```swift\nlet a = 1\n```\n````")
+    }
+
+    @Test func aMultiLineCommandContinuesWithAnArrow() {
+        #expect(BlockMarkdown.format(command: "echo a \\\n  b", output: "a b") == "```console\n$ echo a \\\n>   b\na b\n```")
     }
 }

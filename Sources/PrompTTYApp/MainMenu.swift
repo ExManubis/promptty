@@ -29,11 +29,16 @@ enum MainMenu {
         static let focusPaneRight = #selector(TerminalWindowController.focusPaneRight(_:))
         static let focusPaneDown = #selector(TerminalWindowController.focusPaneDown(_:))
         static let equalizePanes = #selector(TerminalWindowController.equalizePanes(_:))
+        static let zoomPane = #selector(TerminalWindowController.zoomPane(_:))
         static let clearTerminal = #selector(TerminalWindowController.clearTerminal(_:))
         static let selectPreviousCommand = #selector(TerminalWindowController.selectPreviousCommand(_:))
         static let selectNextCommand = #selector(TerminalWindowController.selectNextCommand(_:))
         static let copyCommandOutput = #selector(TerminalWindowController.copyCommandOutput(_:))
         static let copyCommandLine = #selector(TerminalWindowController.copyCommandLine(_:))
+        static let selectPreviousFailed = #selector(TerminalWindowController.selectPreviousFailedCommand(_:))
+        static let selectNextFailed = #selector(TerminalWindowController.selectNextFailedCommand(_:))
+        static let copyCommandMarkdown = #selector(TerminalWindowController.copyCommandMarkdown(_:))
+        static let rerunCommand = #selector(TerminalWindowController.rerunCommand(_:))
     }
 
     static func build(shortcuts: ShortcutMap) -> NSMenu {
@@ -54,6 +59,7 @@ enum MainMenu {
         app.addItem(withTitle: "About PrompTTY", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         app.addItem(.separator())
         app.addItem(fixed("Settings…", Action.showSettings, ","))
+        app.addItem(withTitle: "Secure Keyboard Entry", action: #selector(AppDelegate.toggleSecureKeyboardEntry(_:)), keyEquivalent: "")
         app.addItem(withTitle: "Clear Folder Suggestions", action: #selector(AppDelegate.clearFolderHistory(_:)), keyEquivalent: "")
         app.addItem(.separator())
         app.addItem(fixed("Hide PrompTTY", #selector(NSApplication.hide(_:)), "h"))
@@ -89,8 +95,13 @@ enum MainMenu {
         // Command blocks: what each command printed, from the shell integration's marks.
         edit.addItem(item("Select Previous Command", Action.selectPreviousCommand, .selectPreviousCommand))
         edit.addItem(item("Select Next Command", Action.selectNextCommand, .selectNextCommand))
+        edit.addItem(item("Select Previous Failed Command", Action.selectPreviousFailed, .selectPreviousFailed))
+        edit.addItem(item("Select Next Failed Command", Action.selectNextFailed, .selectNextFailed))
+        edit.addItem(.separator())
         edit.addItem(item("Copy Output", Action.copyCommandOutput, .copyOutput))
         edit.addItem(item("Copy Command", Action.copyCommandLine, .copyCommand))
+        edit.addItem(item("Copy Command as Markdown", Action.copyCommandMarkdown))
+        edit.addItem(item("Rerun Command", Action.rerunCommand, .rerunCommand))
         menu.addItem(submenu: edit, title: "Edit")
 
         let view = NSMenu(title: "View")
@@ -124,6 +135,7 @@ enum MainMenu {
         window.addItem(item("Focus Pane Right", Action.focusPaneRight, .focusPaneRight))
         window.addItem(item("Focus Pane Below", Action.focusPaneDown, .focusPaneDown))
         window.addItem(item("Equalize Panes", Action.equalizePanes, .equalizePanes))
+        window.addItem(item("Zoom Pane", Action.zoomPane, .zoomPane))
         window.addItem(.separator())
         window.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         menu.addItem(submenu: window, title: "Window")

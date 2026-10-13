@@ -19,6 +19,8 @@ struct PickerPanel<Rows: View>: View {
     var listID: AnyHashable = 0
     let hints: [(key: String, label: String)]
     let onCommand: (PickerField.Command) -> Bool
+    /// ⌃R in the filter field, for the pickers that take it (history search).
+    var onControlR: (() -> Void)?
     @ViewBuilder let rows: () -> Rows
 
     static var rowHeight: CGFloat { 24 }
@@ -44,7 +46,7 @@ struct PickerPanel<Rows: View>: View {
             .padding(.horizontal, 10)
             .padding(.top, 10)
 
-            PickerField(text: $query, placeholder: placeholder, onCommand: onCommand)
+            PickerField(text: $query, placeholder: placeholder, onCommand: onCommand, onControlR: onControlR)
                 .frame(height: 22)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
@@ -167,6 +169,7 @@ struct PickerField: NSViewRepresentable {
     let placeholder: String
     /// Returns false to let the field handle the key as text editing.
     let onCommand: (Command) -> Bool
+    var onControlR: (() -> Void)?
 
     func makeNSView(context: Context) -> NSTextField {
         let field = FocusingTextField()
@@ -182,6 +185,7 @@ struct PickerField: NSViewRepresentable {
 
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
+        (field as? FocusingTextField)?.onControlR = onControlR
         if field.stringValue != text { field.stringValue = text }
     }
 
@@ -216,6 +220,19 @@ struct PickerField: NSViewRepresentable {
 /// has the keys and the first click, not the bar's window behind it. On the next turn of the run
 /// loop: a field made first responder before its first layout draws its placeholder as text.
 private final class FocusingTextField: NSTextField {
+    var onControlR: (() -> Void)?
+
+    /// ⌃R has no text-editing meaning, so it never reaches `doCommandBy`: seen here, before the
+    /// field editor gets the key.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let mods = event.modifierFlags.intersection([.shift, .control, .option, .command])
+        if let onControlR, mods == .control, event.charactersIgnoringModifiers?.lowercased() == "r" {
+            onControlR()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard window != nil else { return }

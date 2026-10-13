@@ -60,7 +60,7 @@ final class AgentActivityTests: XCTestCase {
         XCTAssertEqual(a.display, .attention)
         XCTAssertEqual(a.agentSince, at(40))
         XCTAssertEqual(notice, Notice(kind: .waiting, program: claude, duration: 39))
-        XCTAssertEqual(notice?.body, "Waiting for you after 39 s")
+        XCTAssertEqual(notice?.body, "Done after 39 s, your turn")
     }
 
     func testAShortTurnIsYourTurnWithoutANotification() {

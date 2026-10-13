@@ -3,7 +3,7 @@ import Preferences
 import SwiftUI
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case appearance, tabs, keyboard
+    case appearance, tabs, keyboard, agents
     var id: String { rawValue }
 
     var title: String {
@@ -11,6 +11,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .appearance: return "Appearance"
         case .tabs: return "Tabs & Windows"
         case .keyboard: return "Keyboard"
+        case .agents: return "Agents"
         }
     }
 
@@ -19,6 +20,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .appearance: return "textformat"
         case .tabs: return "macwindow"
         case .keyboard: return "keyboard"
+        case .agents: return "sparkles"
         }
     }
 }
@@ -52,6 +54,7 @@ struct SettingsView: View {
                 case .appearance: AppearanceSection(model: model, swatches: swatches, fontFamilies: fontFamilies)
                 case .tabs: TabsSection(model: model)
                 case .keyboard: KeyboardSection(model: model)
+                case .agents: AgentsSettingsSection()
                 }
             }
             .navigationTitle(pane.title)

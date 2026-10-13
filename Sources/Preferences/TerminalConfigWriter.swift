@@ -42,6 +42,8 @@ public enum TerminalConfigWriter {
         ] + cursorColor + [
             "macos-option-as-alt = \(optionAsAlt)",
             "confirm-close-surface = \(settings.confirmCloseRunning)",
+            "clipboard-read = \(settings.clipboardRead.rawValue)",
+            "clipboard-write = \(settings.clipboardWrite.rawValue)",
             // The rounded pane card supplies the frame; keep the grid off its edges.
             "window-padding-x = 10",
             "window-padding-y = 8",

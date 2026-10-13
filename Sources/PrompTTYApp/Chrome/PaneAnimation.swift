@@ -15,6 +15,8 @@ enum PaneAnimation {
     static let tabCurve = UnitCurve.easeOut
     static let tabDuration: TimeInterval = 0.2
     static let focusFade = Animation.easeOut(duration: 0.18)
+    /// The sidebar collapsing or expanding. No overshoot: the panes resize with the sidebar.
+    static let sidebarSpring = Spring(duration: 0.3, bounce: 0)
 }
 
 extension EnvironmentValues {
@@ -24,6 +26,9 @@ extension EnvironmentValues {
     @Entry var sidebarOutOfSight = false
     /// How far the current tab cross-fade has run: 0 at its start, 1 at rest.
     @Entry var tabFadeProgress: CGFloat = 1
+    /// How the terminals below follow their cards' sizes: held while the sidebar slides,
+    /// throttled while a split divider is dragged.
+    @Entry var terminalResizeMode: TerminalSurfaceView.ResizeMode = .live
 }
 
 /// One tab's pane animation bookkeeping. A plain reference held in `@State`: the view writes it

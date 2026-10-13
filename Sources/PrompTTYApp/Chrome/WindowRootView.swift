@@ -17,6 +17,9 @@ struct WindowRootView: View {
     /// The collapsed sidebar, shown over the panes while the pointer is on it.
     @State private var peeking = false
     @State private var peekTimer: Task<Void, Never>?
+    /// The terminals keep their sizes while the sidebar slides (see `holdTerminalSizes`).
+    @State private var terminalSizesHeld = false
+    @State private var terminalSizesRelease: Task<Void, Never>?
 
     private var hidden: Bool { settings.settings.tabListHidden }
     private var layout: TabLayout { workspace.tabLayout }
@@ -48,12 +51,15 @@ struct WindowRootView: View {
         }
         .ignoresSafeArea()
         .animation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.1), value: layout)
-        // No overshoot: the panes resize with the sidebar, and a spring that went past would
-        // resize the terminals back and forth. Kept open from a peek, the sidebar is already
-        // there: it stays put instead of sliding in again.
-        .animation(reduceMotion || showsPeek ? nil : .spring(duration: 0.3, bounce: 0), value: hidden)
-        .onChange(of: hidden) { _, _ in peeking = false }
+        // Kept open from a peek, the sidebar is already there: it stays put instead of sliding
+        // in again.
+        .animation(sidebarAnimates ? .spring(PaneAnimation.sidebarSpring) : nil, value: hidden)
+        .onChange(of: hidden) { _, _ in
+            if sidebarAnimates { holdTerminalSizes() }
+            peeking = false
+        }
         .onChange(of: trafficLightsShown, initial: true) { _, shown in actions.setTrafficLightsShown(shown) }
+        .environment(\.terminalResizeMode, terminalSizesHeld ? .held : chrome.resizingSplit ? .throttled : .live)
         .environment(\.windowChrome, chrome)
     }
 
@@ -116,6 +122,21 @@ struct WindowRootView: View {
     /// The traffic lights belong to the sidebar: hidden while it is collapsed, back while it peeks.
     private var trafficLightsShown: Bool {
         !(hidden && layout == .sidebar) || showsPeek
+    }
+
+    private var sidebarAnimates: Bool { !reduceMotion && !showsPeek }
+
+    /// The cards resize with the sliding sidebar every frame, but their terminals keep their sizes
+    /// (drawn from the top-left, clipped or with a margin at the right) until it settles, then take
+    /// the final one: each resize reflows the shell's screen, too much work for every frame.
+    private func holdTerminalSizes() {
+        terminalSizesHeld = true
+        terminalSizesRelease?.cancel()
+        terminalSizesRelease = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(PaneAnimation.sidebarSpring.settlingDuration))
+            guard !Task.isCancelled else { return }
+            terminalSizesHeld = false
+        }
     }
 
     /// Peeks the collapsed sidebar in or out after a moment, so a pointer passing the edge (or

@@ -18,10 +18,15 @@ struct PaneTreeView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let layout = tab.root.layout(in: CGRect(origin: .zero, size: geo.size), gap: ChromeMetrics.paneGap)
-            let generation = motion.update(layout: layout.panes, size: geo.size, animate: !reduceMotion && !chrome.resizingSplit)
+            let full = tab.root.layout(in: CGRect(origin: .zero, size: geo.size), gap: ChromeMetrics.paneGap)
+            // Zoomed, the pane fills the area; the others keep their frames, hidden, so they are
+            // neither resized nor moved while they wait.
+            let zoomed = tab.zoomedPaneID
+            let frames = zoomed.map { full.panes.merging([$0: CGRect(origin: .zero, size: geo.size)]) { $1 } } ?? full.panes
+            let dividers = zoomed == nil ? full.dividers : []
+            let generation = motion.update(layout: frames, size: geo.size, animate: !reduceMotion && !chrome.resizingSplit)
             ZStack(alignment: .topLeading) {
-                ForEach(layout.dividers, id: \.path) { divider in
+                ForEach(dividers, id: \.path) { divider in
                     SplitDivider(axis: divider.axis, ratio: divider.ratio, available: divider.available) { newRatio in
                         actions.setRatio(in: tab.id, at: divider.path, newRatio)
                     } onDragging: { chrome.resizingSplit = $0 }
@@ -29,10 +34,15 @@ struct PaneTreeView: View {
                     .position(x: divider.frame.midX, y: divider.frame.midY)
                 }
                 ForEach(tab.root.leaves, id: \.self) { id in
-                    if let pane = tab.pane(id), let frame = layout.panes[id] {
-                        PaneCard(pane: pane, tab: tab, visible: visible, chrome: chrome, actions: actions)
+                    if let pane = tab.pane(id), let frame = frames[id] {
+                        let hidden = zoomed != nil && zoomed != id
+                        PaneCard(pane: pane, tab: tab, visible: visible && !hidden, zoomed: zoomed == id, hidden: hidden, chrome: chrome, actions: actions)
                             .frame(width: frame.width, height: frame.height)
                             .modifier(PaneFlightEffect(flight: motion.flights[id]))
+                            .opacity(hidden ? 0 : 1)
+                            .allowsHitTesting(!hidden)
+                            .accessibilityHidden(hidden)
+                            .zIndex(zoomed == id ? 1 : 0)
                             .position(x: frame.midX, y: frame.midY)
                     }
                 }
@@ -83,6 +93,12 @@ struct SplitDivider: NSViewRepresentable {
         view.window?.invalidateCursorRects(for: view)
     }
 
+    /// A divider removed mid-drag (a zoom, a close) gets no mouse-up: the drag ends here, or the
+    /// window would stay in its throttled resize mode.
+    static func dismantleNSView(_ view: SplitDividerView, coordinator: ()) {
+        view.endDrag()
+    }
+
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: SplitDividerView, context: Context) -> CGSize? {
         axis == .horizontal
             ? CGSize(width: ChromeMetrics.paneGap, height: proposal.height ?? 0)
@@ -124,7 +140,9 @@ final class SplitDividerView: NSView {
         onChange?(start.ratio + Double(delta / available))
     }
 
-    override func mouseUp(with event: NSEvent) {
+    override func mouseUp(with event: NSEvent) { endDrag() }
+
+    func endDrag() {
         if dragStart != nil { onDragging?(false) }
         dragStart = nil
     }
