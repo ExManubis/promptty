@@ -128,7 +128,7 @@ private struct AgentRow: View {
                 TimelineView(SinceSchedule(since: activity.agentSince)) { context in
                     Text([agent.repository.notableBranch, Self.state(of: activity, now: context.date)].compactMap { $0 }.joined(separator: " · "))
                         .font(.system(size: 10.5))
-                        .foregroundStyle(activity.display == .attention ? Color.orange : Color.secondary)
+                        .foregroundStyle(activity.display >= .attention ? Color.orange : Color.secondary)
                         .monospacedDigit()
                 }
             }
@@ -177,14 +177,17 @@ private struct AgentRow: View {
         }
     }
 
-    /// "Working · 1 min 20 s", "Waiting · 5 min", "Your turn · 2 min".
+    /// "Working · 1 min 20 s", "Working · Bash · 20 s" (the tool, when the agent's hooks say),
+    /// "Needs permission · Bash · 5 s", "Waiting · 5 min", "Your turn · 2 min".
     static func state(of activity: PaneActivity.Visible, now: Date) -> String {
-        let label: String
+        var label: String
         switch activity.display {
+        case .permission: label = "Needs permission"
         case .attention: label = "Your turn"
         case .working: label = "Working"
         default: label = "Waiting"
         }
+        if let tool = activity.tool, activity.display == .working || activity.display == .permission { label += " · \(tool)" }
         guard let since = activity.agentSince else { return label }
         return "\(label) · \(AgentListing.elapsed(now.timeIntervalSince(since)))"
     }

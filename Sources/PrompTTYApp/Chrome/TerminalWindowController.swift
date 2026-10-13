@@ -1,3 +1,4 @@
+import AgentHooks
 import AppKit
 import CommandEditing
 import GhosttyBridge
@@ -128,6 +129,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         guard state.tab(containing: pane.id) != nil else { return nil }
         let environment = ShellIntegration.environment(for: pane.id)
         let integrated = !environment.isEmpty
+        // Every pane, whatever its shell: where an agent's hooks report, and for which pane.
+        let hookEnvironment = HookEnvironment.variables(pane: pane.id.rawValue, socket: AppPaths.hookSocket)
         // A pinned tab's command: run from the bar at the first prompt, or typed ahead into a
         // shell without the integration.
         let startup = pane.startupCommand
@@ -137,7 +140,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             configuration: TerminalSurfaceConfiguration(
                 workingDirectory: pane.workingDirectory,
                 inheritFrom: pendingInherit.removeValue(forKey: pane.id),
-                environment: environment,
+                environment: environment.merging(hookEnvironment) { shell, _ in shell },
                 initialInput: integrated ? nil : startup.map { $0 + "\n" }
             )
         )

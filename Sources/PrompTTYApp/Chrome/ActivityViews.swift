@@ -55,7 +55,8 @@ struct ProgramIcon: View {
 }
 
 /// A pane's or tab's activity as a dot: green while something runs, blue for what finished
-/// unseen, red for what failed, a pulsing orange when a program wants the user.
+/// unseen, red for what failed, a pulsing orange when a program wants the user; an orange shield
+/// when an agent asks for permission.
 struct ActivityIndicator: View {
     let display: PaneActivity.Display
 
@@ -66,6 +67,11 @@ struct ActivityIndicator: View {
             switch display {
             case .idle:
                 Color.clear
+            case .permission:
+                Image(systemName: "exclamationmark.shield.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(ProgramStack.color(for: display))
+                    .fixedSize()
             case .attention where !reduceMotion:
                 // Pulses until seen, breathes while the agent works: both in Core Animation (see
                 // `LoopingDot`).
@@ -90,6 +96,7 @@ struct ActivityIndicator: View {
         case .finished: "Finished"
         case .failed(let code): "Failed with exit code \(code)"
         case .attention: "Needs attention"
+        case .permission: "Needs permission"
         }
     }
 }
@@ -290,7 +297,7 @@ struct ProgramStack: View {
         case .running, .working: .green
         case .finished: .blue
         case .failed: .red
-        case .attention: .orange
+        case .attention, .permission: .orange
         }
     }
 

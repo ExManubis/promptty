@@ -1,3 +1,4 @@
+import AgentHooks
 import AppKit
 import GhosttyBridge
 import Observation
@@ -66,6 +67,8 @@ final class ActivityTracker {
         let screen: () -> String?
         /// Screen changes before this are the terminal's doing (a resize, a key echoed).
         let quietUntil: Date?
+        /// The user's last key press in the pane: it answers an agent's permission prompt.
+        let lastKeyPress: Date?
     }
 
     /// The panes to watch right now; set by the coordinator.
@@ -100,6 +103,11 @@ final class ActivityTracker {
     private var agentDirectories: [PaneID: String] = [:]
     /// The panes showing a progress report, for dropping the ones not renewed in time at a tick.
     private var progressing: Set<PaneID> = []
+    /// What each pane's agent reported through its hooks (Claude Code's), while they are in charge
+    /// of its state: then its screen is not watched.
+    private var hooks: [PaneID: AgentHookState] = [:]
+    /// The agent each pane's hooks came from: another agent in front later is not theirs.
+    private var hookPrograms: [PaneID: String] = [:]
 
     /// The folder an agent's process works in (it may differ from the shell's: `cd x && claude`).
     func agentDirectory(for pane: PaneID) -> String? { agentDirectories[pane] }
@@ -161,7 +169,12 @@ final class ActivityTracker {
                     onNotice(watched.pane, notice)
                 }
             }
-            if activity.program?.isAgent == true {
+            let agentInFront = activity.program?.isAgent == true
+            if hooks[watched.pane] != nil { checkHooks(watched, activity: activity, at: now) }
+            if hooks[watched.pane] != nil {
+                screens[watched.pane] = nil
+                reportHooks(watched.pane, into: &activity, at: now, seen: watched.seen)
+            } else if agentInFront {
                 if cadence.isDue(Job(pane: watched.pane, kind: .screen), every: watched.visible ? 0.5 : 1.5, at: now),
                    let text = watched.screen() {
                     let hash = text.hashValue
@@ -193,6 +206,8 @@ final class ActivityTracker {
             identified[gone] = nil
             screens[gone] = nil
             agentDirectories[gone] = nil
+            hooks[gone] = nil
+            hookPrograms[gone] = nil
             for kind in Job.Kind.allCases { cadence.forget(Job(pane: gone, kind: kind)) }
         }
         // A box is kept while its pane exists (a view may hold it before the pane has a
@@ -230,6 +245,71 @@ final class ActivityTracker {
         if let notice = activity.attention(seen: false, message: message) { onNotice(pane, notice) }
         store(activity, for: pane)
         return true
+    }
+
+    // MARK: Hooks
+
+    /// A message from an agent's hook in a pane (see `HookListener`).
+    func hookMessage(_ message: HookMessage) {
+        let pane = PaneID(rawValue: message.pane)
+        // Only panes with a terminal: a message naming another is stale or made up.
+        guard var activity = states[pane] else { return }
+        let now = Date()
+        let seen = isSeen(pane)
+        if message.event == .codexNotify {
+            // Codex says only that a turn ended; its work is still read off the screen.
+            if message.payload.type == "agent-turn-complete", let notice = activity.agentTurnEnded(at: now, seen: seen) {
+                onNotice(pane, notice)
+            }
+        } else {
+            var hook = hooks[pane] ?? AgentHookState()
+            hook.apply(message.event, message.payload, at: now)
+            if hook.reportsEveryChange {
+                hooks[pane] = hook
+                if let program = activity.program, program.isAgent { hookPrograms[pane] = program.id }
+            } else {
+                // The session ended: the screen tells again.
+                hooks[pane] = nil
+                hookPrograms[pane] = nil
+            }
+            reportHooks(pane, into: &activity, at: now, seen: seen)
+        }
+        store(activity, for: pane)
+    }
+
+    /// What a pane's agent reported through its hooks, unobserved (for the debug driver).
+    func hookState(for pane: PaneID) -> AgentHookState? { hooks[pane] }
+
+    /// At a tick: hooks fall silent (ten minutes without a word and no agent in front) or belong to
+    /// an agent no longer in front, and a key pressed at a permission prompt answers it.
+    private func checkHooks(_ watched: Watched, activity: PaneActivity, at now: Date) {
+        guard var hook = hooks[watched.pane] else { return }
+        let agent = activity.program.flatMap { $0.isAgent ? $0.id : nil }
+        let otherAgent = agent != nil && hookPrograms[watched.pane].map { $0 != agent } == true
+        guard !otherAgent, hook.isActive(at: now, agentInFront: agent != nil) else {
+            hooks[watched.pane] = nil
+            hookPrograms[watched.pane] = nil
+            return
+        }
+        if let agent, hookPrograms[watched.pane] == nil { hookPrograms[watched.pane] = agent }
+        if let key = watched.lastKeyPress, let since = hook.since, key > since {
+            hook.userResponded(at: key)
+            hooks[watched.pane] = hook
+        }
+    }
+
+    /// Hands the hooks' state to the pane's activity (again at every tick: the agent may be
+    /// recognised in front only after its first hooks ran).
+    private func reportHooks(_ pane: PaneID, into activity: inout PaneActivity, at now: Date, seen: Bool) {
+        guard let hook = hooks[pane], let phase = hook.phase else { return }
+        let report: PaneActivity.AgentReport = switch phase {
+        case .ready: .ready
+        case .working: .working(tool: hook.tool)
+        case .permission: .permission(hook.message)
+        case .waitingForInput: .waitingForInput(hook.message)
+        case .turnEnded: .turnEnded
+        }
+        if let notice = activity.agentReported(report, since: hook.since ?? now, at: now, seen: seen) { onNotice(pane, notice) }
     }
 
     private func store(_ activity: PaneActivity, for pane: PaneID) {

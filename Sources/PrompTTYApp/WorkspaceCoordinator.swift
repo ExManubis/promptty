@@ -1,3 +1,4 @@
+import AgentHooks
 import AppKit
 import Carbon.HIToolbox
 import CommandEditing
@@ -62,7 +63,28 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         }
         controllers.values.first?.window?.makeKeyAndOrderFront(nil)
         activity.start()
+        startHooks()
         refreshAgents()
+    }
+
+    /// Listens for agents' hooks (`promptty-hook`, run by Claude Code inside a pane). Without the
+    /// socket, agents are still followed by their screens.
+    private func startHooks() {
+        let listener = HookListener(path: AppPaths.hookSocket) { [weak self] message in self?.activity.hookMessage(message) }
+        do {
+            try listener.start()
+            hookListener = listener
+        } catch {
+            NSLog("PrompTTY: no hook socket at \(AppPaths.hookSocket): \(error)")
+        }
+    }
+
+    private var hookListener: HookListener?
+
+    /// Takes the hook socket away (at quit).
+    func stopHooks() {
+        hookListener?.stop()
+        hookListener = nil
     }
 
     // MARK: Activity
@@ -102,7 +124,8 @@ final class WorkspaceCoordinator: GhosttyActionSink {
                         checkShell: { [weak controller] in controller?.shell(for: id)?.checkForeground() },
                         screen: { [weak surface] in surface?.activeScreenText() },
                         quietUntil: [surface.lastResize.map { $0.addingTimeInterval(1.5) },
-                                     surface.lastKeyPress.map { $0.addingTimeInterval(1) }].compactMap { $0 }.max()
+                                     surface.lastKeyPress.map { $0.addingTimeInterval(1) }].compactMap { $0 }.max(),
+                        lastKeyPress: surface.lastKeyPress
                     ))
                 }
             }

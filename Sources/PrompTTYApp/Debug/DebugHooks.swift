@@ -15,15 +15,20 @@ enum DebugHooks {
     private static var lastTicks: (count: Int, time: CFTimeInterval) = (0, CACurrentMediaTime())
 
     static func install(on driver: DebugDriver, coordinator: WorkspaceCoordinator) {
-        // eval activity — each pane's activity in the key window (tab.pane: display program) and
-        // the notices posted since the last call.
+        // eval activity — each pane's activity in the key window (tab.pane: display program, the
+        // tool and hook state an agent's hooks reported) and the notices posted since the last call.
         driver.hooks["activity"] = { _ in
             var lines: [String] = []
             for c in coordinator.allControllers {
                 for (ti, tab) in c.state.tabs.enumerated() {
                     for (pi, pane) in tab.orderedPanes.enumerated() {
                         let a = coordinator.activity.activity(for: pane.id)
-                        lines.append("\(ti).\(pi): \(a.display) program=\(a.program?.id ?? "-") title=\(pane.title.debugDescription)")
+                        var line = "\(ti).\(pi): \(a.display) program=\(a.program?.id ?? "-") title=\(pane.title.debugDescription)"
+                        if let tool = a.tool { line += " tool=\(tool)" }
+                        if let hook = coordinator.activity.hookState(for: pane.id) {
+                            line += " hook=\(hook.phase.map { "\($0)" } ?? "-") session=\(hook.sessionID ?? "-")"
+                        }
+                        lines.append(line)
                     }
                 }
             }

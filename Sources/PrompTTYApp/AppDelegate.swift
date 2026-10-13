@@ -178,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard sessionStore != nil else { return }
         preferences?.flush()
         coordinator?.secureInput.shutDown()
+        coordinator?.stopHooks()
         saver?.flush()
         saveSession()
     }
