@@ -769,8 +769,17 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         }
     }
 
+    /// Output that redraws in place (full-screen programs, spinners, progress lines, coding
+    /// agents) wakes the runtime no more than a still screen does, so a program running in the
+    /// focused pane counts as activity too. Only an idle shell prompt lets the link stop.
+    private var focusedPaneIsBusy: Bool {
+        guard let id = state.selectedTab?.focusedPaneID, let shell = shells[id] else { return false }
+        return shell.phase != .idle
+    }
+
     @objc private func refreshTick(_ link: CADisplayLink) {
         refreshTicks &+= 1
+        if focusedPaneIsBusy { lastRefreshActivity = CACurrentMediaTime() }
         if CACurrentMediaTime() - lastRefreshActivity > Self.refreshIdleSeconds {
             link.invalidate()
             refreshLink = nil
