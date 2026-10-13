@@ -63,7 +63,7 @@ struct ShellHeaderView: View {
             }
         }
         .labelStyle(HeaderLabelStyle())
-        .font(.system(size: 11, weight: .medium))
+        .font(.system(size: 12, weight: .medium))
         .foregroundStyle(.secondary)
     }
 
@@ -78,6 +78,7 @@ struct ShellHeaderView: View {
 /// The header's folder: a button that opens the folder picker and changes to the folder chosen.
 private struct FolderButton: View {
     let shell: PaneShell
+    static let maxWidth: CGFloat = 280
     @State private var picking = false
     @State private var picker: FolderPickerModel?
 
@@ -88,14 +89,16 @@ private struct FolderButton: View {
             picking = true
         } label: {
             Label {
-                Text(Tab.abbreviate(shell.directory))
+                // The last folders, cut at the front if they still do not fit.
+                Text(FolderLabel.short(shell.directory, home: NSHomeDirectory()))
                     .lineLimit(1)
                     .truncationMode(.head)
+                    .capped(width: Self.maxWidth)
             } icon: {
                 Image(systemName: "folder")
             }
         }
-        .buttonStyle(HeaderChipStyle(open: picking))
+        .buttonStyle(HeaderChipStyle(open: picking, color: Color(nsColor: shell.folderColor)))
         .disabled(shell.bar != .active)
         .help("Change Folder")
         .accessibilityLabel("Folder \(Tab.abbreviate(shell.directory))")
@@ -120,6 +123,7 @@ private struct FolderButton: View {
 private struct BranchButton: View {
     let shell: PaneShell
     let git: GitStatus
+    static let maxWidth: CGFloat = 200
     @State private var picking = false
     @State private var picker: BranchPickerModel?
 
@@ -130,7 +134,11 @@ private struct BranchButton: View {
         } label: {
             Label {
                 HStack(spacing: 3) {
-                    Text(git.branch).lineLimit(1)
+                    // `…feature/long-name`: the end of a branch's name tells it apart.
+                    Text(git.branch)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                        .capped(width: Self.maxWidth)
                     if git.dirty {
                         Circle().frame(width: 5, height: 5).accessibilityLabel("uncommitted changes")
                     }
@@ -139,7 +147,7 @@ private struct BranchButton: View {
                 Image(systemName: "arrow.triangle.branch")
             }
         }
-        .buttonStyle(HeaderChipStyle(open: picking))
+        .buttonStyle(HeaderChipStyle(open: picking, color: Color(nsColor: shell.branchColor)))
         .disabled(shell.bar != .active)
         .help("Switch Branch")
         .accessibilityLabel("Branch \(git.branch)\(git.dirty ? ", uncommitted changes" : "")")
@@ -159,13 +167,14 @@ private struct BranchButton: View {
     }
 }
 
-/// A header item that opens a picker: plain text that lights up under the pointer and while its
-/// picker is open, flush with the editor's text below.
+/// A header item that opens a picker: its text in the theme's color, in a hairline outline that
+/// fills in under the pointer and while its picker is open.
 private struct HeaderChipStyle: ButtonStyle {
     let open: Bool
+    let color: Color
 
     func makeBody(configuration: Configuration) -> some View {
-        HeaderChip(label: configuration.label, open: open, pressed: configuration.isPressed)
+        HeaderChip(label: configuration.label, open: open, pressed: configuration.isPressed, color: color)
     }
 }
 
@@ -173,20 +182,25 @@ private struct HeaderChip<Content: View>: View {
     let label: Content
     let open: Bool
     let pressed: Bool
+    let color: Color
     @State private var hovering = false
+    @Environment(\.isEnabled) private var enabled
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         label
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
             .background {
                 if hovering || open || pressed {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.primary.opacity(pressed ? 0.12 : 0.08))
+                    shape.fill(Color.primary.opacity(pressed ? 0.12 : 0.07))
                 }
             }
-            .contentShape(Rectangle())
+            .overlay(shape.strokeBorder(Color.primary.opacity(0.16), lineWidth: 1))
+            .opacity(enabled ? 1 : 0.6)
+            .contentShape(shape)
             .onHover { hovering = $0 }
-            .padding(.horizontal, -5)
     }
 }
 
@@ -196,5 +210,26 @@ private struct HeaderLabelStyle: LabelStyle {
             configuration.icon.imageScale(.small)
             configuration.title
         }
+    }
+}
+
+/// Its natural width, but at most `width`, and less when the header has less room: a long name
+/// truncates instead of widening the pane. (A `frame(maxWidth:)` would stretch a short one.)
+private struct CappedWidth: Layout {
+    let width: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        return child.sizeThatFits(ProposedViewSize(width: min(proposal.width ?? .infinity, width), height: proposal.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+}
+
+private extension View {
+    func capped(width: CGFloat) -> some View {
+        CappedWidth(width: width) { self }
     }
 }

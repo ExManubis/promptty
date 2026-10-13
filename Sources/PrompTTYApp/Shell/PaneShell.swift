@@ -72,6 +72,10 @@ struct EditorColors {
     var op: NSColor = .systemPurple
     var comment: NSColor = .secondaryLabelColor
     var ghost: NSColor = .tertiaryLabelColor
+    /// The input bar's folder and branch buttons: the theme's cyan and magenta, as Starship shows
+    /// them.
+    var folder: NSColor = .systemCyan
+    var branch: NSColor = .systemPurple
 }
 
 /// The editor font (the terminal's family and size, so typed commands look like terminal text)
@@ -99,6 +103,8 @@ enum EditorStyle {
             colors.flag = color(palette[6])
             colors.comment = color(palette[8])
             colors.ghost = color(palette[8])
+            colors.folder = color(palette[6])
+            colors.branch = color(palette[5])
         }
         self.colors = colors
     }
@@ -130,6 +136,9 @@ final class PaneShell {
     @ObservationIgnored private(set) var lastCommand: String?
     /// The editor's height for its current text (one to eight lines).
     private(set) var editorHeight: CGFloat = 18
+    /// The header's folder and branch colors, from the theme (observed, so they follow it).
+    private(set) var folderColor: NSColor = EditorStyle.colors.folder
+    private(set) var branchColor: NSColor = EditorStyle.colors.branch
 
     /// The bar's editor. Long-lived like the terminal: hosts move it, never recreate it.
     @ObservationIgnored private(set) lazy var editor: CommandEditorView = makeEditor()
@@ -232,6 +241,8 @@ final class PaneShell {
         editor.textView.font = EditorStyle.font
         editor.textView.styleChanged()
         editorTextChanged()
+        folderColor = EditorStyle.colors.folder
+        branchColor = EditorStyle.colors.branch
     }
 
     /// Command names the shell runs without a path: its aliases, functions, builtins, reserved
