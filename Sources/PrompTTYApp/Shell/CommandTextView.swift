@@ -48,6 +48,8 @@ final class CommandTextView: NSTextView {
     /// The commands run in the pane's folder and the folders above it, best first: ghost text
     /// prefers them to the whole history.
     var folderHistory: () -> [String] = { [] }
+    /// Changes when `history` or `folderHistory` may have, which ends the incremental scan.
+    var suggestionGeneration: () -> Int = { 0 }
     var isKnownCommand: (String) -> Bool = { _ in true }
 
     private(set) var vi = ViEngine()
@@ -56,6 +58,7 @@ final class CommandTextView: NSTextView {
     private var replacingFromHistory = false
     /// The ghost text after the caret.
     private(set) var suggestion: String?
+    private var suggester = IncrementalSuggester()
     /// Where Tab completion looks: the pane's directory, and the shell's names (a snapshot with
     /// nothing fetched yet).
     var completionDirectory: () -> String? = { nil }
@@ -143,6 +146,7 @@ final class CommandTextView: NSTextView {
         popup.close()
         clearText()
         navigator = nil
+        suggester = IncrementalSuggester()
         vi.enterInsert()
         modeChanged()
     }
@@ -445,7 +449,9 @@ final class CommandTextView: NSTextView {
     private func updateSuggestion() {
         let range = selectedRange()
         let atEnd = range.length == 0 && range.location == (string as NSString).length
-        let next = atEnd && !hasMarkedText() ? Autosuggester.suggestion(for: string, local: folderHistory(), history: history()) : nil
+        let next = atEnd && !hasMarkedText()
+            ? suggester.suggestion(for: string, local: folderHistory(), history: history(), generation: suggestionGeneration())
+            : nil
         if next != suggestion {
             suggestion = next
             needsDisplay = true

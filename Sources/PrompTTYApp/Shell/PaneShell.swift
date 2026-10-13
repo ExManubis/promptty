@@ -130,7 +130,9 @@ final class PaneShell {
     private(set) var directory: String
     private(set) var git: GitStatus?
     private(set) var stateFile: ShellStateFile?
-    private(set) var history = CommandHistory(fileEntries: [])
+    /// The commands the bar offers. Shared with the panes using the same HISTFILE; until the
+    /// shell reports which that is, a store of its own.
+    @ObservationIgnored private(set) var history = HistoryStore()
     private(set) var bar: BarPresentation = .hidden
     /// The last command run from the bar or a picker, for a notification when it finishes unseen.
     @ObservationIgnored private(set) var lastCommand: String?
@@ -148,7 +150,6 @@ final class PaneShell {
     @ObservationIgnored weak var surface: TerminalSurfaceView?
 
     @ObservationIgnored private var poll: Timer?
-    @ObservationIgnored private var historyDate: Date?
     @ObservationIgnored private var stateFileDate: Date?
     /// ⏎ was pressed while a quick command still ran: the bar's text runs at the next prompt.
     @ObservationIgnored private var queuedSubmit = false
@@ -223,6 +224,15 @@ final class PaneShell {
         text.terminal = surface
         text.onSubmit = { [weak self] in self?.submit($0) }
         text.history = { [weak self] in self?.history.newestFirst ?? [] }
+        text.suggestionGeneration = { [weak self] in
+            guard let self else { return 0 }
+            var hasher = Hasher()
+            hasher.combine(ObjectIdentifier(self.history))
+            hasher.combine(self.history.version)
+            hasher.combine(self.directory)
+            hasher.combine(FolderHistoryStore.shared.revision)
+            return hasher.finalize()
+        }
         text.folderHistory = { [weak self] in self.map { FolderHistoryStore.shared.ranked(for: $0.directory) } ?? [] }
         text.isKnownCommand = { [weak self] in self?.isKnownCommand($0) ?? true }
         text.completionDirectory = { [weak self] in self?.directory }
@@ -512,15 +522,13 @@ final class PaneShell {
 
     private func reloadHistoryIfChanged() {
         guard let path = stateFile?.historyFile else { return }
-        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        let date = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
-        guard let date, date != historyDate else { return }
-        historyDate = date
-        Task.detached(priority: .utility) {
-            guard let data = try? Data(contentsOf: url) else { return }
-            let entries = ZshHistory.parse(data)
-            await MainActor.run { [weak self] in self?.history.replaceFileEntries(entries) }
+        let shared = HistoryStore.shared(forPath: path)
+        if shared !== history {
+            // Commands run before the HISTFILE was known are kept.
+            if history.path == nil { shared.adopt(history.sessionCommands) }
+            history = shared
         }
+        history.reloadIfChanged()
     }
 
     private func refreshGit() {

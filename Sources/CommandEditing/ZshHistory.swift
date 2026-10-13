@@ -56,40 +56,104 @@ public enum ZshHistory {
     }
 }
 
-/// The commands the bar offers: the history file's, with this session's on top. Newest first,
-/// each command once.
-public struct CommandHistory: Sendable {
-    private var fileEntries: [String]
-    private var sessionEntries: [String] = []
-    /// Read on every keystroke (ghost text, history), so kept ready rather than rebuilt.
-    public private(set) var newestFirst: [String] = []
+/// Commands in the order they were added, each once: adding one that is already there moves it to
+/// the newest position. Older copies are left as holes and skipped on read, so adding is O(1);
+/// the holes are squeezed out once they outnumber the entries.
+public struct HistoryLayer: Sendable {
+    private var entries: [String?] = []
+    private var positions: [String: Int] = [:]
 
-    public init(fileEntries: [String]) {
-        self.fileEntries = fileEntries
-        rebuild()
+    public init() {}
+
+    public init(_ commands: [String]) {
+        entries.reserveCapacity(commands.count)
+        for command in commands { append(command) }
     }
+
+    public var isEmpty: Bool { positions.isEmpty }
+
+    public func contains(_ command: String) -> Bool { positions[command] != nil }
+
+    public mutating func append(_ command: String) {
+        if let old = positions[command] { entries[old] = nil }
+        positions[command] = entries.count
+        entries.append(command)
+        if entries.count > 2 * positions.count + 32 { squeeze() }
+    }
+
+    /// Newest first.
+    public var newestFirst: [String] { entries.reversed().compactMap { $0 } }
+
+    /// Oldest first.
+    public var oldestFirst: [String] { entries.compactMap { $0 } }
+
+    fileprivate func forEachNewestFirst(_ body: (String) -> Void) {
+        for entry in entries.reversed() { if let entry { body(entry) } }
+    }
+
+    private mutating func squeeze() {
+        entries = entries.filter { $0 != nil }
+        for (offset, entry) in entries.enumerated() { positions[entry!] = offset }
+    }
+}
+
+/// The commands the bar offers: the history file's, with this session's on top. Newest first,
+/// each command once. One instance is shared by the panes using the same history file (see
+/// `HistoryStore`), so it is a reference type; it is not thread-safe.
+public final class CommandHistory {
+    private var file: HistoryLayer
+    private var session = HistoryLayer()
+    private var cached: [String]?
+    /// Changes whenever `newestFirst` does, for callers that keep results derived from it.
+    public private(set) var version = 0
+
+    /// Read on every keystroke (ghost text, history). Built on the first read after a change, so
+    /// a burst of changes costs one pass.
+    public var newestFirst: [String] {
+        if let cached { return cached }
+        var result: [String] = []
+        session.forEachNewestFirst { result.append($0) }
+        file.forEachNewestFirst { if !session.contains($0) { result.append($0) } }
+        cached = result
+        return result
+    }
+
+    public init(fileEntries: [String] = []) {
+        file = HistoryLayer(fileEntries)
+    }
+
+    /// What this session added, oldest first.
+    public var sessionCommands: [String] { session.oldestFirst }
 
     /// A command starting with a space stays out, as zsh's `HIST_IGNORE_SPACE` keeps it out of the
     /// history file (people use it for commands with secrets).
-    public mutating func add(_ command: String) {
+    public func add(_ command: String) {
         guard !command.hasPrefix(" "), !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        sessionEntries.append(command)
-        rebuild()
+        session.append(command)
+        changed()
     }
 
-    /// The file changed on disk (zsh appends as commands run).
-    public mutating func replaceFileEntries(_ entries: [String]) {
-        fileEntries = entries
-        rebuild()
+    /// The file changed on disk in a way that is not just growth.
+    public func replaceFileEntries(_ entries: [String]) {
+        replaceFile(HistoryLayer(entries))
     }
 
-    private mutating func rebuild() {
-        var seen = Set<String>()
-        var result: [String] = []
-        for command in (fileEntries + sessionEntries).reversed() where seen.insert(command).inserted {
-            result.append(command)
-        }
-        newestFirst = result
+    /// Same, with the de-duplication already done (off the main thread).
+    public func replaceFile(_ layer: HistoryLayer) {
+        file = layer
+        changed()
+    }
+
+    /// The file grew (zsh appends as commands run): `entries` are newer than everything it had.
+    public func appendFileEntries(_ entries: [String]) {
+        guard !entries.isEmpty else { return }
+        for entry in entries { file.append(entry) }
+        changed()
+    }
+
+    private func changed() {
+        cached = nil
+        version += 1
     }
 }
 
