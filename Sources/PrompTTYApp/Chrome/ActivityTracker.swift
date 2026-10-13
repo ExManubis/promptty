@@ -17,6 +17,13 @@ final class PaneStatus {
     /// Secure keyboard input is on for the pane (it asked for it, or the user forced it).
     private(set) var secure = false
 
+    /// What a program reports of its progress (OSC 9;4); nil when it reports none.
+    private(set) var progress: PaneProgress?
+
+    func setProgress(_ progress: PaneProgress?) {
+        if self.progress != progress { self.progress = progress }
+    }
+
     func setSecure(_ on: Bool) {
         if secure != on { secure = on }
     }
@@ -83,6 +90,8 @@ final class ActivityTracker {
     private var screens: [PaneID: Int] = [:]
     /// The folder each agent works in, read from its process.
     private var agentDirectories: [PaneID: String] = [:]
+    /// The panes showing a progress report, for dropping the ones not renewed in time at a tick.
+    private var progressing: Set<PaneID> = []
 
     /// The folder an agent's process works in (it may differ from the shell's: `cd x && claude`).
     func agentDirectory(for pane: PaneID) -> String? { agentDirectories[pane] }
@@ -164,8 +173,12 @@ final class ActivityTracker {
             }
             store(activity, for: watched.pane)
         }
+        if !progressing.isEmpty {
+            for pane in progressing where statuses[pane]?.progress?.isStale(at: now) != false { clearProgress(pane) }
+        }
         for gone in Set(states.keys).subtracting(live) {
             states[gone] = nil
+            clearProgress(gone)
             statuses[gone]?.hover(over: nil)
             if let status = statuses[gone], status.activity != PaneActivity().visible { status.activity = PaneActivity().visible }
             shellPIDs[gone] = nil
@@ -182,6 +195,16 @@ final class ActivityTracker {
         }
         afterTick()
     }
+
+    /// A program reports progress (`kind` nil: it removes it). The report stands until the next one,
+    /// the command's end, or 15 s without any.
+    func reportProgress(_ pane: PaneID, kind: PaneProgress.Kind?, percent: Int?) {
+        let progress = PaneProgress(kind: kind, percent: percent, at: Date())
+        status(for: pane).setProgress(progress)
+        if progress != nil { progressing.insert(pane) } else { progressing.remove(pane) }
+    }
+
+    func clearProgress(_ pane: PaneID) { reportProgress(pane, kind: nil, percent: nil) }
 
     /// The shell reported how a command ended.
     func exitReported(_ pane: PaneID, code: Int) {

@@ -40,6 +40,11 @@ Everything is in **PrompTTY › Settings…** (⌘,) and applies immediately:
 front (a checkmark; remembered). Separately, whenever a program asks for it, as a password prompt
 does, secure input is on while that pane has the keyboard, and a lock shows at the pane's corner.
 
+**Progress:** a program that reports progress (OSC 9;4, as `winget`, `systemd` or `printf '\e]9;4;1;40\a'`
+do) gets a small ring on its tab's row and, for an agent, on the agent's row: filled to the percent,
+spinning while indeterminate, red on an error, yellow when paused. It goes when the program removes
+it, the command finishes, or 15 s pass without an update.
+
 Settings are stored in `~/Library/Application Support/PrompTTY/settings.json`. From them the app
 writes `terminal.conf`, the only config libghostty reads. PrompTTY does not read
 `~/.config/ghostty/config`.

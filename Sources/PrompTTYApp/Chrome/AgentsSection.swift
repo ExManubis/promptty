@@ -133,6 +133,7 @@ private struct AgentRow: View {
                 }
             }
             Spacer(minLength: 2)
+            StatusProgressRing(status: agent.status)
             ActivityIndicator(display: agent.display)
         }
         .padding(.leading, 8)

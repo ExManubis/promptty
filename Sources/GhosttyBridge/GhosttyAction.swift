@@ -20,6 +20,9 @@ public enum OpenURLKind: Equatable, Sendable { case unknown, text, html }
 /// What a program asks of secure keyboard input (a password prompt).
 public enum SecureInputRequest: Equatable, Sendable { case on, off, toggle }
 
+/// A program's progress report (OSC 9;4): what it shows, and how far along when it says (0...100).
+public enum ProgressState: Equatable, Sendable { case remove, set, error, indeterminate, pause }
+
 public enum ColorKind: Equatable, Sendable {
     case foreground, background, cursor
     case palette(Int)
@@ -61,6 +64,8 @@ public enum GhosttyAction: Equatable, Sendable {
     case mouseOverLink(String?)
     /// A program in the pane starts or stops reading a secret; `toggle` flips the pane's request.
     case secureInput(SecureInputRequest)
+    /// A program reports progress (OSC 9;4); `percent` is nil when it gave none.
+    case progressReport(ProgressState, percent: Int?)
     /// Synthesized from `close_surface_cb`, not a `ghostty_action_tag_e`.
     case closeSurface(processAlive: Bool)
     case unhandled(tag: UInt32)
@@ -142,6 +147,17 @@ public enum GhosttyAction: Equatable, Sendable {
             case GHOSTTY_SECURE_INPUT_OFF: self = .secureInput(.off)
             default: self = .secureInput(.toggle)
             }
+        case GHOSTTY_ACTION_PROGRESS_REPORT:
+            let p = c.action.progress_report
+            let state: ProgressState
+            switch p.state {
+            case GHOSTTY_PROGRESS_STATE_SET: state = .set
+            case GHOSTTY_PROGRESS_STATE_ERROR: state = .error
+            case GHOSTTY_PROGRESS_STATE_INDETERMINATE: state = .indeterminate
+            case GHOSTTY_PROGRESS_STATE_PAUSE: state = .pause
+            default: state = .remove
+            }
+            self = .progressReport(state, percent: p.progress < 0 ? nil : Int(p.progress))
         default:
             self = .unhandled(tag: c.tag.rawValue)
         }

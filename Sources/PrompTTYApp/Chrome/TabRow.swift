@@ -39,6 +39,11 @@ struct TabRow: View {
         stackCards.map(\.display).max() ?? .idle
     }
 
+    private var stackPanes: [PaneID] {
+        let ordered = tab.orderedPanes
+        return (ordered.filter { $0.id == tab.focusedPaneID } + ordered.filter { $0.id != tab.focusedPaneID }).map(\.id)
+    }
+
     private var stackCards: [ProgramStack.Card] {
         let ordered = tab.orderedPanes
         let panes = ordered.filter { $0.id == tab.focusedPaneID } + ordered.filter { $0.id != tab.focusedPaneID }
@@ -182,6 +187,7 @@ struct TabRow: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: 2)
+            TabProgressRing(panes: stackPanes, actions: actions)
             // The close button, under the pointer. Activity is the Agents section's to show.
             Button { actions.requestCloseTab(tab.id) } label: {
                 Image(systemName: "xmark")

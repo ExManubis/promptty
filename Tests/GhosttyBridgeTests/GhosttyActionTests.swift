@@ -174,4 +174,21 @@ final class GhosttyActionTests: XCTestCase {
         a.action.mouse_over_link.len = 0
         XCTAssertEqual(GhosttyAction(a), .mouseOverLink(nil))
     }
+
+    func testProgressReport() {
+        var a = action(GHOSTTY_ACTION_PROGRESS_REPORT)
+        let cases: [(ghostty_action_progress_report_state_e, ProgressState)] = [
+            (GHOSTTY_PROGRESS_STATE_REMOVE, .remove), (GHOSTTY_PROGRESS_STATE_SET, .set),
+            (GHOSTTY_PROGRESS_STATE_ERROR, .error), (GHOSTTY_PROGRESS_STATE_INDETERMINATE, .indeterminate),
+            (GHOSTTY_PROGRESS_STATE_PAUSE, .pause),
+        ]
+        for (raw, state) in cases {
+            a.action.progress_report.state = raw
+            a.action.progress_report.progress = 40
+            XCTAssertEqual(GhosttyAction(a), .progressReport(state, percent: 40))
+        }
+        a.action.progress_report.state = GHOSTTY_PROGRESS_STATE_ERROR
+        a.action.progress_report.progress = -1
+        XCTAssertEqual(GhosttyAction(a), .progressReport(.error, percent: nil))
+    }
 }

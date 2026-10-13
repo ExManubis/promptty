@@ -696,6 +696,19 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             // On every mouse move over text, so straight to the pane's card.
             if case .surface(let view) = target { view.onLinkHover?(link) }
             return true
+        case .progressReport(let state, let percent):
+            // Often while a program runs, so straight to the pane's box.
+            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
+            let kind: PaneProgress.Kind?
+            switch state {
+            case .remove: kind = nil
+            case .set: kind = .set
+            case .error: kind = .error
+            case .indeterminate: kind = .indeterminate
+            case .pause: kind = .pause
+            }
+            activity.reportProgress(pane, kind: kind, percent: percent)
+            return true
         default: break
         }
         let located: (WindowState, Tab, Pane, TerminalWindowController)?
@@ -813,6 +826,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         case .commandFinished(let code, let duration):
             guard let located else { return false }
             activity.exitReported(located.2.id, code: Int(code))
+            activity.clearProgress(located.2.id)
             located.3.shell(for: located.2.id)?.commandFinished(code: code, durationNs: duration)
             located.3.blocks(for: located.2.id)?.setNeedsRefresh()
             return true
@@ -831,7 +845,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             // past every refusal of `LinkTarget`.
             openLink(LinkTarget.decide(text, kind: kind, relativeTo: located?.2.workingDirectory))
             return true
-        case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .mouseOverLink, .unhandled:
+        case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .mouseOverLink, .progressReport, .unhandled:
             // Config, mouse-shape and mouse-visibility actions are handled by the runtime.
             return false
         }

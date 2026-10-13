@@ -156,6 +156,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func blocks(for pane: PaneID) -> BlockOverlayView? { surfaces[pane]?.overlay as? BlockOverlayView }
     func activity(for pane: PaneID) -> PaneActivity.Visible { coordinator.activity.activity(for: pane) }
     func hoveredLink(for pane: PaneID) -> String? { coordinator.activity.status(for: pane).hoveredLink }
+    func progress(for pane: PaneID) -> PaneProgress? { coordinator.activity.status(for: pane).progress }
     func isSecure(_ pane: PaneID) -> Bool { coordinator.activity.status(for: pane).secure }
     var agentList: AgentList { coordinator.agentList }
     func reveal(_ pane: PaneID) { coordinator.reveal(pane) }
