@@ -58,7 +58,6 @@ struct ProgramIcon: View {
 struct ActivityIndicator: View {
     let display: PaneActivity.Display
 
-    @State private var pulse = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -66,29 +65,20 @@ struct ActivityIndicator: View {
             switch display {
             case .idle:
                 Color.clear
-            case .attention:
-                Circle().fill(ProgramStack.color(for: display)).frame(width: 7, height: 7)
-                    .scaleEffect(pulse ? 1.15 : 0.85)
-            case .working:
-                // Breathes while the agent works.
-                Circle().fill(ProgramStack.color(for: display)).frame(width: 7, height: 7)
-                    .opacity(pulse ? 0.35 : 1)
+            case .attention where !reduceMotion:
+                // Pulses until seen, breathes while the agent works: both in Core Animation (see
+                // `LoopingDot`).
+                LoopingDot(color: NSColor(ProgramStack.color(for: display)), loop: .pulse)
+            case .working where !reduceMotion:
+                LoopingDot(color: NSColor(ProgramStack.color(for: display)), loop: .breathe)
             default:
                 Circle().fill(ProgramStack.color(for: display)).frame(width: 7, height: 7)
             }
         }
         .frame(width: 9, height: 9)
-        .onAppear(perform: startPulse)
-        .onChange(of: display) { _, _ in startPulse() }
         .accessibilityElement()
         .accessibilityLabel(Self.label(for: display))
         .accessibilityHidden(display == .idle)
-    }
-
-    private func startPulse() {
-        pulse = false
-        guard !reduceMotion, display == .attention || display == .working else { return }
-        withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true }
     }
 
     static func label(for display: PaneActivity.Display) -> String {
@@ -201,23 +191,155 @@ struct ProgramStack: View {
 /// motion is reduced.
 struct WorkingShimmer: View {
     let shape: RoundedRectangle
-    @State private var phase: CGFloat = -1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if reduceMotion {
             shape.strokeBorder(Color.green, lineWidth: 1.5)
         } else {
-            GeometryReader { proxy in
-                LinearGradient(colors: [.clear, Color.green.opacity(0.45), .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: proxy.size.width * 0.7)
-                    .offset(x: phase * proxy.size.width)
-            }
-            .clipShape(shape)
-            .allowsHitTesting(false)
-            .onAppear {
-                withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { phase = 1.2 }
-            }
+            // A band of light sweeping across, in Core Animation (see `LoopingDot`).
+            ShimmerBand()
+                .clipShape(shape)
+                .allowsHitTesting(false)
         }
+    }
+}
+
+// MARK: Looping animations in Core Animation
+//
+// A SwiftUI `repeatForever` animation is driven by SwiftUI on the main thread: every frame it
+// updates the view, and every update waits for the window server to take the window's last
+// frame. The main thread also takes the keys and presents the terminal's frames, so a working
+// agent's shimmer and dot made typing, and the agent's own animation, stutter. These run in the
+// window server instead, and cost the app nothing per frame.
+
+/// The activity dot that breathes (an agent working) or pulses (one waiting for the user).
+private struct LoopingDot: NSViewRepresentable {
+    enum Loop { case breathe, pulse }
+
+    let color: NSColor
+    let loop: Loop
+
+    func makeNSView(context: Context) -> LoopingLayerView {
+        let view = LoopingLayerView()
+        view.configure = { layer, bounds in
+            let dot = layer.sublayers?.first ?? {
+                let dot = CALayer()
+                layer.addSublayer(dot)
+                return dot
+            }()
+            dot.frame = CGRect(x: (bounds.width - 7) / 2, y: (bounds.height - 7) / 2, width: 7, height: 7)
+            dot.cornerRadius = 3.5
+            return dot
+        }
+        update(view)
+        return view
+    }
+
+    func updateNSView(_ view: LoopingLayerView, context: Context) { update(view) }
+
+    private func update(_ view: LoopingLayerView) {
+        // Only a new color or kind restarts it: SwiftUI updates the dot every second (the
+        // Agents section's elapsed times), and a restart would make it jump.
+        let key = "\(loop) \(color)"
+        guard view.key != key else { return }
+        view.key = key
+        let color = color
+        let loop = loop
+        view.animate = { dot in
+            dot.backgroundColor = color.cgColor
+            let animation: CABasicAnimation
+            switch loop {
+            case .breathe:
+                animation = CABasicAnimation(keyPath: "opacity")
+                animation.fromValue = 1
+                animation.toValue = 0.35
+            case .pulse:
+                animation = CABasicAnimation(keyPath: "transform.scale")
+                animation.fromValue = 0.85
+                animation.toValue = 1.15
+            }
+            animation.duration = 0.9
+            animation.autoreverses = true
+            animation.repeatCount = .infinity
+            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            return animation
+        }
+        view.restart()
+    }
+}
+
+/// The working shimmer's band: a soft green gradient, 70% of the tile wide, crossing it every
+/// 1.4 s.
+private struct ShimmerBand: NSViewRepresentable {
+    func makeNSView(context: Context) -> LoopingLayerView {
+        let view = LoopingLayerView()
+        view.configure = { layer, bounds in
+            let band = (layer.sublayers?.first as? CAGradientLayer) ?? {
+                let band = CAGradientLayer()
+                band.colors = [NSColor.clear.cgColor, NSColor.systemGreen.withAlphaComponent(0.45).cgColor, NSColor.clear.cgColor]
+                band.startPoint = CGPoint(x: 0, y: 0.5)
+                band.endPoint = CGPoint(x: 1, y: 0.5)
+                layer.addSublayer(band)
+                return band
+            }()
+            band.anchorPoint = .zero
+            band.frame = CGRect(x: 0, y: 0, width: bounds.width * 0.7, height: bounds.height)
+            return band
+        }
+        view.animate = { band in
+            let width = band.superlayer?.bounds.width ?? 0
+            let animation = CABasicAnimation(keyPath: "transform.translation.x")
+            animation.fromValue = -width
+            animation.toValue = 1.2 * width
+            animation.duration = 1.4
+            animation.repeatCount = .infinity
+            return animation
+        }
+        return view
+    }
+
+    func updateNSView(_ view: LoopingLayerView, context: Context) {}
+}
+
+/// A view whose one sublayer loops an animation, restarted when it is laid out again or joins a
+/// window (Core Animation drops animations from layers that leave one).
+final class LoopingLayerView: NSView {
+    /// Makes or updates the animated sublayer for the view's bounds, and returns it.
+    var configure: ((CALayer, CGRect) -> CALayer)?
+    /// The animation to loop on that sublayer.
+    var animate: ((CALayer) -> CAAnimation)?
+    /// What the animation was made for; its owner restarts it only when this changes.
+    var key: String?
+    private var laidOutSize: CGSize = .zero
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.masksToBounds = true
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() {
+        super.layout()
+        guard bounds.size != laidOutSize else { return }
+        laidOutSize = bounds.size
+        restart()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        restart()
+    }
+
+    func restart() {
+        guard let layer, let configure, let animate, bounds.width > 0 else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let target = configure(layer, bounds)
+        target.removeAnimation(forKey: "loop")
+        target.add(animate(target), forKey: "loop")
+        CATransaction.commit()
     }
 }

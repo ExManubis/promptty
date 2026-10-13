@@ -523,7 +523,14 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             return moved
         case .setTitle(let title), .setTabTitle(let title):
             guard let located else { return false }
-            located.2.title = title
+            // Agents animate a spinner in their title many times a second. Every change redraws
+            // the tab row, the Agents entry and the window title, and each redraw blocks the main
+            // thread on the window server, which also presents the terminal's frames: a working
+            // agent made typing and its own animation stutter. Without the spinner the title
+            // rarely changes, and an unchanged title changes nothing.
+            let shown = Pane.terminalTitle(title)
+            guard located.2.title != shown else { return true }
+            located.2.title = shown
             located.3.reload()
             return true
         case .pwd(let dir):

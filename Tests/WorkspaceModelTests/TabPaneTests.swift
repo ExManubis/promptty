@@ -218,3 +218,24 @@ final class PaneMoveTests: XCTestCase {
         XCTAssertNil(ws.tab(containing: PaneID()))
     }
 }
+
+/// Programs animate a spinner at the start of their title many times a second (Claude Code's
+/// "✳ Claude Code", Gemini's braille dots); the pane keeps the title without it.
+final class TerminalTitleTests: XCTestCase {
+    func testSpinnerPrefixesAreDropped() {
+        for frame in ["⠋", "⠙", "⠹", "⣾", "✳", "✶", "✻", "✽", "✢", "·", "*", "•"] {
+            XCTAssertEqual(Pane.terminalTitle(frame + " Claude Code"), "Claude Code", frame)
+        }
+        XCTAssertEqual(Pane.terminalTitle("⠋⠙ Working"), "Working")
+        XCTAssertEqual(Pane.terminalTitle("✳Claude Code"), "Claude Code")
+    }
+
+    func testOtherTitlesAreKept() {
+        XCTAssertEqual(Pane.terminalTitle("~/Developer/promptty-2"), "~/Developer/promptty-2")
+        XCTAssertEqual(Pane.terminalTitle("vim notes.md"), "vim notes.md")
+        XCTAssertEqual(Pane.terminalTitle("→ deploy"), "→ deploy")
+        XCTAssertEqual(Pane.terminalTitle("*scratch*"), "*scratch*", "Emacs's buffer names are not spinners")
+        XCTAssertEqual(Pane.terminalTitle("✳"), "✳", "nothing left after it: kept")
+        XCTAssertEqual(Pane.terminalTitle(""), "")
+    }
+}
