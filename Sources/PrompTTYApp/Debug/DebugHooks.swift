@@ -485,7 +485,7 @@ enum DebugHooks {
         // eval mousemove <x> <y> — moves the pointer (window points, top-left origin) as a mouse-moved event.
         driver.hooks["mousemove"] = { args in
             let nums = args.compactMap(Double.init)
-            guard nums.count == 2, let window = NSApp.keyWindow ?? NSApp.orderedWindows.first else { return "error: mousemove x y" }
+            guard nums.count == 2, let window = DebugDriver.targetWindow else { return "error: mousemove x y" }
             let p = NSPoint(x: nums[0], y: window.frame.height - nums[1])
             guard let e = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) else { return "error: event" }
