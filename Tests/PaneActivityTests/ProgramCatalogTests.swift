@@ -96,6 +96,7 @@ final class ProgramCatalogTests: XCTestCase {
             ("node", ["/opt/homebrew/lib/node_modules/@kilocode/cli/bin/kilo"], "kilocode"),
             ("/Users/me/.local/bin/kiro-cli", ["chat"], "kiro"),
             ("/Users/me/.local/share/uv/tools/kimi-cli/bin/python", ["/Users/me/.local/bin/kimi"], "kimi"),
+            ("/Users/me/go/bin/claudewitz", ["-continue"], "claudewitz"),
         ]
         for (executable, arguments, expected) in agents {
             let program = ProgramCatalog.identify(executable: executable, arguments: [executable] + arguments)
@@ -139,7 +140,15 @@ final class ProgramCatalogTests: XCTestCase {
         let btop = ProgramCatalog.all.first { $0.id == "btop" }
         XCTAssertEqual(btop?.logo, "btop")
         XCTAssertEqual(btop?.fullColorLogo, true)
-        XCTAssertEqual(ProgramCatalog.all.filter(\.fullColorLogo).map(\.id), ["btop"])
+        XCTAssertEqual(ProgramCatalog.all.filter(\.fullColorLogo).map(\.id), ["claudewitz", "btop"])
+    }
+
+    /// claudewitz's headphone bean keeps its own colors, on the icon's dark square.
+    func testClaudewitzShowsItsOwnColors() {
+        let claudewitz = ProgramCatalog.all.first { $0.id == "claudewitz" }
+        XCTAssertEqual(claudewitz?.logo, "claudewitz")
+        XCTAssertEqual(claudewitz?.fullColorLogo, true)
+        XCTAssertEqual(claudewitz?.tile?.background, 0x1A1715)
     }
 
     func testEveryLogoHasAColor() {
