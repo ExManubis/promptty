@@ -200,6 +200,8 @@ public final class TerminalSurfaceView: NSView {
     /// Frees the surface exactly once. Safe to call from both the tab-close path and `close_surface_cb`.
     public func teardown() {
         guard let handle = surface, !isFreed else { return }
+        // A freed surface reports nothing more: whoever tracks its focus is told it lost it.
+        onFocusChange?(false)
         // Clear state first so nothing re-entering during the free sees a live handle.
         surface = nil
         isFreed = true

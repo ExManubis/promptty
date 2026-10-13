@@ -183,6 +183,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     private func bind(_ view: TerminalSurfaceView, to pane: PaneID) {
         view.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
         view.onFocusChange = { [weak self] focused in self?.coordinator.secureInput.setFocused(pane, focused) }
+        coordinator.refreshSecureIndicators()
         view.onAttachedToWindow = { [weak self] in self?.surfaceAttached(pane) }
         view.onLinkHover = { [weak self] link in self?.coordinator.activity.status(for: pane).hover(over: link) }
         // Dropped files: into the bar while it is shown, else typed for the program, quoted.

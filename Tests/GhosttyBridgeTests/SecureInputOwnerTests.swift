@@ -95,24 +95,43 @@ final class SecureInputOwnerTests: XCTestCase {
         XCTAssertEqual([enables, disables], [1, 1])
     }
 
-    func testIndicatorFollowsForcedOrRequested() {
+    func testIndicatorIsOnlyForWhatIsReallyOn() {
         let o = owner()
-        XCTAssertFalse(o.isSecure(1))
         o.setRequested(1, true)
+        XCTAssertFalse(o.isSecure(1), "not focused: secure input is off")
+        o.setFocused(1, true)
         XCTAssertTrue(o.isSecure(1))
         XCTAssertFalse(o.isSecure(2))
+        o.setAppActive(false)
+        XCTAssertFalse(o.isSecure(1))
+        o.setAppActive(true)
         o.global = true
         XCTAssertTrue(o.isSecure(2))
+        succeeds = false
+        let failing = owner()
+        succeeds = false
+        failing.global = true
+        XCTAssertFalse(failing.isSecure(1), "a failed enable shows no lock")
     }
 
-    func testOnChangeFiresOnlyOnChanges() {
+    func testRemovingSeveralPanesAtOnceReleasesThem() {
+        let o = owner()
+        for k in [1, 2] { o.setFocused(k, true); o.setRequested(k, true) }
+        o.remove([1, 2])
+        XCTAssertFalse(o.enabled)
+        XCTAssertEqual([enables, disables], [1, 1])
+        o.setAppActive(false)
+        o.setAppActive(true)
+        XCTAssertEqual(enables, 1, "nothing comes back on reactivation")
+    }
+
+    func testOnChangeFiresAfterEachChange() {
         let o = owner()
         var changes = 0
         o.onChange = { changes += 1 }
         o.setFocused(1, true)
         o.setRequested(1, true)
-        o.setRequested(1, true)
         o.setRequested(1, false)
-        XCTAssertEqual(changes, 2)
+        XCTAssertEqual(changes, 3)
     }
 }

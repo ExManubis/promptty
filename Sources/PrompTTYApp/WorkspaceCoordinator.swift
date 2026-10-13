@@ -44,7 +44,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     /// Every pane's lock follows the owner: shown on a pane that asked for secure input itself, or
     /// on all of them while the menu forces it.
-    private func refreshSecureIndicators() {
+    func refreshSecureIndicators() {
         for pane in workspace.windows.flatMap({ $0.tabs.flatMap { $0.orderedPanes.map(\.id) } }) {
             activity.status(for: pane).setSecure(secureInput.isSecure(pane))
         }
@@ -546,6 +546,11 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     func windowWillClose(_ id: WindowID) {
         guard let controller = controllers.removeValue(forKey: id) else { return }
+        // Before the surfaces are freed: a freed one reports no more, and a pane left in the owner
+        // would hold secure input on for the whole system.
+        if let state = workspace.windows.first(where: { $0.id == id }) {
+            secureInput.remove(state.tabs.flatMap { $0.orderedPanes.map(\.id) })
+        }
         for view in controller.allSurfaces() { view.teardown() }
         controller.stopShells()
         workspace.removeWindow(id: id)

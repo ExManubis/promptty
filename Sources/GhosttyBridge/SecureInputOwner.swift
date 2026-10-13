@@ -13,7 +13,7 @@ public final class SecureInputOwner<Key: Hashable> {
 
     /// Whether this owner has turned secure input on and not yet off.
     public private(set) var enabled = false
-    /// Called when `enabled` changes.
+    /// Called after every change of what is asked for or of `enabled`, for the panes' locks.
     public var onChange: (() -> Void)?
 
     /// The user forces secure input on while the app is in front.
@@ -34,8 +34,11 @@ public final class SecureInputOwner<Key: Hashable> {
     /// Whether the pane's program has asked for secure input itself.
     public func isRequested(_ key: Key) -> Bool { requested.contains(key) }
 
-    /// Whether the pane shows the lock: forced on, or it has asked for it itself.
-    public func isSecure(_ key: Key) -> Bool { global || requested.contains(key) }
+    /// Whether secure input is really on because of this pane: on at all, and either forced or
+    /// asked for by this pane while it has the keyboard.
+    public func isSecure(_ key: Key) -> Bool {
+        enabled && (global || (requested.contains(key) && focused.contains(key)))
+    }
 
     /// A pane's program asks for secure input (a password prompt) or no longer does.
     public func setRequested(_ key: Key, _ on: Bool) {
@@ -56,6 +59,15 @@ public final class SecureInputOwner<Key: Hashable> {
         apply()
     }
 
+    /// Several panes are gone (a window closed).
+    public func remove(_ keys: some Sequence<Key>) {
+        for key in keys {
+            requested.remove(key)
+            focused.remove(key)
+        }
+        apply()
+    }
+
     /// The app came to the front or left it: secure input is given up while it is not in front.
     public func setAppActive(_ active: Bool) {
         appActive = active
@@ -72,10 +84,8 @@ public final class SecureInputOwner<Key: Hashable> {
 
     private func apply() {
         let want = appActive && desired
-        guard want != enabled else { return }
         // On failure `enabled` stays as it was, so the next change tries again.
-        guard (want ? enable() : disable()) else { return }
-        enabled = want
+        if want != enabled, (want ? enable() : disable()) { enabled = want }
         onChange?()
     }
 }
