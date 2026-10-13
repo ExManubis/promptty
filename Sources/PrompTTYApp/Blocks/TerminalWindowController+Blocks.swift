@@ -3,8 +3,8 @@ import GhosttyBridge
 import Preferences
 
 /// Command blocks in the focused pane: ⌘↑ and ⌘↓ select the previous and next command (⌃⌘↑ and
-/// ⌃⌘↓ the failed ones), Rerun puts it in the input bar, the copy commands copy the selected one (else the newest), and while one is selected ⌘C copies its
-/// output and Esc lets it go.
+/// ⌃⌘↓ the failed ones), Rerun puts it in the input bar, the copy commands copy the selected one
+/// (else the newest), and while one is selected ⌘C copies its output and Esc lets it go.
 extension TerminalWindowController {
     var focusedBlocks: BlockOverlayView? {
         state.selectedTab.flatMap { blocks(for: $0.focusedPaneID) }

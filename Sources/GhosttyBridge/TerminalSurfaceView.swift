@@ -43,7 +43,6 @@ public final class TerminalSurfaceView: NSView {
     public var overlay: NSView?
     /// A menu for a right-click, or nil to leave the click to the terminal.
     public var contextMenu: ((NSEvent) -> NSMenu?)?
-    var showingContextMenu = false
     /// The pointer moved over the terminal (the event), or left it (nil).
     public var onPointerMoved: ((NSEvent?) -> Void)?
     /// The screen scrolled, the scrollback grew, or the cells changed size: whatever is drawn over

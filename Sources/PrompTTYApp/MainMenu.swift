@@ -95,9 +95,10 @@ enum MainMenu {
         // Command blocks: what each command printed, from the shell integration's marks.
         edit.addItem(item("Select Previous Command", Action.selectPreviousCommand, .selectPreviousCommand))
         edit.addItem(item("Select Next Command", Action.selectNextCommand, .selectNextCommand))
-        edit.addItem(item("Copy Output", Action.copyCommandOutput, .copyOutput))
         edit.addItem(item("Select Previous Failed Command", Action.selectPreviousFailed, .selectPreviousFailed))
         edit.addItem(item("Select Next Failed Command", Action.selectNextFailed, .selectNextFailed))
+        edit.addItem(.separator())
+        edit.addItem(item("Copy Output", Action.copyCommandOutput, .copyOutput))
         edit.addItem(item("Copy Command", Action.copyCommandLine, .copyCommand))
         edit.addItem(item("Copy Command as Markdown", Action.copyCommandMarkdown))
         edit.addItem(item("Rerun Command", Action.rerunCommand, .rerunCommand))
