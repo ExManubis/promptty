@@ -29,6 +29,10 @@ enum MainMenu {
         static let focusPaneDown = #selector(TerminalWindowController.focusPaneDown(_:))
         static let equalizePanes = #selector(TerminalWindowController.equalizePanes(_:))
         static let clearTerminal = #selector(TerminalWindowController.clearTerminal(_:))
+        static let selectPreviousCommand = #selector(TerminalWindowController.selectPreviousCommand(_:))
+        static let selectNextCommand = #selector(TerminalWindowController.selectNextCommand(_:))
+        static let copyCommandOutput = #selector(TerminalWindowController.copyCommandOutput(_:))
+        static let copyCommandLine = #selector(TerminalWindowController.copyCommandLine(_:))
     }
 
     static func build(shortcuts: ShortcutMap) -> NSMenu {
@@ -79,6 +83,12 @@ enum MainMenu {
         edit.addItem(item("Select All", #selector(NSText.selectAll(_:)), .selectAll))
         edit.addItem(.separator())
         edit.addItem(item("Clear", Action.clearTerminal, .clear))
+        edit.addItem(.separator())
+        // Command blocks: what each command printed, from the shell integration's marks.
+        edit.addItem(item("Select Previous Command", Action.selectPreviousCommand, .selectPreviousCommand))
+        edit.addItem(item("Select Next Command", Action.selectNextCommand, .selectNextCommand))
+        edit.addItem(item("Copy Output", Action.copyCommandOutput, .copyOutput))
+        edit.addItem(item("Copy Command", Action.copyCommandLine, .copyCommand))
         menu.addItem(submenu: edit, title: "Edit")
 
         let view = NSMenu(title: "View")

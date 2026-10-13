@@ -51,6 +51,8 @@ targets:
         product: CommandEditing
       - package: PrompTTYCore
         product: PaneActivity
+      - package: PrompTTYCore
+        product: CommandBlocks
     settings:
       base:
         PRODUCT_NAME: PrompTTY

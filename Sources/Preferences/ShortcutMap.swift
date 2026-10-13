@@ -22,6 +22,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     case splitRight, splitDown, closePane
     case focusPaneLeft, focusPaneUp, focusPaneRight, focusPaneDown, equalizePanes
     case copy, paste, selectAll, clear, biggerFont, smallerFont, actualSizeFont
+    case selectPreviousCommand, selectNextCommand, copyOutput, copyCommand
 
     public var title: String {
         switch self {
@@ -50,6 +51,10 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .biggerFont: return "Bigger"
         case .smallerFont: return "Smaller"
         case .actualSizeFont: return "Actual Size"
+        case .selectPreviousCommand: return "Select Previous Command"
+        case .selectNextCommand: return "Select Next Command"
+        case .copyOutput: return "Copy Output"
+        case .copyCommand: return "Copy Command"
         }
     }
 
@@ -61,7 +66,8 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
             return .tabs
         case .splitRight, .splitDown, .closePane, .focusPaneLeft, .focusPaneUp, .focusPaneRight, .focusPaneDown, .equalizePanes:
             return .panes
-        case .copy, .paste, .selectAll, .clear, .biggerFont, .smallerFont, .actualSizeFont:
+        case .copy, .paste, .selectAll, .clear, .biggerFont, .smallerFont, .actualSizeFont,
+             .selectPreviousCommand, .selectNextCommand, .copyOutput, .copyCommand:
             return .terminal
         }
     }
@@ -105,6 +111,10 @@ public struct ShortcutMap: Equatable, Sendable {
         .biggerFont: s("cmd+="),
         .smallerFont: s("cmd+-"),
         .actualSizeFont: s("cmd+0"),
+        .selectPreviousCommand: s("cmd+up"),
+        .selectNextCommand: s("cmd+down"),
+        .copyOutput: s("opt+cmd+c"),
+        .copyCommand: s("shift+cmd+c"),
     ]
 
     /// Fixed menu shortcuts that cannot be assigned: Quit, Hide, Hide Others, Minimize, Settings, Full Screen.

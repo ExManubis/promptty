@@ -10,6 +10,7 @@ let package = Package(
         .library(name: "Preferences", targets: ["Preferences"]),
         .library(name: "CommandEditing", targets: ["CommandEditing"]),
         .library(name: "PaneActivity", targets: ["PaneActivity"]),
+        .library(name: "CommandBlocks", targets: ["CommandBlocks"]),
     ],
     dependencies: [
         // libghostty-spm's GhosttyKit, built locally with PrompTTY's engine patches
@@ -23,10 +24,13 @@ let package = Package(
         .testTarget(name: "CommandEditingTests", dependencies: ["CommandEditing"]),
         .target(name: "PaneActivity"),
         .testTarget(name: "PaneActivityTests", dependencies: ["PaneActivity"]),
+        .target(name: "CommandBlocks"),
+        .testTarget(name: "CommandBlocksTests", dependencies: ["CommandBlocks"]),
         .testTarget(name: "PreferencesTests", dependencies: ["Preferences"]),
         .target(
             name: "GhosttyBridge",
             dependencies: [
+                "CommandBlocks",
                 .product(name: "GhosttyKit", package: "Engine"),
                 .product(name: "GhosttyKitResources", package: "Engine"),
             ],

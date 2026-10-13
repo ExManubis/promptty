@@ -554,7 +554,12 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             guard let located else { return false }
             located.3.applyInitialTerminalSize(CGSize(width: Double(w), height: Double(h)))
             return true
-        case .cellSize, .render, .configChange:
+        case .scrollbar, .cellSize:
+            // The screen moved in the scrollback, the scrollback grew, or rows changed height:
+            // the command blocks moved.
+            if let located { located.3.blocks(for: located.2.id)?.setNeedsRefresh() }
+            return true
+        case .render, .configChange:
             return true
         case .colorChange(let kind, let r, let g, let b):
             // Only the focused pane of the selected tab (OSC 11) tints its own window.
@@ -596,6 +601,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             guard let located else { return false }
             activity.exitReported(located.2.id, code: Int(code))
             located.3.shell(for: located.2.id)?.commandFinished(code: code, durationNs: duration)
+            located.3.blocks(for: located.2.id)?.setNeedsRefresh()
             return true
         case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .unhandled:
             // Config, mouse-shape and mouse-visibility actions are handled by the runtime.

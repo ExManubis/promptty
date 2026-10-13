@@ -59,11 +59,23 @@ public enum ZshIntegration {
     'builtin' 'unset' '_promptty_file'
 
     if [[ -o 'interactive' ]]; then
+        # The prompt PrompTTY shows instead of zsh's: nothing, but the marks (OSC 133) that tell
+        # the terminal a prompt waiting for input starts here, which is how it finds where each
+        # command starts. In the prompt, zero-width, they are printed again whenever zsh redraws
+        # the line (clearing the screen, resizing). Without prompt escapes they would show. In
+        # REPLY; called before `emulate`, which would hide the user's own prompt_percent.
+        _promptty_prompt() {
+            REPLY=''
+            [[ ! -o prompt_percent ]] || REPLY=$'%{\e]133;P;k=i\a\e]133;B\a%}'
+        }
+
         # Every prompt: hide zsh's own prompt (the input bar replaces it) and refresh what the bar
         # knows about the shell.
         _promptty_precmd() {
+            'builtin' 'local' REPLY
+            _promptty_prompt
             'builtin' 'emulate' -L zsh -o no_aliases
-            PROMPT='' RPROMPT=''
+            PROMPT="$REPLY" RPROMPT=''
             _promptty_write_state
         }
 
@@ -75,16 +87,20 @@ public enum ZshIntegration {
         # precmd is cleared here. Keys typed while a command ran (type-ahead) are dropped: they would
         # sit, invisible, in front of the next command from the bar. Then the cursor is hidden and
         # PrompTTY is told, with a directory report under a path only this integration uses,
-        # followed by the real directory so the terminal's own record of it stays right.
+        # followed by the real directory so the terminal's own record of it stays right. Last, the
+        # line is marked as a prompt waiting for input (OSC 133): clearing it erased the mark the
+        # prompt carried, and the terminal finds where each command starts from these marks.
         _promptty_line_init() {
+            'builtin' 'local' REPLY
+            _promptty_prompt
             'builtin' 'emulate' -L zsh -o no_aliases
-            if [[ -n "$PROMPT$RPROMPT" ]]; then
-                PROMPT='' RPROMPT=''
+            if [[ "$PROMPT" != "$REPLY" || -n "$RPROMPT" ]]; then
+                PROMPT="$REPLY" RPROMPT=''
                 'builtin' 'zle' reset-prompt
             fi
             'builtin' 'local' _promptty_c
             while 'builtin' 'read' -t 0 -k 1 -s _promptty_c 2>/dev/null; do :; done
-            'builtin' 'print' -rn -- $'\e[?25l\e]7;kitty-shell-cwd://'"${HOST}/.promptty-ready${PWD}"$'\a\e]7;kitty-shell-cwd://'"${HOST}${PWD}"$'\a'
+            'builtin' 'print' -rn -- $'\e[?25l\e]7;kitty-shell-cwd://'"${HOST}/.promptty-ready${PWD}"$'\a\e]7;kitty-shell-cwd://'"${HOST}${PWD}"$'\a\e]133;P;k=i\a\e]133;B\a'
         }
 
         # Lists what only the shell knows (history file, PATH, aliases, functions, builtins, reserved

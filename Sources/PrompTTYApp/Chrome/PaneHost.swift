@@ -129,9 +129,16 @@ final class PaneHostView: NSView {
     }
 
     private func adopt() {
-        guard let surface, surface.superview !== self else { return }
+        guard let surface else { return }
+        let overlay = (surface as? TerminalSurfaceView)?.overlay
+        guard surface.superview !== self || (overlay != nil && overlay?.superview !== self) else { return }
         surface.autoresizingMask = []
         addSubview(surface)
+        // A terminal's overlay goes with it, above it.
+        if let overlay {
+            overlay.autoresizingMask = []
+            addSubview(overlay, positioned: .above, relativeTo: surface)
+        }
         placeSurface()
     }
 }

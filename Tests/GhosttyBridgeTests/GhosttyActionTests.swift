@@ -124,6 +124,12 @@ final class GhosttyActionTests: XCTestCase {
         XCTAssertEqual(GhosttyAction(a), .commandFinished(exitCode: -1, durationNs: 0))
     }
 
+    func testScrollbar() {
+        var a = action(GHOSTTY_ACTION_SCROLLBAR)
+        a.action.scrollbar = ghostty_action_scrollbar_s(total: 500, offset: 120, len: 40)
+        XCTAssertEqual(GhosttyAction(a), .scrollbar(total: 500, offset: 120, length: 40))
+    }
+
     func testUnknownTagIsUnhandled() {
         let a = action(GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL)
         XCTAssertEqual(GhosttyAction(a), .unhandled(tag: GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL.rawValue))

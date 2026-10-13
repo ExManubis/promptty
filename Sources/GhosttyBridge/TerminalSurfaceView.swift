@@ -36,6 +36,11 @@ public final class TerminalSurfaceView: NSView {
     public var keyRedirect: (() -> NSResponder?)?
     /// Files dropped on the terminal. Returns false to decline the drop.
     public var onFileDrop: (([URL]) -> Bool)?
+    /// Drawn over the terminal by whatever hosts it, and moved with it. The terminal is a
+    /// layer-hosting view (libghostty owns its layer), so it cannot have subviews of its own.
+    public var overlay: NSView?
+    /// The pointer moved over the terminal (the event), or left it (nil).
+    public var onPointerMoved: ((NSEvent?) -> Void)?
 
     /// Size libghostty asked for during `ghostty_surface_new`, before this view had a window.
     public private(set) var pendingInitialSize: CGSize?

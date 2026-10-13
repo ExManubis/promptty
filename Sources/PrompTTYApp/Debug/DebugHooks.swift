@@ -2,6 +2,7 @@
 import AppKit
 import IOSurface
 import SwiftUI
+import CommandBlocks
 import GhosttyBridge
 import Preferences
 import PaneActivity
@@ -390,6 +391,48 @@ enum DebugHooks {
             NSApp.windows.map { "\(type(of: $0)) \(NSStringFromRect($0.frame)) visible=\($0.isVisible) key=\($0.isKeyWindow) \"\($0.title)\"" }.joined(separator: "\n")
         }
         driver.hooks["live"] = { _ in "controllers=\(TerminalWindowController.liveCount)" }
+        // eval blocks — the focused pane's command blocks, viewport, selection and overlay.
+        driver.hooks["blocks"] = { _ in
+            guard let c = coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true }) ?? coordinator.allControllers.first,
+                  let overlay = c.focusedBlocks else { return "error: no overlay" }
+            overlay.refresh()
+            return overlay.debugDescription
+        }
+        // eval scrollrow <row> — scrolls the focused terminal so that scrollback row is at the top.
+        driver.hooks["scrollrow"] = { args in
+            guard let c = coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true }) ?? coordinator.allControllers.first,
+                  let surface = c.focusedSurface, let row = args.first.flatMap(Int.init) else { return "error: scrollrow row" }
+            surface.scroll(toRow: row)
+            return ""
+        }
+        // eval blocksoff <0|1> — stops (1) or resumes (0) reading blocks; resets the read timer.
+        driver.hooks["blocksoff"] = { args in
+            BlockOverlayView.disabled = args.first == "1"
+            BlockOverlayView.readTime = 0
+            BlockOverlayView.reads = 0
+            return ""
+        }
+        // eval mousemove <x> <y> — moves the pointer (window points, top-left origin) as a mouse-moved event.
+        driver.hooks["mousemove"] = { args in
+            let nums = args.compactMap(Double.init)
+            guard nums.count == 2, let window = NSApp.keyWindow ?? NSApp.orderedWindows.first else { return "error: mousemove x y" }
+            let p = NSPoint(x: nums[0], y: window.frame.height - nums[1])
+            guard let e = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) else { return "error: event" }
+            // AppKit only routes real pointer moves to tracking areas; hand it to the terminal under it.
+            guard let surface = window.contentView?.hitTest(p) as? TerminalSurfaceView else { return "error: no terminal at \(nums)" }
+            surface.mouseMoved(with: e)
+            return ""
+        }
+        // eval pasteboard — the general pasteboard's string.
+        driver.hooks["pasteboard"] = { _ in NSPasteboard.general.string(forType: .string).map { $0.debugDescription } ?? "nil" }
+        // eval blocktext <row> <command|output|all> — the text of the block on that row.
+        driver.hooks["blocktext"] = { args in
+            guard let c = coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true }) ?? coordinator.allControllers.first,
+                  let surface = c.focusedSurface, let row = args.first.flatMap(Int.init) else { return "error: blocktext row part" }
+            let part: BlockPart = switch args.dropFirst().first { case "command": .command; case "all": .all; default: .output }
+            return surface.blockText(row: row, part: part).map { $0.debugDescription } ?? "nil"
+        }
         // eval backdrop — window transparency and the blur view's state, for checking the chrome.
         driver.hooks["backdrop"] = { _ in
             guard let window = coordinator.allControllers.first?.window else { return "error: no window" }

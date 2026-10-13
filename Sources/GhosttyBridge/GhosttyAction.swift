@@ -46,6 +46,9 @@ public enum GhosttyAction: Equatable, Sendable {
     case ringBell
     /// From shell integration (OSC 133;D): `exitCode` is -1 when the shell gave none.
     case commandFinished(exitCode: Int16, durationNs: UInt64)
+    /// The screen moved in the scrollback, or the scrollback grew: rows in all, the first row on
+    /// screen, and how many are on screen.
+    case scrollbar(total: UInt64, offset: UInt64, length: UInt64)
     /// Synthesized from `close_surface_cb`, not a `ghostty_action_tag_e`.
     case closeSurface(processAlive: Bool)
     case unhandled(tag: UInt32)
@@ -103,6 +106,9 @@ public enum GhosttyAction: Equatable, Sendable {
             self = .showChildExited(exitCode: c.action.child_exited.exit_code, runtimeMs: c.action.child_exited.timetime_ms)
         case GHOSTTY_ACTION_COMMAND_FINISHED:
             self = .commandFinished(exitCode: c.action.command_finished.exit_code, durationNs: c.action.command_finished.duration)
+        case GHOSTTY_ACTION_SCROLLBAR:
+            let s = c.action.scrollbar
+            self = .scrollbar(total: s.total, offset: s.offset, length: s.len)
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             let n = c.action.desktop_notification
             self = .desktopNotification(title: Self.string(n.title), body: Self.string(n.body))

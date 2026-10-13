@@ -63,10 +63,22 @@ final class ZshIntegrationTests: XCTestCase {
         XCTAssertTrue(s.contains("zle' reset-prompt"))
     }
 
+    /// Clearing the prompt line erases the terminal's mark on it; the line is marked again after,
+    /// so each command starts a block (see the engine's blocks.zig).
+    func testLineInitMarksThePromptAfterClearingIt() throws {
+        let s = ZshIntegration.zshenv
+        let body = try XCTUnwrap(s.range(of: "_promptty_line_init() {").map { s[$0.upperBound...] })
+        let end = try XCTUnwrap(body.range(of: "\n    }\n"))
+        let lineInit = String(body[..<end.lowerBound])
+        let reset = try XCTUnwrap(lineInit.range(of: "reset-prompt"))
+        let mark = try XCTUnwrap(lineInit.range(of: "\\e]133;P;k=i\\a\\e]133;B\\a"))
+        XCTAssertLessThan(reset.lowerBound, mark.lowerBound)
+    }
+
     func testScriptHasTheHooksTheAppRelies() {
         let s = ZshIntegration.zshenv
         for needle in ["_promptty_init", "_promptty_precmd", "_promptty_preexec", "'unsetopt' hist_verify",
-                       "kitty-shell-cwd://", "\\e[?25l", "\\e[?25h", "PROMPTTY_STATE", "PROMPT=''", "RPROMPT=''"] {
+                       "kitty-shell-cwd://", "\\e[?25l", "\\e[?25h", "PROMPTTY_STATE", "RPROMPT=''"] {
             XCTAssertTrue(s.contains(needle), "missing \(needle)")
         }
     }
@@ -107,7 +119,9 @@ final class ZshIntegrationTests: XCTestCase {
         try p.run()
         p.waitUntilExit()
         let output = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        XCTAssertTrue(output.hasSuffix("[][]\n"), output.debugDescription)
+        // Hidden: nothing to show but the marks the terminal finds commands by (zero-width, so
+        // every redraw of the prompt, such as clearing the screen, prints them again).
+        XCTAssertTrue(output.hasSuffix("[%{\u{1b}]133;P;k=i\u{07}\u{1b}]133;B\u{07}%}][]\n"), output.debugDescription)
         let parsed = ShellStateFile.parse(try String(contentsOf: state, encoding: .utf8))
         XCTAssertEqual(parsed.historyFile, home.path + "/.hist")
         XCTAssertEqual(parsed.path, ["/usr/bin", "/bin"])

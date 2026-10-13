@@ -1,0 +1,501 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 5850dd54a..0ed1763ad 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -440,6 +440,28 @@ typedef struct {
+   bool rectangle;
+ } ghostty_selection_s;
+ 
++// A command the shell ran: rows count from the top of the scrollback.
++typedef struct {
++  uint32_t row;
++  uint32_t end_row;
++  int16_t exit_code;  // -1 when the shell has not reported it
++} ghostty_block_s;
++
++typedef struct {
++  uint32_t viewport_top;
++  uint32_t viewport_rows;
++  uint32_t total_rows;
++  uint32_t cell_height_px;
++  uint32_t padding_top_px;
++  bool alternate_screen;
++} ghostty_blocks_info_s;
++
++typedef enum {
++  GHOSTTY_BLOCK_PART_COMMAND,
++  GHOSTTY_BLOCK_PART_OUTPUT,
++  GHOSTTY_BLOCK_PART_ALL,
++} ghostty_block_part_e;
++
+ typedef enum {
+   GHOSTTY_TEXT_FORMAT_PLAIN,
+   GHOSTTY_TEXT_FORMAT_VT,
+@@ -1169,6 +1191,14 @@ GHOSTTY_API bool ghostty_surface_read_text_format(ghostty_surface_t,
+                                                      ghostty_text_format_e,
+                                                      ghostty_text_s*);
+ GHOSTTY_API void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
++GHOSTTY_API size_t ghostty_surface_blocks(ghostty_surface_t,
++                                          ghostty_blocks_info_s*,
++                                          ghostty_block_s*,
++                                          size_t);
++GHOSTTY_API bool ghostty_surface_block_text(ghostty_surface_t,
++                                            uint32_t,
++                                            ghostty_block_part_e,
++                                            ghostty_text_s*);
+ 
+ #ifdef __APPLE__
+ GHOSTTY_API void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index a6aa81a23..173e8cc1c 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1740,6 +1740,92 @@ pub const CAPI = struct {
+         ptr.deinit();
+     }
+ 
++    // ghostty_block_s
++    const Block = extern struct {
++        row: u32,
++        end_row: u32,
++        exit_code: i16,
++    };
++
++    // ghostty_blocks_info_s
++    const BlocksInfo = extern struct {
++        viewport_top: u32,
++        viewport_rows: u32,
++        total_rows: u32,
++        cell_height_px: u32,
++        padding_top_px: u32,
++        alternate_screen: bool,
++    };
++
++    // ghostty_block_part_e
++    const BlockPart = enum(c_int) {
++        command,
++        output,
++        all,
++    };
++
++    /// Lists the commands the shell ran on the active screen (from its
++    /// semantic prompt marks), newest `cap` of them, oldest first, and
++    /// where the viewport is. Rows count from the top of the scrollback.
++    /// Returns how many blocks were written. The alternate screen has none.
++    export fn ghostty_surface_blocks(
++        surface: *Surface,
++        info: *BlocksInfo,
++        out: [*]Block,
++        cap: usize,
++    ) usize {
++        const core_surface = &surface.core_surface;
++        core_surface.renderer_state.mutex.lock();
++        defer core_surface.renderer_state.mutex.unlock();
++
++        const t = core_surface.renderer_state.terminal;
++        const screen = t.screens.active;
++        const pages = &screen.pages;
++        const top = pages.pointFromPin(.screen, pages.getTopLeft(.viewport));
++        const bottom = if (pages.getBottomRight(.screen)) |br| pages.pointFromPin(.screen, br) else null;
++        info.* = .{
++            .viewport_top = if (top) |pt| pt.coord().y else 0,
++            .viewport_rows = @intCast(pages.rows),
++            .total_rows = if (bottom) |pt| pt.coord().y + 1 else @intCast(pages.rows),
++            .cell_height_px = core_surface.size.cell.height,
++            .padding_top_px = core_surface.size.padding.top,
++            .alternate_screen = t.screens.active_key == .alternate,
++        };
++        if (info.alternate_screen) return 0;
++
++        var buf: [256]terminal.blocks.Block = undefined;
++        const n = terminal.blocks.list(screen, buf[0..@min(cap, buf.len)]);
++        for (buf[0..n], 0..) |b, i| out[i] = .{
++            .row = b.row,
++            .end_row = b.end_row,
++            .exit_code = if (b.exit_code) |c| c else -1,
++        };
++        return n;
++    }
++
++    /// Reads part of the block whose first line is screen row `row` (as
++    /// ghostty_surface_blocks reported it). False when no block starts
++    /// there or that part is empty. Free the text with
++    /// ghostty_surface_free_text.
++    export fn ghostty_surface_block_text(
++        surface: *Surface,
++        row: u32,
++        part: BlockPart,
++        result: *Text,
++    ) bool {
++        const core_surface = &surface.core_surface;
++        core_surface.renderer_state.mutex.lock();
++        defer core_surface.renderer_state.mutex.unlock();
++
++        const screen = core_surface.renderer_state.terminal.screens.active;
++        const sel = terminal.blocks.selection(screen, row, switch (part) {
++            .command => .command,
++            .output => .output,
++            .all => .all,
++        }) orelse return false;
++        return readTextLocked(surface, sel, .plain, result);
++    }
++
+     /// Tell the surface that it needs to schedule a render
+     export fn ghostty_surface_refresh(surface: *Surface) void {
+         surface.refresh();
+diff --git a/src/terminal/PageList.zig b/src/terminal/PageList.zig
+index 17eea73d0..60d4266a3 100644
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -1994,6 +1994,7 @@ const ReflowCursor = struct {
+ 
+     fn copyRowMetadata(self: *ReflowCursor, other: *const Row) void {
+         self.page_row.semantic_prompt = other.semantic_prompt;
++        self.page_row.command_exit = other.command_exit;
+     }
+ };
+ 
+diff --git a/src/terminal/Terminal.zig b/src/terminal/Terminal.zig
+index 6740a93e6..2249b2c1c 100644
+--- a/src/terminal/Terminal.zig
++++ b/src/terminal/Terminal.zig
+@@ -30,6 +30,7 @@ const size = @import("size.zig");
+ const pagepkg = @import("page.zig");
+ const style = @import("style.zig");
+ const Screen = @import("Screen.zig");
++const blocks = @import("blocks.zig");
+ const ScreenSet = @import("ScreenSet.zig");
+ const Page = pagepkg.Page;
+ const Cell = pagepkg.Cell;
+@@ -1302,6 +1303,9 @@ pub fn semanticPrompt(
+             // its reasonable at this point to reset our semantic content
+             // state but the spec doesn't really say what to do.
+             self.screens.active.cursorSetSemanticContent(.output);
++
++            // Keep the exit status with the command's prompt row.
++            if (cmd.readOption(.exit_code)) |code| blocks.markExit(self.screens.active, code);
+         },
+     }
+ }
+diff --git a/src/terminal/blocks.zig b/src/terminal/blocks.zig
+new file mode 100644
+index 000000000..d96707916
+--- /dev/null
++++ b/src/terminal/blocks.zig
+@@ -0,0 +1,286 @@
++//! Command blocks: each command the shell ran, found from its semantic
++//! prompt marks (OSC 133), with the output it printed. A block starts on
++//! the first row of a prompt that has input and runs to the last row with
++//! text before the next prompt.
++const std = @import("std");
++const testing = std.testing;
++const Screen = @import("Screen.zig");
++const PageList = @import("PageList.zig");
++const Pin = PageList.Pin;
++const Selection = @import("Selection.zig");
++
++pub const Block = struct {
++    /// Screen row of the block's first line: where its command is.
++    row: u32,
++
++    /// Screen row of the block's last line with text (at least `row`).
++    end_row: u32,
++
++    /// The command's exit status, when the shell reported it.
++    exit_code: ?u8,
++};
++
++/// Records the exit status the shell reported (OSC 133;D) on the prompt
++/// of the command that just finished: the nearest prompt at or above the
++/// cursor.
++pub fn markExit(screen: *Screen, code: i32) void {
++    var it = screen.cursor.page_pin.promptIterator(.left_up, null);
++    const prompt = it.next() orelse return;
++    const status: u8 = @intCast(std.math.clamp(code, 0, 255));
++    prompt.rowAndCell().row.command_exit = @as(u9, status) + 1;
++}
++
++/// Fills `out` with the newest blocks on `screen`, oldest first, and
++/// returns how many it wrote.
++pub fn list(screen: *const Screen, out: []Block) usize {
++    if (out.len == 0 or !screen.semantic_prompt.seen) return 0;
++    const pages = &screen.pages;
++    const bottom = pages.getBottomRight(.screen) orelse return 0;
++
++    var n: usize = 0;
++    // The first row of the prompt below the one being looked at.
++    var below: ?Pin = null;
++    var it = bottom.promptIterator(.left_up, null);
++    while (it.next()) |prompt| {
++        defer below = prompt;
++        if (!hasInput(prompt)) continue;
++        const last: Pin = if (below) |b| (b.up(1) orelse prompt) else bottom;
++        const end = lastRowWithText(prompt, last);
++        const command_exit = prompt.rowAndCell().row.command_exit;
++        out[n] = .{
++            .row = screenRow(pages, prompt) orelse continue,
++            .end_row = screenRow(pages, end) orelse continue,
++            .exit_code = if (command_exit == 0) null else @intCast(command_exit - 1),
++        };
++        n += 1;
++        if (n == out.len) break;
++    }
++    std.mem.reverse(Block, out[0..n]);
++    return n;
++}
++
++pub const Part = enum { command, output, all };
++
++/// The part of the block whose first line is screen row `row`, with
++/// trailing blank space trimmed. Null when no block starts on that row or
++/// the part is empty (a command that printed nothing has no output).
++pub fn selection(screen: *const Screen, row: u32, part: Part) ?Selection {
++    const pages = &screen.pages;
++    const start = pages.pin(.{ .screen = .{ .y = row } }) orelse return null;
++    // The row must be the first row of a prompt, as highlightSemanticContent
++    // requires.
++    var it = start.promptIterator(.right_down, null);
++    const prompt = it.next() orelse return null;
++    if (prompt.node != start.node or prompt.y != start.y) return null;
++    if (!hasInput(prompt)) return null;
++
++    const input = pages.highlightSemanticContent(prompt, .input) orelse return null;
++    const output = pages.highlightSemanticContent(prompt, .output);
++    return switch (part) {
++        .command => .init(input.start, input.end, false),
++        .output => if (output) |o| .init(o.start, trimEnd(o.start, o.end), false) else null,
++        .all => .init(
++            prompt,
++            if (output) |o| trimEnd(o.start, o.end) else input.end,
++            false,
++        ),
++    };
++}
++
++/// True when the prompt starting at `prompt` has input with text before
++/// its output: a command was run there, and it is not the empty prompt
++/// waiting for the next one.
++fn hasInput(prompt: Pin) bool {
++    var limit_it = prompt.promptIterator(.right_down, null);
++    _ = limit_it.next();
++    const limit: ?Pin = if (limit_it.next()) |next| next else null;
++    var cells = prompt.cellIterator(.right_down, limit);
++    while (cells.next()) |p| {
++        if (limit) |l| if (l.node == p.node and l.y == p.y) return false;
++        const cell = p.rowAndCell().cell;
++        switch (cell.semantic_content) {
++            .prompt => {},
++            .input => if (cell.hasText()) return true,
++            .output => if (cell.hasText()) return false,
++        }
++    }
++    return false;
++}
++
++/// The last row from `first` to `last` (inclusive) with any text, or
++/// `first` when none has.
++fn lastRowWithText(first: Pin, last: Pin) Pin {
++    var row = last;
++    while (true) {
++        if (row.node == first.node and row.y == first.y) return first;
++        for (row.cells(.all)) |cell| if (cell.hasText()) return row.left(row.x);
++        row = row.up(1) orelse return first;
++    }
++}
++
++/// Moves `end` back to the last cell with text, not before `start`.
++fn trimEnd(start: Pin, end: Pin) Pin {
++    var result = end;
++    var it = end.cellIterator(.left_up, start);
++    while (it.next()) |p| {
++        result = p;
++        if (p.rowAndCell().cell.hasText()) break;
++    }
++    return result;
++}
++
++fn screenRow(pages: *const PageList, p: Pin) ?u32 {
++    const pt = pages.pointFromPin(.screen, p) orelse return null;
++    return pt.coord().y;
++}
++
++// What a PrompTTY pane sends around each command: zsh with Ghostty's
++// integration (the marks), PrompTTY's (an empty prompt, input from the
++// bar) and another integration that repeats the marks.
++const Session = struct {
++    const prompt =
++        "\r\x1b[0m\x1b[27m\x1b[24m\x1b[J\x1b]133;A;cl=line\x07\x1b]133;B\x07\x1b[K\x1b[6 q\x1b[K" ++
++        "\r\x1b[0m\x1b[27m\x1b[24m\x1b[J\x1b[K\x1b[?25l\x1b]133;P;k=i\x07\x1b]133;B\x07\x1b[5 q\x1b[?2004h";
++
++    fn command(comptime text: []const u8) []const u8 {
++        return "\x1b[K" ++ text[0..1] ++ "\r" ++ text ++ "\r\x1b[32m" ++ text ++ "\x1b[39m\x1b[5 q\x1b[?2004l\r\r\n" ++
++            "\x1b[6 q\x1b]133;C;\x07\x1b[?25h\x1b]133;C\x07\x1b[0 q";
++    }
++
++    fn finished(comptime code: []const u8) []const u8 {
++        return "\x1b[1m\x1b[7m%\x1b[27m\x1b[1m\x1b[0m" ++ (" " ** 39) ++ "\r \r" ++
++            "\x1b]133;D;" ++ code ++ "\x07\x1b]133;D;" ++ code ++ "\x07";
++    }
++};
++
++fn testTerminal(alloc: std.mem.Allocator, rows: u16) !@import("Terminal.zig") {
++    return try .init(alloc, .{ .cols = 40, .rows = rows });
++}
++
++fn testText(alloc: std.mem.Allocator, screen: *Screen, sel: Selection) ![:0]const u8 {
++    return try screen.selectionString(alloc, .{ .sel = sel, .trim = true });
++}
++
++test "blocks: commands with and without output" {
++    const alloc = testing.allocator;
++    var t = try testTerminal(alloc, 10);
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++
++    s.nextSlice(comptime Session.prompt ++ Session.command("echo hello") ++ "hello\r\n" ++ Session.finished("0"));
++    s.nextSlice(comptime Session.prompt ++ Session.command("false") ++ Session.finished("1"));
++    s.nextSlice(comptime Session.prompt ++ Session.command("printf") ++ "a\r\nb\r\nc\r\n" ++ Session.finished("0"));
++    s.nextSlice(comptime Session.prompt);
++
++    var out: [8]Block = undefined;
++    const n = list(t.screens.active, &out);
++    try testing.expectEqual(3, n);
++    try testing.expectEqual(Block{ .row = 0, .end_row = 1, .exit_code = 0 }, out[0]);
++    // The next prompt takes the line after the output (zsh's PROMPT_SP).
++    try testing.expectEqual(Block{ .row = 2, .end_row = 2, .exit_code = 1 }, out[1]);
++    try testing.expectEqual(Block{ .row = 3, .end_row = 6, .exit_code = 0 }, out[2]);
++
++    const screen = t.screens.active;
++    {
++        const text = try testText(alloc, screen, selection(screen, 0, .command).?);
++        defer alloc.free(text);
++        try testing.expectEqualStrings("echo hello", text);
++    }
++    {
++        const text = try testText(alloc, screen, selection(screen, 0, .output).?);
++        defer alloc.free(text);
++        try testing.expectEqualStrings("hello", text);
++    }
++    {
++        const text = try testText(alloc, screen, selection(screen, 3, .output).?);
++        defer alloc.free(text);
++        try testing.expectEqualStrings("a\nb\nc", text);
++    }
++    {
++        const text = try testText(alloc, screen, selection(screen, 3, .all).?);
++        defer alloc.free(text);
++        try testing.expectEqualStrings("printf\na\nb\nc", text);
++    }
++    try testing.expect(selection(screen, 2, .output) == null);
++    // Rows that do not start a block: output, the empty prompt, nothing.
++    try testing.expect(selection(screen, 1, .command) == null);
++    try testing.expect(selection(screen, 7, .command) == null);
++    try testing.expect(selection(screen, 9, .command) == null);
++}
++
++test "blocks: a running command has no exit status yet" {
++    const alloc = testing.allocator;
++    var t = try testTerminal(alloc, 10);
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++
++    s.nextSlice(comptime Session.prompt ++ Session.command("sleep") ++ "working\r\n");
++    var out: [8]Block = undefined;
++    try testing.expectEqual(1, list(t.screens.active, &out));
++    try testing.expectEqual(Block{ .row = 0, .end_row = 1, .exit_code = null }, out[0]);
++}
++
++test "blocks: none without shell integration, or at an empty prompt" {
++    const alloc = testing.allocator;
++    var t = try testTerminal(alloc, 10);
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++
++    var out: [8]Block = undefined;
++    s.nextSlice("plain output\r\nmore\r\n");
++    try testing.expectEqual(0, list(t.screens.active, &out));
++    s.nextSlice(comptime Session.prompt);
++    try testing.expectEqual(0, list(t.screens.active, &out));
++}
++
++test "blocks: only the newest fit, oldest first" {
++    const alloc = testing.allocator;
++    var t = try testTerminal(alloc, 10);
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++
++    s.nextSlice(comptime Session.prompt ++ Session.command("one") ++ Session.finished("0"));
++    s.nextSlice(comptime Session.prompt ++ Session.command("two") ++ Session.finished("2"));
++    s.nextSlice(comptime Session.prompt ++ Session.command("three") ++ Session.finished("3"));
++    s.nextSlice(comptime Session.prompt);
++    var out: [2]Block = undefined;
++    try testing.expectEqual(2, list(t.screens.active, &out));
++    try testing.expectEqual(@as(?u8, 2), out[0].exit_code);
++    try testing.expectEqual(@as(?u8, 3), out[1].exit_code);
++}
++
++test "blocks: rows count from the top of the scrollback" {
++    const alloc = testing.allocator;
++    var t = try testTerminal(alloc, 5);
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++
++    s.nextSlice(comptime Session.prompt ++ Session.command("seq") ++ "1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n" ++ Session.finished("0"));
++    s.nextSlice(comptime Session.prompt);
++    var out: [2]Block = undefined;
++    try testing.expectEqual(1, list(t.screens.active, &out));
++    try testing.expectEqual(Block{ .row = 0, .end_row = 7, .exit_code = 0 }, out[0]);
++    const text = try testText(alloc, t.screens.active, selection(t.screens.active, 0, .output).?);
++    defer alloc.free(text);
++    try testing.expectEqualStrings("1\n2\n3\n4\n5\n6\n7", text);
++}
++
++test "blocks: the exit status survives a resize that rewraps" {
++    const alloc = testing.allocator;
++    var t = try testTerminal(alloc, 10);
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++
++    s.nextSlice(comptime Session.prompt ++ Session.command("ls") ++ "x\r\n" ++ Session.finished("7"));
++    s.nextSlice(comptime Session.prompt);
++    try t.resize(alloc, 20, 10);
++    var out: [2]Block = undefined;
++    try testing.expectEqual(1, list(t.screens.active, &out));
++    try testing.expectEqual(@as(?u8, 7), out[0].exit_code);
++}
+diff --git a/src/terminal/main.zig b/src/terminal/main.zig
+index 87a9aded9..cfd8041b2 100644
+--- a/src/terminal/main.zig
++++ b/src/terminal/main.zig
+@@ -6,6 +6,7 @@ const render = @import("render.zig");
+ const stream_terminal = @import("stream_terminal.zig");
+ const style = @import("style.zig");
+ pub const apc = @import("apc.zig");
++pub const blocks = @import("blocks.zig");
+ pub const dcs = @import("dcs.zig");
+ pub const osc = @import("osc.zig");
+ pub const point = @import("point.zig");
+diff --git a/src/terminal/page.zig b/src/terminal/page.zig
+index 0942e260c..bbcf1643d 100644
+--- a/src/terminal/page.zig
++++ b/src/terminal/page.zig
+@@ -1970,7 +1970,12 @@ pub const Row = packed struct(u64) {
+     /// screen.
+     dirty: bool = false,
+ 
+-    _padding: u23 = 0,
++    /// The exit status the shell reported (OSC 133;D) for the command that
++    /// starts on this row, plus one; zero when none was reported. Only set
++    /// on the first row of a prompt.
++    command_exit: u9 = 0,
++
++    _padding: u14 = 0,
+ 
+     /// The semantic prompt state of the row. See `semantic_prompt`.
+     pub const SemanticPrompt = enum(u2) {

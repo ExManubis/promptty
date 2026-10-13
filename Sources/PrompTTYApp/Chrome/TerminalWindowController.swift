@@ -13,7 +13,7 @@ import WorkspaceModel
 final class TerminalWindowController: NSWindowController, NSWindowDelegate, ChromeActions {
     let state: WindowState
     let chrome = WindowChromeModel()
-    private unowned let coordinator: WorkspaceCoordinator
+    unowned let coordinator: WorkspaceCoordinator
     private let runtime: GhosttyRuntime
     private var surfaces: [PaneID: TerminalSurfaceView] = [:]
     /// Each pane's shell session (prompt state, header, history), created with its surface.
@@ -60,7 +60,11 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         window.minSize = NSSize(width: 520, height: 320)
         super.init(window: window)
         window.delegate = self
-        window.keyInterceptor = { [weak self] event in self?.handleVimNavigation(event) ?? false }
+        window.keyInterceptor = { [weak self] event in
+            guard let self else { return false }
+            return self.handleVimNavigation(event) || self.handleBlockKeys(event)
+        }
+        window.mouseDownObserver = { [weak self] event in self?.mouseDownInWindow(event) }
         let root = WindowRootView(
             state: state,
             workspace: coordinator.workspace,
@@ -137,6 +141,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             )
         )
         view.token = pane.id
+        _ = BlockOverlayView(surface: view)
         surfaces[pane.id] = view
         let shell = PaneShell(pane: pane.id, directory: pane.workingDirectory, integrated: integrated,
                               startupCommand: integrated ? startup : nil)
@@ -147,6 +152,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     }
 
     func shell(for pane: PaneID) -> PaneShell? { shells[pane] }
+    func blocks(for pane: PaneID) -> BlockOverlayView? { surfaces[pane]?.overlay as? BlockOverlayView }
     func activity(for pane: PaneID) -> PaneActivity { coordinator.activity.activity(for: pane) }
     func agents() -> [AgentEntry] { coordinator.agents() }
     func reveal(_ pane: PaneID) { coordinator.reveal(pane) }
@@ -191,7 +197,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             return shell.editor.textView
         }
         shell.editor.textView.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
-        shell.onPhaseChange = { [weak self] _ in self?.shellPhaseChanged(pane) }
+        shell.onPhaseChange = { [weak self] phase in
+            if phase == .running { self?.blocks(for: pane)?.commandStarted() } else { self?.blocks(for: pane)?.setNeedsRefresh() }
+            self?.shellPhaseChanged(pane)
+        }
     }
 
     /// Where a pane's keys go: the input bar while it is shown (at a prompt, and in the moment a
@@ -245,6 +254,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         guard let view = surfaces.removeValue(forKey: pane) else { return }
         guard let tab, tab == state.selectedTabID, window?.isVisible == true,
               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            view.overlay?.removeFromSuperview()
             view.removeFromSuperview()
             view.teardown()
             return
@@ -253,6 +263,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         DispatchQueue.main.asyncAfter(deadline: .now() + PaneAnimation.closeDuration + 0.05) { [weak self] in
             MainActor.assumeIsolated {
                 self?.chrome.closingPanes[pane] = nil
+                view.overlay?.removeFromSuperview()
                 view.removeFromSuperview()
                 view.teardown()
             }
@@ -540,7 +551,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     @objc func equalizePanes(_ sender: Any?) { state.selectedTab?.equalize() }
 
-    @objc func clearTerminal(_ sender: Any?) { focusedSurface?.performBindingAction("clear_screen") }
+    @objc func clearTerminal(_ sender: Any?) {
+        focusedSurface?.performBindingAction("clear_screen")
+        (focusedSurface?.overlay as? BlockOverlayView)?.commandStarted()
+    }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
@@ -551,6 +565,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             return item.tag <= state.tabs.count
         case #selector(previousTab(_:)), #selector(nextTab(_:)):
             return state.tabs.count > 1
+        case #selector(selectPreviousCommand(_:)), #selector(selectNextCommand(_:)),
+             #selector(copyCommandOutput(_:)), #selector(copyCommandLine(_:)):
+            return focusedBlocks?.hasBlocks ?? false
         case #selector(togglePinTab(_:)):
             item.title = state.selectedTab?.pin == nil ? "Pin Tab" : "Unpin Tab"
             return state.selectedTab != nil
@@ -663,12 +680,21 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 }
 
 /// The terminal window: lets its controller take a key before anything in the window does, as
-/// both real key presses and the debug driver's go through `sendEvent`.
+/// both real key presses and the debug driver's go through `sendEvent`. ⌘ and ⌃ keys are offered
+/// as key equivalents first, before the menus, so the controller sees those there.
 final class TerminalWindow: NSWindow {
     var keyInterceptor: ((NSEvent) -> Bool)?
+    /// Told of every click before it is delivered.
+    var mouseDownObserver: ((NSEvent) -> Void)?
 
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, keyInterceptor?(event) == true { return }
+        if event.type == .leftMouseDown { mouseDownObserver?(event) }
         super.sendEvent(event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.type == .keyDown, keyInterceptor?(event) == true { return true }
+        return super.performKeyEquivalent(with: event)
     }
 }

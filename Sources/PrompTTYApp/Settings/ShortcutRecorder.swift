@@ -89,7 +89,9 @@ struct ShortcutRecorder: View {
         if flags.contains(.option) { mods.insert(.option) }
         if flags.contains(.control) { mods.insert(.control) }
         if let name = named[event.keyCode] { return Shortcut(key: name, modifiers: mods) }
-        guard let base = event.characters(byApplyingModifiers: [])?.lowercased(), base.count == 1 else { return nil }
+        // Events made in code (the debug driver's) have no layout to apply modifiers through.
+        guard let base = (event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers)?.lowercased(),
+              base.count == 1 else { return nil }
         return Shortcut(key: base, modifiers: mods)
     }
 }

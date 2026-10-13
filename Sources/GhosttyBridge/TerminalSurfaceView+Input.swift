@@ -157,12 +157,16 @@ extension TerminalSurfaceView {
         sendMouseButton(GHOSTTY_MOUSE_RELEASE, InputTranslation.mouseButton(event.buttonNumber), event)
     }
 
-    public override func mouseMoved(with event: NSEvent) { sendMousePosition(event) }
+    public override func mouseMoved(with event: NSEvent) {
+        sendMousePosition(event)
+        onPointerMoved?(event)
+    }
     public override func mouseDragged(with event: NSEvent) { sendMousePosition(event) }
     public override func rightMouseDragged(with event: NSEvent) { sendMousePosition(event) }
     public override func otherMouseDragged(with event: NSEvent) { sendMousePosition(event) }
 
     public override func mouseExited(with event: NSEvent) {
+        onPointerMoved?(nil)
         guard let surface else { return }
         // During a drag AppKit keeps delivering dragged events outside the view; reporting
         // "left the viewport" here would interrupt the selection.
