@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds libghostty into Engine/: libghostty-spm's pinned Ghostty source with the package's own
-# patches and then PrompTTY's (Engine/patches/) applied for the build. Needs Homebrew zig@0.15
-# and Xcode's Metal toolchain (see libghostty-spm's CLAUDE.md).
+# patches and then PrompTTY's (Engine/patches/) applied for the build. Needs Zig 0.15 and Xcode's
+# Metal toolchain (see libghostty-spm's CLAUDE.md). Zig is $ZIG if set, else Homebrew's zig@0.15
+# wherever Homebrew lives, else the `zig` on PATH, as long as it is 0.15.
 #
 # Only the library is built, not Ghostty.app: the app's link step fails outside Ghostty's own CI
 # and leaves libghostty-spm's build script waiting half an hour for an orphaned archive step.
@@ -10,6 +11,7 @@
 #
 #   script/build-engine           build if Engine/GhosttyKit.xcframework is missing
 #   script/build-engine --force   rebuild (after changing a patch)
+#   ZIG=/path/to/zig script/build-engine
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -17,7 +19,6 @@ REPO=https://github.com/sethdeckard/libghostty-spm
 TAG=v0.2.0
 WORK=.build/engine/libghostty-spm
 GHOSTTY=$WORK/vendor/ghostty
-ZIG=/opt/homebrew/opt/zig@0.15/bin/zig
 OUT=Engine/GhosttyKit.xcframework
 RESOURCES=Engine/Sources/GhosttyKitResources/Resources
 REQUIRED_SYMBOLS=(ghostty_surface_new ghostty_surface_read_text_format ghostty_surface_blocks ghostty_surface_block_text)
@@ -25,7 +26,18 @@ REQUIRED_SYMBOLS=(ghostty_surface_new ghostty_surface_read_text_format ghostty_s
 fail() { echo "build-engine: $1" >&2; exit 1; }
 
 [ "${1:-}" = "--force" ] || [ ! -d "$OUT" ] || { echo "Engine already built ($OUT); --force rebuilds"; exit 0; }
-[ -x "$ZIG" ] || fail "needs Homebrew zig@0.15: brew install zig@0.15"
+if [ -z "${ZIG:-}" ]; then
+  if command -v brew >/dev/null && [ -x "$(brew --prefix zig@0.15 2>/dev/null)/bin/zig" ]; then
+    ZIG=$(brew --prefix zig@0.15)/bin/zig
+  else
+    ZIG=$(command -v zig || true)
+  fi
+fi
+[ -n "$ZIG" ] && [ -x "$ZIG" ] || fail "needs Zig 0.15: brew install zig@0.15, or set ZIG=/path/to/zig"
+case "$("$ZIG" version)" in
+  0.15.*) ;;
+  *) fail "$ZIG is Zig $("$ZIG" version); the pinned Ghostty needs 0.15 (brew install zig@0.15, or set ZIG)" ;;
+esac
 
 if [ ! -d "$WORK/.git" ]; then
   mkdir -p "$(dirname "$WORK")"

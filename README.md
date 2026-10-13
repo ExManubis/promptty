@@ -10,23 +10,31 @@ This is the start of a larger agent-workspace project. See `docs/superpowers/spe
 
 ## Build
 
-Requires macOS 26 and Xcode 26 or newer. No Zig: libghostty arrives as a prebuilt
-xcframework through SwiftPM.
+Requires an Apple silicon Mac with macOS 26, Xcode 26 or newer and its Metal toolchain, and Zig
+0.15 (`brew install zig@0.15`). libghostty is built locally into `Engine/` from the Ghostty source
+pinned by [libghostty-spm](https://github.com/sethdeckard/libghostty-spm), with PrompTTY's patches
+in `Engine/patches/` applied on top; the first build takes a few minutes, later ones about one.
 
-    ./script/bootstrap   # installs xcodegen if needed, resolves packages, generates the Xcode project
-    ./script/run         # builds Debug and launches the app
-    ./script/test        # library tests, then an app build
+    ./script/bootstrap            # installs xcodegen if needed, builds the engine, resolves packages, generates the Xcode project
+    ./script/run                  # builds Debug and launches the app
+    ./script/test                 # library tests, then an app build
+    ./script/build-engine --force # rebuilds the engine after changing a patch
+    ./script/release              # a Developer ID signed, notarized disk image in dist/
+
+`script/build-engine` uses `$ZIG` if set, else Homebrew's `zig@0.15`, else the `zig` on `PATH`,
+and stops unless it is version 0.15.
 
 ## Settings
 
 Everything is in **PrompTTY › Settings…** (⌘,) and applies immediately:
 
 - **Appearance:** font family and size, light and dark themes (every theme bundled with
-  Ghostty), cursor, and how much of the theme's color the window frame takes on (neutral by
-  default).
+  Ghostty), cursor style and color (the theme's, the system accent or a custom one), how much of
+  the theme's color the window frame takes on (neutral by default), and whether ProMotion
+  displays stay at 120 Hz while a PrompTTY window is in front.
 - **Tabs & Windows:** sidebar or strip, sidebar width, folder for new tabs, session restore,
   close confirmation.
-- **Keyboard:** Option as Alt, and every shortcut below.
+- **Keyboard:** Option as Alt, vim-style navigation, and every shortcut below.
 
 Settings are stored in `~/Library/Application Support/PrompTTY/settings.json`. From them the app
 writes `terminal.conf`, the only config libghostty reads. PrompTTY does not read
@@ -34,9 +42,9 @@ writes `terminal.conf`, the only config libghostty reads. PrompTTY does not read
 
 ## Keys
 
-PrompTTY claims only shortcuts that contain ⌘. Every ⌃, ⌥ and ⌃⇧ combination goes to the
-terminal untouched, so programs like Neovim get them, and Option acts as Alt by default.
-libghostty itself binds nothing (`keybind = clear`).
+PrompTTY claims only shortcuts that contain ⌘, plus the vim-style navigation keys below. Every
+other ⌃, ⌥ and ⌃⇧ combination goes to the terminal untouched, so programs like Neovim get them,
+and Option acts as Alt by default. libghostty itself binds nothing (`keybind = clear`).
 
 | Action | Keys |
 |---|---|
@@ -50,21 +58,59 @@ libghostty itself binds nothing (`keybind = clear`).
 | Equalize panes | ⌃⌘= |
 | Copy, paste, select all, clear | ⌘C, ⌘V, ⌘A, ⌘K |
 | Bigger / smaller / actual size | ⌘= / ⌘- / ⌘0 |
+| Select previous / next command | ⌘↑ / ⌘↓ |
+| Copy the selected command's output / the command | ⌥⌘C / ⇧⌘C |
 
 All of these can be changed in Settings › Keyboard.
 
+Vim-style navigation is on by default and can be turned off in Settings › Keyboard (its keys are
+fixed): ⌥H/J/K/L move focus to the pane on that side, ⌥⇧J/K go to the next and previous tab.
+With it on, those keys never reach the terminal.
+
+## Input bar and command blocks
+
+When your login shell is zsh, each idle pane shows a native input bar in place of the shell's
+prompt. Above it are the folder and git branch, the last command's duration (from a second) and
+its exit code (when it failed); the folder and branch buttons open pickers. The bar has history
+(↑/↓), ghost-text suggestions, Tab completion, syntax coloring and vi mode (when you use
+`bindkey -v`). While a program runs
+(`nvim`, `ssh`, `sudo`, a REPL) the bar is gone and every key goes to the terminal.
+
+PrompTTY loads its zsh integration through `ZDOTDIR` and then your own files. Other shells get a
+plain terminal.
+
+Each command and its output form a block: ⌘↑/⌘↓ select one, ⌥⌘C copies its output and ⇧⌘C its
+command.
+
+## Tabs and agents
+
+Drag tabs to reorder them. **Pin Tab** (in a tab's context menu, or drag it onto the pinned
+tiles) keeps the tab's folder and the command running in it
+(`claude`, `npm run dev`): a pinned tab comes back on relaunch, restarts instead of closing, and
+can be reset, given another command, or given its own icon (**Change Icon…**).
+
+PrompTTY recognizes coding agents (Claude Code, Codex, Amp, Cline and others) running in a pane.
+While any run, the top of the sidebar lists every agent in every window, grouped by project, with
+whether it is working, waiting or wants your turn, and since when; click one to bring its pane
+forward.
+
 ## Splits
 
-Drag the gap between two panes to resize; double-click it to make both sides equal. Hover near
-the top of a pane for its header: drag the handle (☰) onto the edge of another pane, onto a tab in
-the tab list, or into another window to move the pane there. Its shell keeps running.
+Drag the gap between two panes to resize; double-click it to make both sides equal. Split, close
+and move focus between panes with the shortcuts above.
 
 ## Layout
 
-    Sources/WorkspaceModel   windows, tabs, panes and the split tree; session JSON (no AppKit)
+    Sources/WorkspaceModel   windows, tabs, panes, pins and the split tree; session JSON (no AppKit)
     Sources/Preferences      settings.json, terminal.conf generation, shortcuts, theme catalog
+    Sources/CommandEditing   the input bar's logic: zsh integration, history, completion, vi mode, git status
+    Sources/CommandBlocks    command blocks: where each command and its output start and end
+    Sources/PaneActivity     what runs in a pane: foreground process, known programs and agents, projects
     Sources/GhosttyBridge    the only code that touches libghostty
-    Sources/PrompTTYApp      AppKit windows and menus; SwiftUI chrome and Settings
+    Sources/PrompTTYApp      AppKit windows and menus; SwiftUI chrome, input bar and Settings
+    Engine/                  libghostty as a local SwiftPM package; patches/ holds PrompTTY's engine patches
+    script/                  bootstrap, run, test, build-engine, release, drive
+    packaging/               the disk image's background and layout
 
 ## Debug driver
 
