@@ -70,6 +70,10 @@ public struct Settings: Equatable, Sendable {
     /// Whether a program may read the clipboard (OSC 52), and write to it.
     public var clipboardRead = ClipboardAccess.ask
     public var clipboardWrite = ClipboardAccess.ask
+    /// Programs (`Program.id`) that read, or write, without asking while the access above is
+    /// "ask": the banner's "Always allow for <program>".
+    public var clipboardReadPrograms: Set<String> = []
+    public var clipboardWritePrograms: Set<String> = []
     /// `ShortcutAction.rawValue` → shortcut, only for actions that differ from the defaults.
     public var shortcuts: [String: Shortcut] = [:]
 
@@ -97,7 +101,7 @@ extension Settings: Codable {
         case version, fontFamily, fontSize, followSystemAppearance, lightTheme, darkTheme, theme
         case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, tabLayout, sidebarWidth, tabListHidden
         case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, secureKeyboardEntry, shortcuts
-        case clipboardRead, clipboardWrite
+        case clipboardRead, clipboardWrite, clipboardReadPrograms, clipboardWritePrograms
     }
 
     public init(from decoder: Decoder) throws {
@@ -129,6 +133,8 @@ extension Settings: Codable {
         s.secureKeyboardEntry = value(.secureKeyboardEntry, s.secureKeyboardEntry)
         s.clipboardRead = value(.clipboardRead, s.clipboardRead)
         s.clipboardWrite = value(.clipboardWrite, s.clipboardWrite)
+        s.clipboardReadPrograms = value(.clipboardReadPrograms, s.clipboardReadPrograms)
+        s.clipboardWritePrograms = value(.clipboardWritePrograms, s.clipboardWritePrograms)
         // Decode shortcuts one by one so a single bad entry does not drop the rest.
         if let raw = try? c.decodeIfPresent([String: String].self, forKey: .shortcuts) {
             s.shortcuts = raw.compactMapValues(Shortcut.init(string:))
@@ -167,6 +173,9 @@ extension Settings: Codable {
         try c.encode(secureKeyboardEntry, forKey: .secureKeyboardEntry)
         try c.encode(clipboardRead, forKey: .clipboardRead)
         try c.encode(clipboardWrite, forKey: .clipboardWrite)
+        // Sorted, so the file does not change from one save to the next.
+        try c.encode(clipboardReadPrograms.sorted(), forKey: .clipboardReadPrograms)
+        try c.encode(clipboardWritePrograms.sorted(), forKey: .clipboardWritePrograms)
         try c.encode(shortcuts, forKey: .shortcuts)
     }
 }

@@ -161,6 +161,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func hoveredLink(for pane: PaneID) -> String? { coordinator.activity.status(for: pane).hoveredLink }
     func clipboardRequest(for pane: PaneID) -> ClipboardTicket? { coordinator.activity.status(for: pane).clipboardRequest }
     func answerClipboardRequest(_ decision: ClipboardDecision, id: Int, in pane: PaneID) { surfaces[pane]?.answerClipboardRequest(decision, id: id) }
+    func alwaysAllowClipboard(_ ticket: ClipboardTicket, for program: String, in pane: PaneID) {
+        coordinator.preferences.update { $0.allowClipboard(ticket.kind, for: program) }
+        answerClipboardRequest(.allow, id: ticket.id, in: pane)
+    }
     func denyClipboardRequests() { surfaces.values.forEach { $0.resetClipboardPolicy() } }
     func progress(for pane: PaneID) -> PaneProgress? { coordinator.activity.status(for: pane).progress }
     func isSecure(_ pane: PaneID) -> Bool { coordinator.activity.status(for: pane).secure }
@@ -207,6 +211,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
                     self.reload()
                 }
             }
+        }
+        view.clipboardPreapproved = { [weak self] kind in
+            guard let self, let program = self.coordinator.activity.activity(for: pane).program else { return false }
+            return self.coordinator.preferences.settings.clipboardPrograms(kind).contains(program.id)
         }
         view.onLinkHover = { [weak self] link in self?.coordinator.activity.status(for: pane).hover(over: link) }
         // Dropped files: into the bar while it is shown, else typed for the program, quoted.

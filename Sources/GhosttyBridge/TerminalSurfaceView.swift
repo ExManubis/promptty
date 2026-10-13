@@ -57,6 +57,8 @@ public final class TerminalSurfaceView: NSView {
     /// A program asks to read or write the clipboard and waits for the user's answer
     /// (`answerClipboardRequest`), or that question is gone (nil).
     public var onClipboardRequest: ((ClipboardTicket?) -> Void)?
+    /// Whether a request is answered without asking: the program in front was allowed for good.
+    public var clipboardPreapproved: ((ClipboardRequestKind) -> Bool)?
     /// What the program waits for; its text (what it would write, or what the clipboard holds)
     /// stays here and out of logs.
     struct PendingClipboard {
@@ -482,8 +484,8 @@ extension TerminalSurfaceView {
     public func denyClipboardRequest() { finishClipboard(.deny) }
 
     /// libghostty wants the user's confirmation for a read (`text` is the clipboard) or a write
-    /// (`text` is what the program sets). Answered at once if this pane was allowed for good,
-    /// else shown by `onClipboardRequest`.
+    /// (`text` is what the program sets). Answered at once if this pane or its program was allowed
+    /// for good, else shown by `onClipboardRequest`.
     func askClipboard(_ kind: ClipboardRequestKind, text: String, state: UnsafeMutableRawPointer?) {
         // One question at a time: an unanswered read must still be completed, so the older
         // request is denied.
@@ -491,7 +493,7 @@ extension TerminalSurfaceView {
         lastClipboardID += 1
         let request = PendingClipboard(id: lastClipboardID, kind: kind, text: text, state: state)
         pendingClipboard = request
-        if clipboardGrants.allows(kind) {
+        if clipboardGrants.allows(kind) || clipboardPreapproved?(kind) == true {
             finishClipboard(.allow)
         } else {
             onClipboardRequest?(ClipboardTicket(id: request.id, kind: kind))

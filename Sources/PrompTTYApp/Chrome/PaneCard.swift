@@ -174,15 +174,21 @@ private struct ClipboardBanner: View {
 
     var body: some View {
         if let ticket = actions.clipboardRequest(for: pane) {
-            let program = actions.activity(for: pane).program?.name ?? "A program"
+            let program = actions.activity(for: pane).program
             let action = ticket.kind == .read ? "read" : "write to"
+            // A known program is allowed for good wherever it runs; an unknown one in this pane.
+            let always: (String, () -> Void) = if let program {
+                ("Always allow for \(program.name)", { actions.alwaysAllowClipboard(ticket, for: program.id, in: pane) })
+            } else {
+                ("Always allow for this pane", { actions.answerClipboardRequest(.alwaysAllow, id: ticket.id, in: pane) })
+            }
             BannerView(content: BannerContent(
-                message: "\(program) wants to \(action) the clipboard",
+                message: "\(program?.name ?? "A program") wants to \(action) the clipboard",
                 actionTitle: "Allow",
                 action: { actions.answerClipboardRequest(.allow, id: ticket.id, in: pane) },
                 symbol: "doc.on.clipboard",
                 extraActions: [
-                    ("Always allow for this pane", { actions.answerClipboardRequest(.alwaysAllow, id: ticket.id, in: pane) }),
+                    always,
                     ("Deny", { actions.answerClipboardRequest(.deny, id: ticket.id, in: pane) }),
                 ]
             ))

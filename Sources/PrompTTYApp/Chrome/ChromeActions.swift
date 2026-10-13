@@ -16,6 +16,8 @@ protocol ChromeActions: AnyObject {
     /// What a program in a pane waits to do with the clipboard (observes that pane alone).
     func clipboardRequest(for pane: PaneID) -> ClipboardTicket?
     func answerClipboardRequest(_ decision: ClipboardDecision, id: Int, in pane: PaneID)
+    /// Allows the request, and this kind of request from `program` in any pane from now on.
+    func alwaysAllowClipboard(_ ticket: ClipboardTicket, for program: String, in pane: PaneID)
     /// A pane's progress report, if it has one (observes that pane alone).
     func progress(for pane: PaneID) -> PaneProgress?
     /// Whether secure keyboard input is on for a pane (observes that pane alone).

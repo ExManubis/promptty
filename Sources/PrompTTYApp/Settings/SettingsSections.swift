@@ -1,4 +1,5 @@
 import AppKit
+import PaneActivity
 import Preferences
 import SwiftUI
 
@@ -135,9 +136,40 @@ struct TabsSection: View {
                     Text("Allow").tag(ClipboardAccess.allow)
                     Text("Deny").tag(ClipboardAccess.deny)
                 }
+                AllowedClipboardPrograms(title: "Always allowed to read", programs: $model.settings.clipboardReadPrograms)
+                AllowedClipboardPrograms(title: "Always allowed to write", programs: $model.settings.clipboardWritePrograms)
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// The programs the clipboard banner's "Always allow for <program>" let through, each removable.
+/// Shown only once there is one.
+private struct AllowedClipboardPrograms: View {
+    let title: String
+    @Binding var programs: Set<String>
+
+    var body: some View {
+        if !programs.isEmpty {
+            LabeledContent(title) {
+                VStack(alignment: .trailing, spacing: 4) {
+                    ForEach(programs.sorted(), id: \.self) { id in
+                        HStack(spacing: 6) {
+                            Text(ProgramCatalog.all.first { $0.id == id }?.name ?? id)
+                            Button {
+                                programs.remove(id)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                            }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
+                            .help("Ask again")
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

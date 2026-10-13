@@ -47,6 +47,21 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(old.clipboardWrite, .ask)
     }
 
+    func testProgramsAlwaysAllowedTheClipboardAreSaved() throws {
+        var s = Settings()
+        XCTAssertEqual(s.clipboardReadPrograms, [])
+        XCTAssertEqual(s.clipboardWritePrograms, [])
+        s.clipboardWritePrograms = ["nvim", "claude"]
+        s.clipboardReadPrograms = ["nvim"]
+        let data = try JSONEncoder().encode(s)
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains(#""clipboardWritePrograms":["claude","nvim"]"#), "sorted")
+        let back = try JSONDecoder().decode(Settings.self, from: data)
+        XCTAssertEqual(back.clipboardWritePrograms, ["claude", "nvim"])
+        XCTAssertEqual(back.clipboardReadPrograms, ["nvim"])
+        let old = try JSONDecoder().decode(Settings.self, from: Data(#"{"version":2}"#.utf8))
+        XCTAssertEqual(old.clipboardWritePrograms, [])
+    }
+
     func testSecureKeyboardEntryIsSavedAndOffByDefault() throws {
         var s = Settings()
         XCTAssertFalse(s.secureKeyboardEntry)

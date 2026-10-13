@@ -1,4 +1,5 @@
 import AppKit
+import GhosttyBridge
 import Preferences
 import WorkspaceModel
 
@@ -123,4 +124,15 @@ final class PreferencesController {
 
 extension TabLayout {
     init(_ setting: TabLayoutSetting) { self = setting == .strip ? .strip : .sidebar }
+}
+
+extension Settings {
+    /// The programs allowed to do `kind` without asking.
+    func clipboardPrograms(_ kind: ClipboardRequestKind) -> Set<String> {
+        kind == .read ? clipboardReadPrograms : clipboardWritePrograms
+    }
+
+    mutating func allowClipboard(_ kind: ClipboardRequestKind, for program: String) {
+        if kind == .read { clipboardReadPrograms.insert(program) } else { clipboardWritePrograms.insert(program) }
+    }
 }
