@@ -92,7 +92,7 @@ or given its own icon (**Change Icon…**).
 PrompTTY recognizes coding agents (Claude Code, Codex, Amp, Cline and others) running in a pane.
 While any run, the top of the sidebar lists every agent in every window, grouped by project, with
 whether it is working, waiting or wants your turn, and since when; click one to bring its pane
-forward.
+forward. The agent in the window's focused pane is highlighted like its tab.
 
 ## Splits
 
