@@ -3,11 +3,13 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WorkspaceModel
 
-/// In-app drag payloads. Both types are visible to this process only, so dragging text or files
-/// from other apps never lights up pane or tab drop targets.
+/// In-app drag payloads. All are visible to this process only, so dragging text or files from
+/// other apps never lights up pane, tab or project drop targets.
 enum DragPayload {
     static let pane = UTType(exportedAs: "dev.promptty.pane")
     static let tab = UTType(exportedAs: "dev.promptty.tab")
+    /// A sidebar project's header, dragged to reorder the projects.
+    static let project = UTType(exportedAs: "dev.promptty.project")
 
     static func provider(_ type: UTType, id: UUID) -> NSItemProvider {
         let provider = NSItemProvider()

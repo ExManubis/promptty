@@ -175,8 +175,11 @@ Where the implementation differs from the design above:
 - **New Project… asks only for the folder** (an open panel starting at the selected tab's
   repository); the project is named after the folder and can be renamed from its menu. Changing
   the folder of a project still named after its old folder renames it to the new one.
-- **Projects are reordered with Move Up / Move Down** in the header's menu, not by dragging the
-  header (a third drag payload type would also need registering in `Info.plist`).
+- **Projects are reordered by dragging their headers** in the tab list (`DragPayload.project`,
+  registered in `project.yml` and `Info.plist`): dropped on another project's header, the dragged
+  project takes its place, as a tab dropped on a tab does. Move Up / Move Down in the header's
+  menu do the same from the keyboard. The Agents section's headers follow that order but do not
+  drag. The header folds on a tap rather than being a Button, which would swallow the drag.
 - **A folded project header in the tab list shows no activity dot**, matching the rule that only
   the Agents section shows activity. It shows the selected style when it holds the selected tab.
 - **A removed project's tabs join the tabs in no project first**, in their order, rather than last.

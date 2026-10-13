@@ -88,8 +88,9 @@ command.
 (File menu, a tab's **Move to Project** menu, or the "+ New Tab" row's menu); it starts at the
 selected tab's repository. ⌘T opens the new tab in the selected tab's project; a project header's
 "+" opens one in the project's folder; "+ New Tab" opens one in no project. Drag a tab onto a
-project's header or among its tabs to move it there. A project's menu renames it, gives it an icon
-or another folder, moves it up or down, or removes it (its tabs stay open). Projects and the tabs
+project's header or among its tabs to move it there; drag a project's header onto another's to
+reorder the projects. A project's menu renames it, gives it an icon or another folder, moves it up
+or down, or removes it (its tabs stay open). Projects and the tabs
 in them are saved with the session; in the tab strip a thin line separates them.
 
 Drag tabs to reorder them. **Pin Tab** (in a tab's context menu, or drag it onto the pinned

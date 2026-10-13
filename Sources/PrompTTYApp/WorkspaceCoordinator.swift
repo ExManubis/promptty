@@ -421,7 +421,12 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     func moveProject(_ id: ProjectID, by offset: Int) {
         guard let from = workspace.projects.firstIndex(where: { $0.id == id }) else { return }
-        workspace.moveProject(id: id, to: from + offset)
+        moveProject(id, to: from + offset)
+    }
+
+    func moveProject(_ id: ProjectID, to index: Int) {
+        guard workspace.project(id: id) != nil else { return }
+        workspace.moveProject(id: id, to: index)
         for c in controllers.values { c.reload() }
         modelDidChange()
     }

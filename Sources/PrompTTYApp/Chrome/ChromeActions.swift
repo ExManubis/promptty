@@ -53,6 +53,8 @@ protocol ChromeActions: AnyObject {
     func setProjectFolded(_ id: ProjectID, _ folded: Bool)
     /// Moves a project up (-1) or down (+1) among the projects.
     func moveProject(_ id: ProjectID, by offset: Int)
+    /// Moves a project to `index` among the projects (a drop on another project's header).
+    func moveProject(_ id: ProjectID, to index: Int)
     /// Removes a project after asking; its tabs stay, in no project.
     func requestRemoveProject(_ id: ProjectID)
     func toggleSidebar()

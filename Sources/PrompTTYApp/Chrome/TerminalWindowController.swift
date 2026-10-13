@@ -499,6 +499,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func setProjectIcon(_ id: ProjectID, _ icon: PinIcon?) { coordinator.setProjectIcon(id, icon) }
     func setProjectFolded(_ id: ProjectID, _ folded: Bool) { coordinator.setProjectFolded(id, folded) }
     func moveProject(_ id: ProjectID, by offset: Int) { coordinator.moveProject(id, by: offset) }
+    func moveProject(_ id: ProjectID, to index: Int) { coordinator.moveProject(id, to: index) }
 
     func requestRemoveProject(_ id: ProjectID) {
         guard let project = coordinator.workspace.project(id: id) else { return }

@@ -40,6 +40,16 @@
 			<key>UTTypeIdentifier</key>
 			<string>dev.promptty.tab</string>
 		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>PrompTTY Project</string>
+			<key>UTTypeIdentifier</key>
+			<string>dev.promptty.project</string>
+		</dict>
 	</array>
 </dict>
 </plist>

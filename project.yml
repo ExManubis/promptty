@@ -32,13 +32,16 @@ targets:
         # it cached first for the bundle ID (the generic one, from before the icon existed).
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        # In-app drag payloads (tabs and panes); see Chrome/DragSupport.swift.
+        # In-app drag payloads (tabs, panes and projects); see Chrome/DragSupport.swift.
         UTExportedTypeDeclarations:
           - UTTypeIdentifier: dev.promptty.pane
             UTTypeDescription: PrompTTY Pane
             UTTypeConformsTo: [public.data]
           - UTTypeIdentifier: dev.promptty.tab
             UTTypeDescription: PrompTTY Tab
+            UTTypeConformsTo: [public.data]
+          - UTTypeIdentifier: dev.promptty.project
+            UTTypeDescription: PrompTTY Project
             UTTypeConformsTo: [public.data]
     dependencies:
       - package: PrompTTYCore

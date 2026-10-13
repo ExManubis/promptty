@@ -28,6 +28,8 @@ final class WindowChromeModel {
     var iconPickerTab: TabID?
     /// The project whose icon picker is open.
     var iconPickerProject: ProjectID?
+    /// The project whose header is being dragged.
+    var draggingProject: ProjectID?
     /// The pane a dragged pane would land on, and where.
     var dropTarget: (pane: PaneID, edge: PaneEdge)?
     /// The tab row a dragged pane hovers over.
@@ -60,6 +62,24 @@ final class WindowChromeModel {
                 // A drop is delivered just after the button comes up; let it read the drag first.
                 try? await Task.sleep(for: .milliseconds(50))
                 self.draggingTab = nil
+                return
+            }
+        }
+    }
+
+    @ObservationIgnored private var projectDragWatch: Task<Void, Never>?
+
+    /// A project header drag started; it ends like a tab drag (`beginTabDrag`).
+    func beginProjectDrag(_ project: ProjectID) {
+        draggingProject = project
+        projectDragWatch?.cancel()
+        projectDragWatch = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard let self else { return }
+                guard self.draggingProject == nil || NSEvent.pressedMouseButtons == 0 else { continue }
+                try? await Task.sleep(for: .milliseconds(50))
+                self.draggingProject = nil
                 return
             }
         }

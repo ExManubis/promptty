@@ -53,8 +53,9 @@ struct SidebarView: View {
     }
 }
 
-/// A project in the tab list: its header, then its tabs unless folded. Dropping a tab on the
-/// header puts it last in the project.
+/// A project in the tab list: its header, then its tabs unless folded. The header drags to
+/// reorder the projects (dropped on another project's header, it takes that one's place, as a tab
+/// dropped on a tab does); a tab dropped on it goes last in the project.
 private struct ProjectSection: View {
     let project: Project
     /// The project's tabs in this window, with their indexes in the window.
@@ -75,12 +76,11 @@ private struct ProjectSection: View {
         }
         .padding(.top, 4)
         .contextMenu { menu }
-        .onDrop(of: [DragPayload.tab], isTargeted: $dropTargeted) { providers in
-            chrome.draggingTab = nil
-            return DragPayload.loadID(DragPayload.tab, from: providers) { [actions, project] id in
-                actions.placeTab(TabID(rawValue: id), inProject: project.id, at: nil)
-            }
+        .onDrag {
+            chrome.beginProjectDrag(project.id)
+            return DragPayload.provider(DragPayload.project, id: project.id.rawValue)
         }
+        .onDrop(of: [DragPayload.project, DragPayload.tab], delegate: HeaderDropDelegate(project: project, targeted: $dropTargeted, chrome: chrome, actions: actions))
         .popover(isPresented: Binding(get: { chrome.iconPickerProject == project.id },
                                       set: { if !$0, chrome.iconPickerProject == project.id { chrome.iconPickerProject = nil } }),
                  arrowEdge: .trailing) {
@@ -109,6 +109,51 @@ private struct ProjectSection: View {
             .disabled(index == actions.projects.count - 1)
         Divider()
         Button("Remove Project…") { actions.requestRemoveProject(project.id) }
+    }
+}
+
+/// A project header takes other projects' headers (reorder: the dragged one takes its place) and
+/// tabs (into the project, last).
+private struct HeaderDropDelegate: DropDelegate {
+    let project: Project
+    @Binding var targeted: Bool
+    let chrome: WindowChromeModel
+    let actions: ChromeActions
+
+    func dropEntered(info: DropInfo) {
+        MainActor.assumeIsolated {
+            // Over its own header a project drag means nothing.
+            targeted = !(info.hasItemsConforming(to: [DragPayload.project]) && chrome.draggingProject == project.id)
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        MainActor.assumeIsolated {
+            info.hasItemsConforming(to: [DragPayload.project]) && chrome.draggingProject == project.id
+                ? DropProposal(operation: .forbidden) : DropProposal(operation: .move)
+        }
+    }
+
+    func dropExited(info: DropInfo) {
+        MainActor.assumeIsolated { targeted = false }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        MainActor.assumeIsolated {
+            targeted = false
+            let target = project.id
+            if DragPayload.loadID(DragPayload.project, from: info.itemProviders(for: [DragPayload.project]), completion: { [actions] id in
+                chrome.draggingProject = nil
+                guard let index = actions.projects.firstIndex(where: { $0.id == target }) else { return }
+                actions.moveProject(ProjectID(rawValue: id), to: index)
+            }) {
+                return true
+            }
+            chrome.draggingTab = nil
+            return DragPayload.loadID(DragPayload.tab, from: info.itemProviders(for: [DragPayload.tab])) { [actions] id in
+                actions.placeTab(TabID(rawValue: id), inProject: target, at: nil)
+            }
+        }
     }
 }
 

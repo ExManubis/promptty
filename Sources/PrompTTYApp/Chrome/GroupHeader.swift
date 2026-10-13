@@ -37,38 +37,40 @@ struct GroupHeader: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            Button(action: toggle) {
-                HStack(spacing: 5) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
-                        .rotationEffect(.degrees(folded ? 0 : 90))
-                        .frame(width: 10)
-                    symbolView
-                    Text(title)
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if missing {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.orange)
-                            .help("Folder not found: \(help)")
-                    }
-                    if folded {
-                        Text("\(count)")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                    Spacer(minLength: 2)
-                    // Folded, the header stands for its agents.
-                    if folded, let display { ActivityIndicator(display: display) }
+            // A tap, not a Button: a Button would swallow the drag that reorders projects.
+            HStack(spacing: 5) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .rotationEffect(.degrees(folded ? 0 : 90))
+                    .frame(width: 10)
+                symbolView
+                Text(title)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if missing {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.orange)
+                        .help("Folder not found: \(help)")
                 }
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
+                if folded {
+                    Text("\(count)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Spacer(minLength: 2)
+                // Folded, the header stands for its agents.
+                if folded, let display { ActivityIndicator(display: display) }
             }
-            .buttonStyle(.plain)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: toggle)
             .help(help)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { toggle() }
             .accessibilityLabel("\(title), \(count) \(count == 1 ? noun : noun + "s")")
             .accessibilityValue(folded ? (selected ? "Collapsed, holds the selected item" : "Collapsed") : "Expanded")
             .accessibilityHint(folded ? "Shows its \(noun)s" : "Hides its \(noun)s")
