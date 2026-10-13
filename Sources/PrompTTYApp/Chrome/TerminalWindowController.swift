@@ -506,24 +506,11 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         }
     }
 
-    func placeTab(_ id: TabID, inProject project: ProjectID?) { coordinator.placeTab(id, inProject: project) }
-
-    func requestRenameTab(_ id: TabID) {
-        guard let window, window.attachedSheet == nil,
-              let tab = coordinator.workspace.window(containing: id)?.tab(id: id) else { return }
-        let alert = NSAlert()
-        alert.messageText = "Rename Tab"
-        let field = NSTextField(string: tab.customTitle ?? tab.listTitle)
-        field.placeholderString = tab.title.isEmpty ? Tab.fallbackTitle : tab.title
-        field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Rename")
-        alert.addButton(withTitle: "Cancel")
-        alert.window.initialFirstResponder = field
-        alert.beginSheetModal(for: window) { [weak self] response in
-            if response == .alertFirstButtonReturn { self?.coordinator.rename(id, to: field.stringValue) }
-            self?.focusSelectedPane()
-        }
+    func placeTab(_ id: TabID, inProject project: ProjectID?, at index: Int?) {
+        // A tab dragged in from another window has no place among this window's rows; into a
+        // project (no index) it can go from anywhere, staying in its window.
+        guard index == nil || state.tab(id: id) != nil else { return }
+        coordinator.placeTab(id, inProject: project, at: index)
     }
 
     func renameProject(_ id: ProjectID) {

@@ -165,7 +165,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     var postedNotices: [String] = []
     #endif
 
-    /// Every pane running an agent, window by window, tab by tab, for the sidebars.
+    /// The agents of every tab, in every window, for the sidebars' tab rows.
     let agentList = AgentList()
     private var agentsScheduled = false
     /// The folders the agents work in, as the list last found them.
@@ -183,36 +183,39 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     }
 
     /// Works the agents out, watching what that read (the windows, tabs and panes, the panes'
-    /// titles and folders, what runs in each), and publishes them when they changed.
+    /// folders, what runs in each), and publishes them when they changed.
     private func refreshAgents() {
         agentsScheduled = false
-        let entries = withObservationTracking { agentEntries() } onChange: { [weak self] in
+        let tabs = withObservationTracking { agentSummaries() } onChange: { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.scheduleAgents() } }
         }
-        if entries != agentList.entries { agentList.entries = entries }
+        if tabs != agentList.tabs { agentList.tabs = tabs }
         lookUpRepositories()
     }
 
-    private func agentEntries() -> [AgentEntry] {
+    /// Each tab's most urgent agent, and how many others it has.
+    private func agentSummaries() -> [TabID: TabAgentSummary] {
         var folders = Set<String>()
-        let entries = workspace.windows.flatMap { window in
-            window.tabs.flatMap { tab in
-                tab.orderedPanes.compactMap { pane -> AgentEntry? in
+        var summaries: [TabID: TabAgentSummary] = [:]
+        for window in workspace.windows {
+            for tab in window.tabs {
+                let entries = tab.orderedPanes.compactMap { pane -> AgentEntry? in
                     let status = activity.status(for: pane.id)
                     guard let program = status.activity.program, program.isAgent else { return nil }
                     // The agent's own folder: it may differ from the shell's (`cd x && claude`).
                     let folder = activity.agentDirectory(for: pane.id) ?? pane.workingDirectory
                     folders.insert(folder)
-                    return AgentEntry(pane: pane.id, tab: tab.id, program: program,
-                                      title: AgentListing.title(paneTitle: pane.title, workingDirectory: pane.workingDirectory, program: program),
-                                      display: status.activity.display,
+                    return AgentEntry(pane: pane.id, display: status.activity.display,
                                       repository: repositories.repository(for: folder) ?? Repository(root: folder, branch: nil),
-                                      projectID: window.project(of: tab), status: status)
+                                      status: status)
                 }
+                guard let shown = AgentListing.mostUrgent(entries.map { ($0.pane, $0.display) }, focused: tab.focusedPaneID),
+                      let entry = entries.first(where: { $0.pane == shown }) else { continue }
+                summaries[tab.id] = TabAgentSummary(entry: entry, others: entries.count - 1)
             }
         }
         agentFolders = folders
-        return entries
+        return summaries
     }
 
     /// Looks up the repositories of the agents' folders off the main thread: new folders at once,
@@ -499,9 +502,11 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
-    func placeTab(_ id: TabID, inProject project: ProjectID?) {
-        guard let state = workspace.window(containing: id) else { return }
-        state.setProject(id, project)
+    func placeTab(_ id: TabID, inProject project: ProjectID?, at index: Int?) {
+        guard let state = workspace.window(containing: id), let tab = state.tab(id: id) else { return }
+        if tab.pin != nil, index != nil { state.unpin(id) }
+        state.setProject(id, project, at: index)
+        controllers[state.id]?.reload()
         modelDidChange()
     }
 

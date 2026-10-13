@@ -33,8 +33,7 @@ struct TabRow: View {
     private var paneDropTarget: Bool { chrome.dropTargetTab == tab.id }
     private var previewShown: Bool { previewing || chrome.forcedPreview == tab.id }
 
-    /// The tab's most urgent pane, for VoiceOver and the working shimmer (the Agents section shows
-    /// activity; tabs show no dot).
+    /// The tab's most urgent pane, for its activity dot and VoiceOver.
     private var display: PaneActivity.Display {
         stackCards.map(\.display).max() ?? .idle
     }
@@ -115,7 +114,7 @@ struct TabRow: View {
             .contextMenu { menu }
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-            .accessibilityLabel([tab.listTitle, tab.pin != nil ? "pinned" : nil, tab.listSubtitle, ActivityIndicator.label(for: display)]
+            .accessibilityLabel([tab.listTitle, tab.pin != nil ? "pinned" : nil, agentsLabel ?? tab.listSubtitle, ActivityIndicator.label(for: display)]
                 .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", "))
             .accessibilityAction(named: "Rename", beginRename)
             .accessibilityAction(named: tab.pin == nil ? "Pin" : "Unpin", togglePin)
@@ -159,7 +158,7 @@ struct TabRow: View {
     @ViewBuilder
     private var tileIcon: some View {
         if let icon = tab.pin?.icon {
-            PinIconTile(icon: icon, display: display)
+            PinIconTile(icon: icon)
         } else {
             ProgramStack(cards: stackCards)
         }
@@ -170,46 +169,68 @@ struct TabRow: View {
             // The panes' programs as tiles, the focused one in front.
             ProgramStack(cards: stackCards)
                 .frame(minWidth: 18, alignment: .leading)
-            if renaming {
-                TextField("Tab name", text: $draft)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13, weight: .medium))
-                    .focused($fieldFocused)
-                    .onAppear { fieldFocused = true }
-                    .onSubmit(commitRename)
-                    .onExitCommand(perform: cancelRename)
-                    .onChange(of: fieldFocused) { _, focused in if !focused, renaming { commitRename() } }
-            } else {
-                Text(tab.listTitle)
-                    .font(.system(size: 13, weight: selected ? .medium : .regular))
-                    .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.85))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+            VStack(alignment: .leading, spacing: 0) {
+                if renaming {
+                    TextField("Tab name", text: $draft)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13, weight: .medium))
+                        .focused($fieldFocused)
+                        .onAppear { fieldFocused = true }
+                        .onSubmit(commitRename)
+                        .onExitCommand(perform: cancelRename)
+                        .onChange(of: fieldFocused) { _, focused in if !focused, renaming { commitRename() } }
+                } else {
+                    Text(tab.listTitle)
+                        .font(.system(size: 13, weight: selected ? .medium : .regular))
+                        .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.85))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                // In the sidebar, a tab running an agent says what its most urgent agent does.
+                if style == .full, let agents { AgentStatusLine(summary: agents) }
             }
             Spacer(minLength: 2)
-            TabProgressRing(panes: stackPanes, actions: actions)
-            // The close button, under the pointer. Activity is the Agents section's to show.
-            Button { actions.requestCloseTab(tab.id) } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .frame(width: 16, height: 16)
-                    .contentShape(Rectangle())
+            // The progress and the activity, or under the pointer the close button.
+            ZStack(alignment: .trailing) {
+                HStack(spacing: 6) {
+                    TabProgressRing(panes: stackPanes, actions: actions)
+                    // The strip's pills stay as they were: no dot.
+                    if style == .full { ActivityIndicator(display: display) }
+                }
+                .opacity(hovering && !renaming ? 0 : 1)
+                Button { actions.requestCloseTab(tab.id) } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .frame(width: 16, height: 16)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .opacity(hovering && !renaming ? 1 : 0)
+                .help("Close Tab")
+                .accessibilityLabel("Close \(tab.listTitle)")
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .opacity(hovering && !renaming ? 1 : 0)
-            .help("Close Tab")
-            .accessibilityLabel("Close \(tab.listTitle)")
         }
         .padding(.leading, 8)
         .padding(.trailing, 6)
-        .frame(height: style == .full ? ChromeMetrics.rowHeight : 28)
+        .frame(height: style == .full ? ChromeMetrics.tabRowHeight : 28)
     }
 
-    /// The title and folder, and the project the tab's agents are grouped under.
+    /// The second line, for VoiceOver.
+    private var agentsLabel: String? {
+        guard style == .full, let agents else { return nil }
+        let activity = agents.entry.status.activity
+        return AgentListing.status(branch: agents.entry.repository.notableBranch, display: activity.display, tool: activity.tool,
+                                   since: activity.agentSince, others: agents.others, now: Date())
+    }
+
+    /// The tab's agents, for its second line.
+    private var agents: TabAgentSummary? { actions.agentList.summary(for: tab.id) }
+
+    /// The title and folder; in the strip, which has no project headers, the project too.
     private var tooltip: String {
         let text = tab.listSubtitle.map { "\(tab.listTitle) — \($0)" } ?? tab.listTitle
-        guard let project = actions.projects.first(where: { $0.id == tab.projectID }) else { return text }
+        guard style != .full, let project = actions.projects.first(where: { $0.id == tab.projectID }) else { return text }
         return "\(project.name): \(text)"
     }
 
@@ -219,14 +240,14 @@ struct TabRow: View {
         let projects = actions.projects
         Menu("Move to Project") {
             ForEach(projects, id: \.id) { project in
-                Button(project.name) { actions.placeTab(tab.id, inProject: project.id) }
+                Button(project.name) { actions.placeTab(tab.id, inProject: project.id, at: nil) }
                     .disabled(tab.projectID == project.id)
             }
             if !projects.isEmpty { Divider() }
             Button("New Project…") { actions.newProject(adding: tab.id) }
             if projects.contains(where: { $0.id == tab.projectID }) {
                 Divider()
-                Button("Remove from Project") { actions.placeTab(tab.id, inProject: nil) }
+                Button("Remove from Project") { actions.placeTab(tab.id, inProject: nil, at: nil) }
             }
         }
         Button(tab.pin == nil ? "Pin Tab" : "Unpin Tab", action: togglePin)
@@ -287,7 +308,8 @@ struct TabRow: View {
     }
 }
 
-/// Tab rows accept other tabs (reorder) and panes (move the pane into this tab).
+/// Tab rows accept other tabs (reorder, into this row's project) and panes (move the pane into
+/// this tab).
 private struct RowDropDelegate: DropDelegate {
     let tab: WorkspaceModel.Tab
     let index: Int
@@ -325,14 +347,16 @@ private struct RowDropDelegate: DropDelegate {
             }) {
                 return true
             }
-            // Onto a pinned tile it is pinned there, onto a row unpinned there (or just moved).
+            // Onto a pinned tile it is pinned there; onto a row it is unpinned and moved there,
+            // into the row's project (or out of any).
             let pinned = tab.pin != nil
+            let project = tab.projectID
             chrome.draggingTab = nil
             return DragPayload.loadID(DragPayload.tab, from: info.itemProviders(for: [DragPayload.tab])) { [actions] id in
                 if pinned {
                     actions.pinTab(TabID(rawValue: id), at: destination)
                 } else {
-                    actions.unpinTab(TabID(rawValue: id), at: destination)
+                    actions.placeTab(TabID(rawValue: id), inProject: project, at: destination)
                 }
             }
         }
@@ -364,7 +388,7 @@ struct RowBackground: View {
     }
 }
 
-/// The dim "+ New Tab" row that ends the tab list.
+/// The dim "+ New Tab" row that ends the tab list: a tab in no project.
 struct NewTabRow: View {
     let action: () -> Void
     var newProject: (() -> Void)?

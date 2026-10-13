@@ -2,13 +2,10 @@ import PaneActivity
 import SwiftUI
 import WorkspaceModel
 
-/// A group's header in the sidebar: a sidebar project (above its tabs, and above its agents in the
-/// Agents section) or, in the Agents section, a repository. A click folds it; folded, it shows how
-/// many it holds. Menus, drops and the icon picker are the caller's.
+/// A project's header in the sidebar, above its tabs. A click folds it; folded, it shows how many
+/// it holds and their most urgent activity. Menus, drops and the icon picker are the caller's.
 struct GroupHeader: View {
     enum Symbol {
-        /// A repository's group: no symbol.
-        case none
         /// A project without an icon of its own.
         case folder
         case icon(PinIcon)
@@ -17,14 +14,14 @@ struct GroupHeader: View {
     let title: String
     /// The tooltip.
     let help: String
-    var symbol: Symbol = .none
+    let symbol: Symbol
     let count: Int
-    /// What "count" counts, for VoiceOver: "agent", "tab".
+    /// What "count" counts, for VoiceOver: "tab".
     let noun: String
-    /// The most urgent activity inside, shown while folded (the Agents section's headers only).
+    /// The most urgent activity inside, shown while folded.
     var display: PaneActivity.Display?
     let folded: Bool
-    /// Folded over the selected tab or the focused agent.
+    /// Folded over the selected tab.
     var selected = false
     /// A tab dragged over it would join the project.
     var dropTarget = false
@@ -53,7 +50,7 @@ struct GroupHeader: View {
                         .monospacedDigit()
                 }
                 Spacer(minLength: 2)
-                // Folded, the header stands for its agents.
+                // Folded, the header stands for its tabs.
                 if folded, let display { ActivityIndicator(display: display) }
             }
             .frame(maxHeight: .infinity)
@@ -91,8 +88,6 @@ struct GroupHeader: View {
     @ViewBuilder
     private var symbolView: some View {
         switch symbol {
-        case .none:
-            EmptyView()
         case .folder:
             Image(systemName: "folder")
                 .font(.system(size: 10.5))
@@ -112,16 +107,15 @@ extension GroupHeader.Symbol {
     }
 }
 
-/// A project's header in the Agents section. A tap folds it; it drags to reorder the projects
-/// (dropped on another project's header it takes that one's place, as a tab dropped on a tab
-/// does); an agent or a tab dropped on it joins the project; its menu is the project's; its "+"
-/// opens a tab in the project, for an agent to start in.
+/// A project's header in the tab list. A tap folds it; it drags to reorder the projects (dropped
+/// on another project's header it takes that one's place, as a tab dropped on a tab does); a tab
+/// dropped on it joins the project; its menu is the project's; its "+" opens a tab in the project.
 struct ProjectHeader: View {
     let project: Project
     let count: Int
-    /// What `count` counts: "tab", "agent".
+    /// What `count` counts: "tab".
     let noun: String
-    /// The most urgent agent inside, shown while folded (the Agents section).
+    /// The most urgent activity inside, shown while folded.
     var display: PaneActivity.Display?
     let selected: Bool
     let chrome: WindowChromeModel
@@ -173,7 +167,7 @@ struct ProjectMenu: View {
 }
 
 /// A project header takes other projects' headers (reorder: the dragged one takes its place) and
-/// tabs, from tab rows or agent rows (into the project, last).
+/// tabs (into the project, last).
 private struct ProjectHeaderDropDelegate: DropDelegate {
     let project: Project
     @Binding var targeted: Bool
@@ -211,7 +205,7 @@ private struct ProjectHeaderDropDelegate: DropDelegate {
             }
             chrome.draggingTab = nil
             return DragPayload.loadID(DragPayload.tab, from: info.itemProviders(for: [DragPayload.tab])) { [actions] id in
-                actions.placeTab(TabID(rawValue: id), inProject: target)
+                actions.placeTab(TabID(rawValue: id), inProject: target, at: nil)
             }
         }
     }

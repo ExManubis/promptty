@@ -56,7 +56,7 @@ struct ProgramIcon: View {
 
 /// A pane's or tab's activity as a dot: green while something runs, blue for what finished
 /// unseen, red for what failed, a pulsing orange when a program wants the user; an orange shield
-/// when an agent asks for permission.
+/// when an agent asks for permission. Only the orange dot moves.
 struct ActivityIndicator: View {
     let display: PaneActivity.Display
 
@@ -73,11 +73,8 @@ struct ActivityIndicator: View {
                     .foregroundStyle(ProgramStack.color(for: display))
                     .fixedSize()
             case .attention where !reduceMotion:
-                // Pulses until seen, breathes while the agent works: both in Core Animation (see
-                // `LoopingDot`).
-                LoopingDot(color: NSColor(ProgramStack.color(for: display)), loop: .pulse)
-            case .working where !reduceMotion:
-                LoopingDot(color: NSColor(ProgramStack.color(for: display)), loop: .breathe)
+                // Pulses until seen, in Core Animation (see `PulsingDot`).
+                PulsingDot(color: NSColor(ProgramStack.color(for: display)))
             default:
                 Circle().fill(ProgramStack.color(for: display)).frame(width: 7, height: 7)
             }
@@ -101,14 +98,15 @@ struct ActivityIndicator: View {
     }
 }
 
-/// A pane's progress report as a small ring: filled to the percent for a set one, spinning for
-/// an indeterminate one, red for an error, yellow for a pause.
+/// A pane's progress report as a small ring: filled to the percent for a set one, red for an
+/// error, yellow for a pause. An indeterminate report shows none (`ProgressRing.shows`).
 struct ProgressRing: View {
     let progress: PaneProgress
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     static let size: CGFloat = 12
+
+    /// Whether a report shows a ring: an indeterminate one would only spin, which says nothing.
+    static func shows(_ progress: PaneProgress) -> Bool { progress.kind != .indeterminate }
     private static let line: CGFloat = 2
 
     private var color: Color {
@@ -128,15 +126,13 @@ struct ProgressRing: View {
                     .stroke(color, style: StrokeStyle(lineWidth: Self.line, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .padding(Self.line / 2)
-            } else if reduceMotion {
+            } else {
+                // An error or a pause without a percent.
                 Circle()
                     .trim(from: 0, to: 0.25)
                     .stroke(color, style: StrokeStyle(lineWidth: Self.line, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .padding(Self.line / 2)
-            } else {
-                // Turns in Core Animation (see `LoopingDot`).
-                SpinningArc(color: NSColor(color), lineWidth: Self.line)
             }
         }
         .frame(width: Self.size, height: Self.size)
@@ -160,57 +156,20 @@ struct StatusProgressRing: View {
     let status: PaneStatus
 
     var body: some View {
-        if let progress = status.progress { ProgressRing(progress: progress) }
+        if let progress = status.progress, ProgressRing.shows(progress) { ProgressRing(progress: progress) }
     }
 }
 
-/// The ring of a tab: the report of its first pane that has one (the focused pane first).
+/// The ring of a tab: the report of its first pane that has one to show (the focused pane first).
 struct TabProgressRing: View {
     let panes: [PaneID]
     let actions: ChromeActions
 
     var body: some View {
-        if let progress = panes.lazy.compactMap({ actions.progress(for: $0) }).first { ProgressRing(progress: progress) }
-    }
-}
-
-private struct SpinningArc: NSViewRepresentable {
-    let color: NSColor
-    let lineWidth: CGFloat
-
-    func makeNSView(context: Context) -> LoopingLayerView {
-        let view = LoopingLayerView()
-        let color = color
-        let lineWidth = lineWidth
-        view.configure = { layer, bounds in
-            let arc = (layer.sublayers?.first as? CAShapeLayer) ?? {
-                let arc = CAShapeLayer()
-                layer.addSublayer(arc)
-                return arc
-            }()
-            arc.frame = bounds
-            let rect = bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
-            arc.path = CGPath(ellipseIn: rect, transform: nil)
-            arc.fillColor = nil
-            arc.strokeColor = color.cgColor
-            arc.lineWidth = lineWidth
-            arc.lineCap = .round
-            arc.strokeStart = 0
-            arc.strokeEnd = 0.3
-            return arc
+        if let progress = panes.lazy.compactMap({ actions.progress(for: $0) }).first(where: ProgressRing.shows) {
+            ProgressRing(progress: progress)
         }
-        view.animate = { _ in
-            let animation = CABasicAnimation(keyPath: "transform.rotation.z")
-            animation.fromValue = 0
-            animation.toValue = -2 * Double.pi
-            animation.duration = 0.9
-            animation.repeatCount = .infinity
-            return animation
-        }
-        return view
     }
-
-    func updateNSView(_ view: LoopingLayerView, context: Context) {}
 }
 
 /// A tab's panes as a stack of tiles, like Rex's: the focused pane's logo on a light card in
@@ -248,9 +207,6 @@ struct ProgramStack: View {
                     }
                     // A faint rim, so a dark tile stands out on a dark sidebar.
                     .overlay(shape.strokeBorder(Color.white.opacity(0.16), lineWidth: 0.5).padding(0.75))
-                .overlay {
-                    if depth == 0, card.display == .working { WorkingShimmer(shape: shape) }
-                }
                 .overlay(shape.strokeBorder(.black.opacity(0.55), lineWidth: 1))
                 .frame(width: Self.width, height: Self.height)
                 .rotationEffect(.degrees(Self.tilt + Double(depth) * 2.5))
@@ -307,38 +263,17 @@ struct ProgramStack: View {
     }
 }
 
-/// A soft green light sweeping across an agent's tile while it works; a still green rim when
-/// motion is reduced.
-struct WorkingShimmer: View {
-    let shape: RoundedRectangle
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        if reduceMotion {
-            shape.strokeBorder(Color.green, lineWidth: 1.5)
-        } else {
-            // A band of light sweeping across, in Core Animation (see `LoopingDot`).
-            ShimmerBand()
-                .clipShape(shape)
-                .allowsHitTesting(false)
-        }
-    }
-}
-
 // MARK: Looping animations in Core Animation
 //
 // A SwiftUI `repeatForever` animation is driven by SwiftUI on the main thread: every frame it
 // updates the view, and every update waits for the window server to take the window's last
-// frame. The main thread also takes the keys and presents the terminal's frames, so a working
-// agent's shimmer and dot made typing, and the agent's own animation, stutter. These run in the
-// window server instead, and cost the app nothing per frame.
+// frame. The main thread also takes the keys and presents the terminal's frames, so a looping
+// dot made typing, and the agent's own animation, stutter. It runs in the window server instead,
+// and costs the app nothing per frame.
 
-/// The activity dot that breathes (an agent working) or pulses (one waiting for the user).
-private struct LoopingDot: NSViewRepresentable {
-    enum Loop { case breathe, pulse }
-
+/// The activity dot that pulses while a program waits for the user.
+private struct PulsingDot: NSViewRepresentable {
     let color: NSColor
-    let loop: Loop
 
     func makeNSView(context: Context) -> LoopingLayerView {
         let view = LoopingLayerView()
@@ -359,26 +294,17 @@ private struct LoopingDot: NSViewRepresentable {
     func updateNSView(_ view: LoopingLayerView, context: Context) { update(view) }
 
     private func update(_ view: LoopingLayerView) {
-        // Only a new color or kind restarts it: SwiftUI updates the dot every second (the
-        // Agents section's elapsed times), and a restart would make it jump.
-        let key = "\(loop) \(color)"
+        // Only a new color restarts it: SwiftUI updates the dot whenever its row redraws, and a
+        // restart would make it jump.
+        let key = "\(color)"
         guard view.key != key else { return }
         view.key = key
         let color = color
-        let loop = loop
         view.animate = { dot in
             dot.backgroundColor = color.cgColor
-            let animation: CABasicAnimation
-            switch loop {
-            case .breathe:
-                animation = CABasicAnimation(keyPath: "opacity")
-                animation.fromValue = 1
-                animation.toValue = 0.35
-            case .pulse:
-                animation = CABasicAnimation(keyPath: "transform.scale")
-                animation.fromValue = 0.85
-                animation.toValue = 1.15
-            }
+            let animation = CABasicAnimation(keyPath: "transform.scale")
+            animation.fromValue = 0.85
+            animation.toValue = 1.15
             animation.duration = 0.9
             animation.autoreverses = true
             animation.repeatCount = .infinity
@@ -387,39 +313,6 @@ private struct LoopingDot: NSViewRepresentable {
         }
         view.restart()
     }
-}
-
-/// The working shimmer's band: a soft green gradient, 70% of the tile wide, crossing it every
-/// 1.4 s.
-private struct ShimmerBand: NSViewRepresentable {
-    func makeNSView(context: Context) -> LoopingLayerView {
-        let view = LoopingLayerView()
-        view.configure = { layer, bounds in
-            let band = (layer.sublayers?.first as? CAGradientLayer) ?? {
-                let band = CAGradientLayer()
-                band.colors = [NSColor.clear.cgColor, NSColor.systemGreen.withAlphaComponent(0.45).cgColor, NSColor.clear.cgColor]
-                band.startPoint = CGPoint(x: 0, y: 0.5)
-                band.endPoint = CGPoint(x: 1, y: 0.5)
-                layer.addSublayer(band)
-                return band
-            }()
-            band.anchorPoint = .zero
-            band.frame = CGRect(x: 0, y: 0, width: bounds.width * 0.7, height: bounds.height)
-            return band
-        }
-        view.animate = { band in
-            let width = band.superlayer?.bounds.width ?? 0
-            let animation = CABasicAnimation(keyPath: "transform.translation.x")
-            animation.fromValue = -width
-            animation.toValue = 1.2 * width
-            animation.duration = 1.4
-            animation.repeatCount = .infinity
-            return animation
-        }
-        return view
-    }
-
-    func updateNSView(_ view: LoopingLayerView, context: Context) {}
 }
 
 /// A view whose one sublayer loops an animation, restarted when it is laid out again or joins a

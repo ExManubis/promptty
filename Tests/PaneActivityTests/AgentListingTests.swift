@@ -4,12 +4,6 @@ import XCTest
 final class AgentListingTests: XCTestCase {
     private let claude = ProgramCatalog.identify(executable: "/usr/local/bin/claude", arguments: ["claude"])!
 
-    func testTitleIsThePanesOwnUnlessItIsEmptyOrTheFolder() {
-        XCTAssertEqual(AgentListing.title(paneTitle: " Fix login ", workingDirectory: "/src/app", program: claude), "Fix login")
-        XCTAssertEqual(AgentListing.title(paneTitle: "  ", workingDirectory: "/src/app", program: claude), claude.name)
-        XCTAssertEqual(AgentListing.title(paneTitle: "/src/app", workingDirectory: "/src/app", program: claude), claude.name)
-    }
-
     func testElapsed() {
         XCTAssertEqual(AgentListing.elapsed(-3), "0 s")
         XCTAssertEqual(AgentListing.elapsed(59.9), "59 s")

@@ -32,7 +32,6 @@ enum PinIconChoices {
 /// A pinned tab's own icon, drawn like the front card of its programs' stack: a tilted tile.
 struct PinIconTile: View {
     let icon: PinIcon
-    var display: PaneActivity.Display = .idle
 
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 4, style: .continuous) }
 
@@ -55,9 +54,6 @@ struct PinIconTile: View {
             }
             // The same rims as the logo tiles.
             .overlay(shape.strokeBorder(Color.white.opacity(0.16), lineWidth: 0.5).padding(0.75))
-            .overlay {
-                if display == .working { WorkingShimmer(shape: shape) }
-            }
             .overlay(shape.strokeBorder(Color.black.opacity(0.55), lineWidth: 1))
     }
 }

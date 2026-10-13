@@ -16,8 +16,10 @@ enum ChromeMetrics {
     /// The gap between pane cards (window background shows through); also the divider's hit area.
     static let paneGap: CGFloat = 8
 
-    /// Sidebar tab rows (Dia-sized).
+    /// Sidebar rows (Dia-sized): "+ New Tab".
     static let rowHeight: CGFloat = 30
+    /// Sidebar tab rows: two lines, the second for an agent's state.
+    static let tabRowHeight: CGFloat = 38
     static let rowCornerRadius: CGFloat = 8
     static let sidebarHorizontalPadding: CGFloat = 8
 }
