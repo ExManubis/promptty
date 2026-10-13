@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import IOSurface
 import SwiftUI
 import GhosttyBridge
 import Preferences
@@ -304,6 +305,32 @@ enum DebugHooks {
             return ""
         }
         // eval resizes — terminal resizes since the last call (each layout change should cost one per pane).
+        // eval layers — the focused terminal's layer tree (class, frame, contents type).
+        driver.hooks["layers"] = { _ in
+            guard let view = driver.focusedSurface(), let layer = view.layer else { return "error: no terminal" }
+            func describe(_ l: CALayer, _ depth: Int) -> [String] {
+                var contents = l.contents.map { String(describing: type(of: $0)) } ?? "-"
+                if let c = l.contents, CFGetTypeID(c as CFTypeRef) == IOSurfaceGetTypeID() {
+                    let surface = unsafeBitCast(c as AnyObject, to: IOSurfaceRef.self)
+                    contents += " \(IOSurfaceGetWidth(surface))x\(IOSurfaceGetHeight(surface))"
+                }
+                let b = l.bounds
+                let expected = "\(Int(b.width * l.contentsScale))x\(Int(b.height * l.contentsScale))"
+                return ["\(String(repeating: "  ", count: depth))\(type(of: l)) bounds=\(b.width)x\(b.height) scale=\(l.contentsScale) accepts=\(expected) contents=\(contents)"]
+                    + (l.sublayers ?? []).flatMap { describe($0, depth + 1) }
+            }
+            return describe(layer, 0).joined(separator: "\n")
+        }
+        // eval fps start | fps stop — counts new frames (layer contents set) in the focused terminal.
+        driver.hooks["fps"] = { args in
+            guard let view = driver.focusedSurface(), let layer = view.layer else { return "error: no terminal" }
+            let target = layer.sublayers?.first { $0.contents != nil } ?? layer
+            if args.first == "start" {
+                FrameCounter.shared.start(on: target)
+                return "counting on \(type(of: target))"
+            }
+            return FrameCounter.shared.stop()
+        }
         driver.hooks["resizes"] = { _ in
             defer { TerminalSurfaceView.sentSizes = [] }
             return "resizes=\(TerminalSurfaceView.sentSizes.count) \(TerminalSurfaceView.sentSizes.joined(separator: " "))"
@@ -442,6 +469,37 @@ private struct LogoGallery: View {
         .frame(width: 960, height: 720, alignment: .top)
         .background(Color(white: 0.16))
         .environment(\.colorScheme, .dark)
+    }
+}
+/// Counts a layer's `contents` changes: the frames the terminal presents.
+@MainActor
+final class FrameCounter: NSObject {
+    static let shared = FrameCounter()
+    private var observation: NSKeyValueObservation?
+    private var frames: [CFTimeInterval] = []
+    private var started: CFTimeInterval = 0
+
+    func start(on layer: CALayer) {
+        frames = []
+        started = CACurrentMediaTime()
+        observation = layer.observe(\.contents, options: [.new]) { [weak self] _, _ in
+            let now = CACurrentMediaTime()
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.frames.append(now) } }
+        }
+    }
+
+    func stop() -> String {
+        observation = nil
+        let elapsed = CACurrentMediaTime() - started
+        // The frame times, for comparing with when a program wrote its output.
+        if let dir = ProcessInfo.processInfo.environment["PROMPTTY_DEBUG_DIR"] {
+            try? frames.map { String(format: "%.6f", $0) }.joined(separator: "\n")
+                .write(toFile: dir + "/frames.txt", atomically: true, encoding: .utf8)
+        }
+        let gaps = zip(frames.dropFirst(), frames).map { ($0 - $1) * 1000 }.sorted()
+        func pct(_ p: Double) -> String { gaps.isEmpty ? "-" : String(format: "%.1f", gaps[min(gaps.count - 1, Int(Double(gaps.count) * p))]) }
+        return String(format: "frames=%d in %.1fs (%.1f fps) gap ms p50=%@ p90=%@ p99=%@ max=%@", frames.count, elapsed, Double(frames.count) / elapsed,
+                      pct(0.5), pct(0.9), pct(0.99), gaps.last.map { String(format: "%.1f", $0) } ?? "-")
     }
 }
 #endif

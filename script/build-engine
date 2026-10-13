@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Builds libghostty into Engine/: libghostty-spm's pinned Ghostty source, its own patches, and
+# PrompTTY's patches in Engine/patches/ on top. Needs Homebrew zig@0.15 and Xcode's Metal
+# toolchain (see libghostty-spm's CLAUDE.md); a cold build takes several minutes, sometimes
+# much longer while libtool finishes the archive.
+#
+#   script/build-engine           build if Engine/GhosttyKit.xcframework is missing
+#   script/build-engine --force   rebuild (after changing a patch)
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+REPO=https://github.com/sethdeckard/libghostty-spm
+TAG=v0.2.0
+WORK=.build/engine/libghostty-spm
+ZIG=/opt/homebrew/opt/zig@0.15/bin
+OUT=Engine/GhosttyKit.xcframework
+
+[ "${1:-}" = "--force" ] || [ ! -d "$OUT" ] || { echo "Engine already built ($OUT); --force rebuilds"; exit 0; }
+[ -x "$ZIG/zig" ] || { echo "build-engine: needs Homebrew zig@0.15: brew install zig@0.15" >&2; exit 1; }
+
+if [ ! -d "$WORK/.git" ]; then
+  mkdir -p "$(dirname "$WORK")"
+  git clone --quiet --branch "$TAG" --recurse-submodules "$REPO" "$WORK"
+fi
+# The package's patch series plus ours, applied by its build in lexical order and reverted after.
+git -C "$WORK" checkout --quiet -- patches
+git -C "$WORK" clean -fdq -- patches
+cp Engine/patches/*.patch "$WORK/patches/"
+
+(cd "$WORK" && PATH="$ZIG:$PATH" ./scripts/build-xcframework.sh)
+
+LIB=$(find "$WORK/dist/GhosttyKit.xcframework" -name "*.a" | head -1)
+nm -g "$LIB" 2>/dev/null | grep -q "_ghostty_surface_new" \
+  || { echo "build-engine: the built library lacks the surface C API; see libghostty-spm's CLAUDE.md, 'Build reality'" >&2; exit 1; }
+
+rm -rf "$OUT" Engine/Sources/GhosttyKitResources/Resources
+ditto "$WORK/dist/GhosttyKit.xcframework" "$OUT"
+ditto "$WORK/Sources/GhosttyKitResources/Resources" Engine/Sources/GhosttyKitResources/Resources
+echo "Engine built: $OUT"

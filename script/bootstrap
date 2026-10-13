@@ -2,5 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 command -v xcodegen >/dev/null || brew install xcodegen
+# libghostty with PrompTTY's patches (Engine/); a no-op once built.
+script/build-engine
 swift package resolve
 xcodegen generate

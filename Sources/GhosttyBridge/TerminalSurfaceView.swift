@@ -126,8 +126,12 @@ public final class TerminalSurfaceView: NSView {
             nc.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateOcclusion() }
             },
+            nc.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateDisplay() }
+            },
         ]
         sizeDidChange()
+        updateDisplay()
         updateOcclusion()
         focusDidChange()
         onAttachedToWindow?()
@@ -323,6 +327,14 @@ public final class TerminalSurfaceView: NSView {
         guard let surface else { return }
         let focused = (window?.isKeyWindow ?? false) && window?.firstResponder === self
         ghostty_surface_set_focus(surface, focused)
+    }
+
+    /// The display the window is on, for the renderer's display link. A focused surface draws
+    /// only when that link fires (vsync); one never told its display draws far too rarely: a
+    /// program redrawing many times a second (Claude Code) showed a few frames a second, in bursts.
+    private func updateDisplay() {
+        guard let surface, let number = window?.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return }
+        ghostty_surface_set_display_id(surface, number.uint32Value)
     }
 
     public override func viewDidHide() { super.viewDidHide(); updateOcclusion() }

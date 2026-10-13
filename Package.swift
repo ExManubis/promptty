@@ -12,7 +12,9 @@ let package = Package(
         .library(name: "PaneActivity", targets: ["PaneActivity"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/sethdeckard/libghostty-spm", exact: "0.2.0"),
+        // libghostty-spm's GhosttyKit, built locally with PrompTTY's engine patches
+        // (Engine/patches; script/build-engine).
+        .package(path: "Engine"),
     ],
     targets: [
         .target(name: "WorkspaceModel"),
@@ -25,8 +27,8 @@ let package = Package(
         .target(
             name: "GhosttyBridge",
             dependencies: [
-                .product(name: "GhosttyKit", package: "libghostty-spm"),
-                .product(name: "GhosttyKitResources", package: "libghostty-spm"),
+                .product(name: "GhosttyKit", package: "Engine"),
+                .product(name: "GhosttyKitResources", package: "Engine"),
             ],
             linkerSettings: [
                 // The GhosttyKit static library carries no autolink directives.
@@ -40,7 +42,7 @@ let package = Package(
             dependencies: [
                 "GhosttyBridge",
                 "Preferences",
-                .product(name: "GhosttyKit", package: "libghostty-spm"),
+                .product(name: "GhosttyKit", package: "Engine"),
             ]
         ),
     ],

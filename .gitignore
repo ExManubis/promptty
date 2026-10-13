@@ -5,3 +5,5 @@ xcuserdata/
 .DS_Store
 .superpowers/
 dist/
+Engine/GhosttyKit.xcframework/
+Engine/Sources/GhosttyKitResources/Resources/
