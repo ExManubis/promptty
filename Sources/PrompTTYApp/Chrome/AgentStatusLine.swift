@@ -9,19 +9,26 @@ struct AgentStatusLine: View {
     var body: some View {
         // Read here, not in the row: only this line redraws as the agent's state changes.
         let activity = summary.entry.status.activity
-        // Durations tick while the row is shown, each second only while they show seconds.
-        TimelineView(SinceSchedule(since: activity.agentSince)) { context in
-            Text(AgentListing.status(branch: summary.entry.repository.notableBranch, display: activity.display,
-                                     tool: activity.tool, since: activity.agentSince, others: summary.others,
-                                     now: context.date))
-                .font(.system(size: 10.5))
-                .foregroundStyle(activity.display >= .attention ? Color.orange : Color.secondary)
-                .monospacedDigit()
-                .lineLimit(1)
-                .truncationMode(.tail)
+        HStack(spacing: 0) {
+            // Durations tick while the row is shown, each second only while they show seconds.
+            TimelineView(SinceSchedule(since: activity.agentSince)) { context in
+                Text(AgentListing.status(branch: summary.entry.repository.notableBranch, display: activity.display,
+                                         tool: activity.tool, since: activity.agentSince, others: 0, now: context.date))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            // A new schedule when the state's start moves: the one-second ticks start again.
+            .id(activity.agentSince)
+            // The count stays whole; the state before it truncates.
+            if let others = AgentListing.others(summary.others) {
+                Text(" · " + others)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
         }
-        // A new schedule when the state's start moves: the one-second ticks start again.
-        .id(activity.agentSince)
+        .font(.system(size: 10.5))
+        .foregroundStyle(activity.display >= .attention ? Color.orange : Color.secondary)
     }
 }
 

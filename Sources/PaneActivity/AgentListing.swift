@@ -24,8 +24,15 @@ public enum AgentListing {
         }
         if let tool, display == .working || display == .permission { parts.append(tool) }
         if let since { parts.append(elapsed(now.timeIntervalSince(since))) }
-        if others > 0 { parts.append(others == 1 ? "+1 agent" : "+\(others) agents") }
+        if let others = self.others(others) { parts.append(others) }
         return parts.joined(separator: " · ")
+    }
+
+    /// How many other agents a tab has: "+1 agent", "+3 agents"; nil for none. Shown apart from
+    /// the rest of the line, which truncates first.
+    public static func others(_ count: Int) -> String? {
+        guard count > 0 else { return nil }
+        return count == 1 ? "+1 agent" : "+\(count) agents"
     }
 
     /// "1 min 20 s" is too busy beside an agent: seconds, then minutes, then hours and minutes.

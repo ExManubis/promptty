@@ -1,6 +1,6 @@
 # PrompTTY sidebar: tabs and agents in one list — design
 
-Date: 2026-10-13 · Status: approved in conversation; awaiting spec review
+Date: 2026-10-13 · Status: implemented (the "+N agents" count is its own label, so it never truncates)
 
 ## Goal
 

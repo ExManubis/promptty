@@ -189,7 +189,8 @@ struct TabRow: View {
                 // In the sidebar, a tab running an agent says what its most urgent agent does.
                 if style == .full, let agents { AgentStatusLine(summary: agents) }
             }
-            Spacer(minLength: 2)
+            // The rest of the row's width, so the lines truncate only when they must.
+            .frame(maxWidth: .infinity, alignment: .leading)
             // The progress and the activity, or under the pointer the close button.
             ZStack(alignment: .trailing) {
                 HStack(spacing: 6) {

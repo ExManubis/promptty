@@ -18,6 +18,12 @@ final class AgentListingTests: XCTestCase {
         XCTAssertEqual(AgentListing.mostUrgent([(1, .working), (2, .working)], focused: 9), 1)
     }
 
+    func testTheOtherAgentsCount() {
+        XCTAssertNil(AgentListing.others(0))
+        XCTAssertEqual(AgentListing.others(1), "+1 agent")
+        XCTAssertEqual(AgentListing.others(3), "+3 agents")
+    }
+
     func testStatusLine() {
         let now = Date(timeIntervalSinceReferenceDate: 1000)
         XCTAssertEqual(AgentListing.status(branch: "feature-x", display: .working, tool: "Bash", since: now - 20, others: 0, now: now),
