@@ -7,15 +7,26 @@ public enum BlockPart: Sendable {
     case command, output, all
 }
 
+/// Which blocks to read.
+public enum BlockRange: Sendable {
+    /// The newest (up to 256): for moving between them and copying.
+    case all
+    /// Those on screen and the one before them, without walking the scrollback above: for drawing.
+    case viewport
+}
+
 extension TerminalSurfaceView {
-    /// The commands on the screen (with the shell's marks; none in a program's full-screen
-    /// mode) and where the screen is in the scrollback, or nil before the surface exists.
-    public func blockSnapshot() -> BlockSnapshot? {
+    /// Read into on every refresh of every pane's blocks, on the main thread.
+    private static var blockBuffer = [ghostty_block_s](repeating: ghostty_block_s(), count: 256)
+
+    /// Blocks on the screen (with the shell's marks; none in a program's full-screen mode) and
+    /// where the screen is in the scrollback, or nil before the surface exists.
+    public func blockSnapshot(_ range: BlockRange) -> BlockSnapshot? {
         guard let surface else { return nil }
         var info = ghostty_blocks_info_s()
-        var raw = [ghostty_block_s](repeating: ghostty_block_s(), count: 256)
-        let count = raw.withUnsafeMutableBufferPointer { buf in
-            ghostty_surface_blocks(surface, &info, buf.baseAddress, buf.count)
+        let cRange: ghostty_blocks_range_e = range == .all ? GHOSTTY_BLOCKS_ALL : GHOSTTY_BLOCKS_VIEWPORT
+        let count = Self.blockBuffer.withUnsafeMutableBufferPointer { buf in
+            ghostty_surface_blocks(surface, cRange, &info, buf.baseAddress, buf.count)
         }
         let scale = window?.backingScaleFactor ?? 2
         let viewport = BlockViewport(
@@ -25,10 +36,10 @@ extension TerminalSurfaceView {
             rowHeight: CGFloat(info.cell_height_px) / scale,
             paddingTop: CGFloat(info.padding_top_px) / scale
         )
-        let blocks = raw.prefix(Int(count)).map {
+        let blocks = Self.blockBuffer.prefix(Int(count)).map {
             CommandBlock(row: Int($0.row), endRow: Int($0.end_row), exitCode: $0.exit_code < 0 ? nil : Int($0.exit_code))
         }
-        return BlockSnapshot(blocks: blocks, viewport: viewport)
+        return BlockSnapshot(blocks: blocks, viewport: viewport, newer: Int(info.newer_blocks))
     }
 
     /// Part of the block whose command is on `row`, without trailing blank space; nil when no

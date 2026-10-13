@@ -15,7 +15,7 @@ final class BlockOverlayView: NSView {
     private weak var surface: TerminalSurfaceView?
     private(set) var snapshot: BlockSnapshot?
     private(set) var selection: BlockSelection?
-    private var hovered: Int?
+    private var hovered: BlockSelection?
 
     private let dividers = CAShapeLayer()
     private let failures = CAShapeLayer()
@@ -28,11 +28,16 @@ final class BlockOverlayView: NSView {
 
     private var refreshQueued = false
     private var lastRefresh: CFTimeInterval = 0
+    /// The bounds the last layout pass refreshed for.
+    private var laidOutBounds: CGRect?
+    /// What the last render drew from.
+    private var rendered: RenderState?
+    private var buttonsDark: Bool?
     /// While a block is selected or under the pointer, its last row can move as its command
     /// prints, before the screen fills and scrolls; a slow poll keeps the outline on it.
     private var poll: Timer?
-    /// Commands by row, read from the terminal for the header.
-    private var commands: [Int: String] = [:]
+    /// The command the header names, read from the terminal once.
+    private var headerCommand: (block: BlockSelection, row: Int, text: String)?
 
     init(surface: TerminalSurfaceView) {
         self.surface = surface
@@ -81,6 +86,9 @@ final class BlockOverlayView: NSView {
 
     override func layout() {
         super.layout()
+        // Only a new size moves the blocks; layout passes come for other reasons too.
+        guard bounds != laidOutBounds else { return }
+        laidOutBounds = bounds
         setNeedsRefresh()
     }
 
@@ -97,12 +105,14 @@ final class BlockOverlayView: NSView {
     // MARK: State
 
     /// Reads the blocks again soon: on the next turn of the run loop, but no more often than a
-    /// fast display draws (streaming output reports a scroll thousands of times a second). Any
-    /// number of calls before then read once.
+    /// fast display draws (streaming output reports a scroll thousands of times a second), or 20
+    /// times a second at the newest output with no block under the pointer or selected, where
+    /// only the lines between commands move. Any number of calls before then read once.
     func setNeedsRefresh() {
         guard !refreshQueued else { return }
         refreshQueued = true
-        let wait = max(0, lastRefresh + 1.0 / 120 - CACurrentMediaTime())
+        let calm = snapshot?.viewport.atBottom == true && hovered == nil && selection == nil
+        let wait = max(0, lastRefresh + (calm ? 1.0 / 20 : 1.0 / 120) - CACurrentMediaTime())
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -112,21 +122,23 @@ final class BlockOverlayView: NSView {
         }
     }
 
-    func refresh() {
+    /// Reads the blocks on screen, or all of them when `all` or while one is selected (to move
+    /// from it, copy it, or tell that it is gone), and draws them.
+    func refresh(all: Bool = false) {
         lastRefresh = CACurrentMediaTime()
         #if DEBUG
         if Self.disabled { return }
         let started = lastRefresh
         defer { Self.readTime += CACurrentMediaTime() - started; Self.reads += 1 }
         #endif
-        guard window != nil, let snap = surface?.blockSnapshot() else {
+        let range: BlockRange = all || selection != nil ? .all : .viewport
+        guard window != nil, let snap = surface?.blockSnapshot(range) else {
             snapshot = nil
             render()
             return
         }
-        if snap.blocks.map(\.row) != snapshot?.blocks.map(\.row) { commands.removeAll() }
         snapshot = snap
-        if let selection, selection.index(in: snap.blocks) == nil { self.selection = nil }
+        if let selection, selection.index(in: snap) == nil { self.selection = nil }
         render()
     }
 
@@ -143,18 +155,18 @@ final class BlockOverlayView: NSView {
         render()
     }
 
-    var hasBlocks: Bool { !(snapshot?.blocks.isEmpty ?? true) }
+    var hasBlocks: Bool { snapshot?.hasBlocks ?? false }
 
     // MARK: Navigation
 
     func selectPrevious() {
-        refresh()
+        refresh(all: true)
         guard let snapshot else { return }
         select(BlockNavigation.previous(from: selection, in: snapshot))
     }
 
     func selectNext() {
-        refresh()
+        refresh(all: true)
         guard let snapshot else { return }
         let next = BlockNavigation.next(from: selection, in: snapshot)
         if next == nil, selection != nil {
@@ -168,7 +180,7 @@ final class BlockOverlayView: NSView {
 
     private func select(_ new: BlockSelection?) {
         selection = new
-        if let snapshot, let index = new?.index(in: snapshot.blocks),
+        if let snapshot, let index = new?.index(in: snapshot),
            let top = BlockNavigation.scrollTarget(for: snapshot.blocks[index], in: snapshot.viewport) {
             // libghostty scrolls at once, so the next read already has the new position.
             surface?.scroll(toRow: top)
@@ -182,8 +194,8 @@ final class BlockOverlayView: NSView {
     /// copy (no blocks, or a command that printed nothing).
     @discardableResult
     func copy(_ part: BlockPart) -> Bool {
-        refresh()
-        guard let snapshot, let index = selection?.index(in: snapshot.blocks) ?? snapshot.blocks.indices.last else { return false }
+        refresh(all: true)
+        guard let snapshot, let index = selection?.index(in: snapshot) ?? snapshot.blocks.indices.last else { return false }
         return copy(part, of: index)
     }
 
@@ -222,13 +234,13 @@ final class BlockOverlayView: NSView {
 
     /// The terminal's own pointer tracking: the block under the pointer gets the copy buttons.
     private func pointerMoved(_ event: NSEvent?) {
-        var index: Int?
-        if let event {
+        var block: BlockSelection?
+        if let event, let snapshot {
             let point = convert(event.locationInWindow, from: nil)
-            index = snapshot.flatMap { BlockLayout.block(atY: point.y, in: $0) }
+            block = BlockLayout.block(atY: point.y, in: snapshot).map { BlockSelection(index: $0, in: snapshot) }
         }
-        guard index != hovered else { return }
-        hovered = index
+        guard block != hovered else { return }
+        hovered = block
         render()
     }
 
@@ -237,7 +249,25 @@ final class BlockOverlayView: NSView {
     /// The block the copy buttons are on: the one under the pointer, else the selected one.
     private var buttonsIndex: Int?
 
+    /// Everything a render draws from: when none of it changed, neither would the drawing.
+    private struct RenderState: Equatable {
+        var snapshot: BlockSnapshot?
+        var size: CGSize
+        var hovered: BlockSelection?
+        var selection: BlockSelection?
+        var scale: CGFloat?
+        var text: NSColor
+        var failure: NSColor
+        var font: NSFont
+    }
+
     private func render() {
+        let state = RenderState(
+            snapshot: snapshot, size: bounds.size, hovered: hovered, selection: selection, scale: window?.backingScaleFactor,
+            text: EditorStyle.colors.text, failure: EditorStyle.colors.unknownCommand, font: EditorStyle.font
+        )
+        guard state != rendered else { return }
+        rendered = state
         guard let snapshot, !snapshot.blocks.isEmpty, bounds.height > 0 else {
             hideAll()
             return
@@ -271,7 +301,7 @@ final class BlockOverlayView: NSView {
         failures.path = marks
         failures.fillColor = EditorStyle.colors.unknownCommand.withAlphaComponent(0.85).cgColor
 
-        let selected = selection?.index(in: snapshot.blocks)
+        let selected = selection?.index(in: snapshot)
         if let selected, let frame = frames.first(where: { $0.index == selected }) {
             let rect = blockRect(frame)
             selectionFill.frame = rect
@@ -303,8 +333,14 @@ final class BlockOverlayView: NSView {
             return
         }
         let block = snapshot.blocks[index]
-        let command = commands[block.row] ?? surface?.blockText(row: block.row, part: .command) ?? ""
-        commands[block.row] = command
+        let id = BlockSelection(index: index, in: snapshot)
+        let command: String
+        if let cached = headerCommand, cached.block == id, cached.row == block.row {
+            command = cached.text
+        } else {
+            command = surface?.blockText(row: block.row, part: .command) ?? ""
+            headerCommand = (id, block.row, command)
+        }
         let model = StickyHeader.Model(
             command: command, exitCode: block.exitCode, running: index == snapshot.blocks.count - 1 && block.exitCode == nil,
             dark: Self.isDark, font: EditorStyle.font
@@ -320,7 +356,7 @@ final class BlockOverlayView: NSView {
     }
 
     private func layoutButtons(_ snapshot: BlockSnapshot, frames: [BlockLayout.Frame], selected: Int?) {
-        let index = hovered ?? selected
+        let index = hovered?.index(in: snapshot) ?? selected
         guard let index, let frame = frames.first(where: { $0.index == index }) else {
             buttons.isHidden = true
             buttonsIndex = nil
@@ -332,7 +368,11 @@ final class BlockOverlayView: NSView {
         // At the block's top right, kept on screen while the block is.
         let y = min(max(frame.minY + 3, top), max(top, frame.maxY - size.height - 3))
         buttons.frame = CGRect(x: bounds.width - size.width - 10, y: y, width: size.width, height: size.height)
-        buttons.appearance = NSAppearance(named: Self.isDark ? .darkAqua : .aqua)
+        let dark = Self.isDark
+        if dark != buttonsDark {
+            buttonsDark = dark
+            buttons.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        }
         buttons.isHidden = false
     }
 
@@ -388,11 +428,11 @@ extension BlockOverlayView {
     override var debugDescription: String {
         guard let snapshot else { return "no snapshot (window=\(window != nil))" }
         let v = snapshot.viewport
-        var lines = ["viewport top=\(v.top) rows=\(v.rows) total=\(v.totalRows) rowHeight=\(v.rowHeight) padTop=\(v.paddingTop) atBottom=\(v.atBottom) frame=\(NSStringFromRect(frame)) superview=\(superview.map { "\(type(of: $0))" } ?? "-") above=\(superview?.subviews.last === self)"]
+        var lines = ["viewport top=\(v.top) rows=\(v.rows) total=\(v.totalRows) newer=\(snapshot.newer) rowHeight=\(v.rowHeight) padTop=\(v.paddingTop) atBottom=\(v.atBottom) frame=\(NSStringFromRect(frame)) superview=\(superview.map { "\(type(of: $0))" } ?? "-") above=\(superview?.subviews.last === self)"]
         for (i, b) in snapshot.blocks.enumerated() {
             lines.append("block \(i) rows=\(b.row)-\(b.endRow) exit=\(b.exitCode.map(String.init) ?? "-")")
         }
-        lines.append("selection=\(selection.map { "fromEnd \($0.fromEnd) index \($0.index(in: snapshot.blocks).map(String.init) ?? "-")" } ?? "-") hovered=\(hovered.map(String.init) ?? "-")")
+        lines.append("selection=\(selection.map { "fromEnd \($0.fromEnd) index \($0.index(in: snapshot).map(String.init) ?? "-")" } ?? "-") hovered=\(hovered.flatMap { $0.index(in: snapshot) }.map(String.init) ?? "-")")
         lines.append("header=\(header.isHidden ? "hidden" : "\(headerModel.command.debugDescription) \(NSStringFromRect(header.frame))") buttons=\(buttons.isHidden ? "hidden" : NSStringFromRect(buttons.frame))")
         lines.append("reads=\(Self.reads) readTime=\(String(format: "%.1f", Self.readTime * 1000))ms buttonsInWindow=\(buttons.isHidden ? "-" : NSStringFromRect(buttons.convert(buttons.bounds, to: nil)))")
         lines.append("dividers=\(dividers.path.map { NSStringFromRect($0.boundingBoxOfPath) } ?? "-") failures=\(failures.path.map { NSStringFromRect($0.boundingBoxOfPath) } ?? "-") selectionFill=\(selectionFill.isHidden ? "hidden" : NSStringFromRect(selectionFill.frame))")

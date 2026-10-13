@@ -22,10 +22,10 @@ private let blocks = [block(0, 30), block(31, 31, exit: 1), block(32, 60), block
     @Test func previousFromNothingScrolledUpSelectsTheLastBlockStartingOnScreen() {
         // Rows 35–44 are on screen: inside the third block, whose command is above.
         let snap = BlockSnapshot(blocks: blocks, viewport: viewport(top: 35))
-        #expect(BlockNavigation.previous(from: nil, in: snap)?.index(in: snap.blocks) == 2)
+        #expect(BlockNavigation.previous(from: nil, in: snap)?.index(in: snap) == 2)
         // Rows 28–37: the second and third blocks start on screen.
         let up = BlockSnapshot(blocks: blocks, viewport: viewport(top: 28))
-        #expect(BlockNavigation.previous(from: nil, in: up)?.index(in: up.blocks) == 2)
+        #expect(BlockNavigation.previous(from: nil, in: up)?.index(in: up) == 2)
     }
 
     @Test func previousStopsAtTheOldest() {
@@ -43,7 +43,7 @@ private let blocks = [block(0, 30), block(31, 31, exit: 1), block(32, 60), block
 
     @Test func nextFromNothingSelectsTheFirstBlockStartingOnScreen() {
         let snap = BlockSnapshot(blocks: blocks, viewport: viewport(top: 25))
-        #expect(BlockNavigation.next(from: nil, in: snap)?.index(in: snap.blocks) == 1)
+        #expect(BlockNavigation.next(from: nil, in: snap)?.index(in: snap) == 1)
         let bottom = BlockSnapshot(blocks: blocks, viewport: viewport(top: 90))
         #expect(BlockNavigation.next(from: nil, in: bottom) == nil)
     }
@@ -52,12 +52,31 @@ private let blocks = [block(0, 30), block(31, 31, exit: 1), block(32, 60), block
         let snap = BlockSnapshot(blocks: [], viewport: viewport(top: 0))
         #expect(BlockNavigation.previous(from: nil, in: snap) == nil)
         #expect(BlockNavigation.next(from: nil, in: snap) == nil)
-        #expect(BlockSelection(fromEnd: 0).index(in: []) == nil)
+        #expect(BlockSelection(fromEnd: 0).index(in: snap) == nil)
+        #expect(!snap.hasBlocks)
     }
 
     @Test func aSelectionPastTheOldestIsGone() {
-        #expect(BlockSelection(fromEnd: 4).index(in: blocks) == nil)
-        #expect(BlockSelection(fromEnd: 0).index(in: blocks) == 3)
+        let snap = BlockSnapshot(blocks: blocks, viewport: viewport(top: 90))
+        #expect(BlockSelection(fromEnd: 4).index(in: snap) == nil)
+        #expect(BlockSelection(fromEnd: 0).index(in: snap) == 3)
+    }
+
+    @Test func aBlockKeepsItsCountFromTheEndInASnapshotOfTheScreen() {
+        // The second and third blocks, around rows 31–40; the fourth starts below the screen.
+        let all = BlockSnapshot(blocks: blocks, viewport: viewport(top: 31))
+        let screen = BlockSnapshot(blocks: Array(blocks[1...2]), viewport: viewport(top: 31), newer: 1)
+        #expect(screen.hasBlocks)
+        for index in 1...2 {
+            let block = BlockSelection(index: index, in: all)
+            #expect(BlockSelection(index: index - 1, in: screen) == block)
+            #expect(block.index(in: screen) == index - 1)
+        }
+        // The newest and the oldest are not in it.
+        #expect(BlockSelection(fromEnd: 0).index(in: screen) == nil)
+        #expect(BlockSelection(fromEnd: 3).index(in: screen) == nil)
+        // Only blocks below the screen: still blocks.
+        #expect(BlockSnapshot(blocks: [], viewport: viewport(top: 0), newer: 2).hasBlocks)
     }
 }
 
