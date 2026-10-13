@@ -73,7 +73,9 @@ final class ProgramCatalogTests: XCTestCase {
         XCTAssertEqual(claude?.tile, Program.Tile(background: 0xD97757, foreground: 0xFFFFFF))
         XCTAssertEqual(ProgramCatalog.all.first { $0.id == "python" }?.tile, Program.Tile(background: 0x3776AB, foreground: 0xFFD43B))
         XCTAssertEqual(ProgramCatalog.all.first { $0.id == "bun" }?.tile, Program.Tile(background: 0xFBF0DF, foreground: 0x14151A))
-        for program in ProgramCatalog.all where program.logo != nil {
+        // A full-color logo is drawn in its own colors, not the tile's foreground: how it reads
+        // on its tile is a design choice (claudewitz's lilac), not this check's.
+        for program in ProgramCatalog.all where program.logo != nil && !program.fullColorLogo {
             let tile = try! XCTUnwrap(program.tile, program.id)
             XCTAssertGreaterThanOrEqual(Program.Tile.contrast(tile.background, tile.foreground), 2.5, program.id)
         }
@@ -143,12 +145,12 @@ final class ProgramCatalogTests: XCTestCase {
         XCTAssertEqual(ProgramCatalog.all.filter(\.fullColorLogo).map(\.id), ["claudewitz", "btop"])
     }
 
-    /// claudewitz's headphone bean keeps its own colors, on the icon's dark square.
+    /// claudewitz's headphone bean keeps its own colors, on a lilac square.
     func testClaudewitzShowsItsOwnColors() {
         let claudewitz = ProgramCatalog.all.first { $0.id == "claudewitz" }
         XCTAssertEqual(claudewitz?.logo, "claudewitz")
         XCTAssertEqual(claudewitz?.fullColorLogo, true)
-        XCTAssertEqual(claudewitz?.tile?.background, 0x1A1715)
+        XCTAssertEqual(claudewitz?.tile?.background, 0xB597FD)
     }
 
     func testEveryLogoHasAColor() {
