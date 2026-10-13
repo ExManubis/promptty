@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Builds PrompTTY for distribution outside the App Store: a Release build signed with the
-# Developer ID, notarized by Apple and stapled, zipped into dist/.
+# Developer ID, notarized by Apple and stapled, in a signed and notarized disk image in dist/
+# (the app and an Applications link on PrompTTY's background).
 #
-#   script/release                 build, sign, notarize, staple, package
-#   script/release --no-notarize   build and sign only, to check signing without Apple
+#   script/release                 build, sign, notarize, staple, make the disk image
+#   script/release --no-notarize   the same without Apple: signed only, to check the build
+#                                  and the disk image's window
+#
+# Needs uv (brew install uv), which fetches the Python packages that write the DMG's layout.
 #
 # Notarization signs in with a notarytool keychain profile ("promptty", or $NOTARY_PROFILE),
 # created once with an app-specific password from account.apple.com:
@@ -25,9 +29,10 @@ LOG=$DERIVED/build.log
 step() { printf '\n==> %s\n' "$*"; }
 fail() { printf '\nrelease: %s\n' "$*" >&2; exit 1; }
 
-step "Checking the signing identity and the notary profile"
+step "Checking the signing identity, the notary profile and uv"
 security find-identity -v -p codesigning | grep -q '"Developer ID Application' \
   || fail "no \"Developer ID Application\" certificate in the keychain"
+command -v uv >/dev/null || fail "uv is needed to lay out the disk image: brew install uv"
 if [ "$notarize" = 1 ]; then
   xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 \
     || fail "no notarytool profile \"$PROFILE\"; create it with: xcrun notarytool store-credentials $PROFILE --apple-id <your Apple ID> --team-id RQ2CW4W282"
@@ -60,33 +65,70 @@ if codesign -d --entitlements - "$APP" 2>/dev/null | grep -q "get-task-allow"; t
 fi
 grep -E "^(Authority=Developer ID Application|TeamIdentifier|Timestamp)" <<<"$SIGNATURE"
 
-if [ "$notarize" = 0 ]; then
-  printf '\nSigned, not notarized: %s\n' "$APP"
-  exit 0
+# Sends a file to Apple and waits for the verdict; on a rejection prints Apple's log.
+notarize() {
+  local file=$1 result status id
+  result=$(xcrun notarytool submit "$file" --keychain-profile "$PROFILE" --wait --output-format json) \
+    || fail "submitting $file failed: $result"
+  status=$(plutil -extract status raw -o - - <<<"$result")
+  id=$(plutil -extract id raw -o - - <<<"$result")
+  if [ "$status" != "Accepted" ]; then
+    xcrun notarytool log "$id" --keychain-profile "$PROFILE" >&2 || true
+    fail "notarization of $file: $status (submission $id)"
+  fi
+  echo "Accepted (submission $id)"
+}
+
+if [ "$notarize" = 1 ]; then
+  # The app first, so the copy people drag out of the DMG carries its own ticket.
+  step "Notarizing the app (usually a few minutes)"
+  SUBMISSION=$DERIVED/PrompTTY-notarize.zip
+  rm -f "$SUBMISSION"
+  ditto -c -k --keepParent "$APP" "$SUBMISSION"
+  notarize "$SUBMISSION"
+  xcrun stapler staple "$APP"
+  spctl --assess --type execute --verbose=2 "$APP"
 fi
 
-step "Notarizing (usually a few minutes)"
-SUBMISSION=$DERIVED/PrompTTY-notarize.zip
-rm -f "$SUBMISSION"
-ditto -c -k --keepParent "$APP" "$SUBMISSION"
-RESULT=$(xcrun notarytool submit "$SUBMISSION" --keychain-profile "$PROFILE" --wait --output-format json) \
-  || fail "the submission failed: $RESULT"
-STATUS=$(plutil -extract status raw -o - - <<<"$RESULT")
-ID=$(plutil -extract id raw -o - - <<<"$RESULT")
-if [ "$STATUS" != "Accepted" ]; then
-  xcrun notarytool log "$ID" --keychain-profile "$PROFILE" >&2 || true
-  fail "notarization: $STATUS (submission $ID)"
-fi
-echo "Accepted (submission $ID)"
-
-step "Stapling the ticket"
-xcrun stapler staple "$APP"
-xcrun stapler validate "$APP"
-spctl --assess --type execute --verbose=2 "$APP"
-
-step "Packaging"
+step "Making the disk image"
+# The window: the app and an Applications link on the first PrompTTY's background, laid out
+# by packaging/dmg_layout.py (written into .DS_Store; Finder on macOS 26 keeps nothing else).
+STAGE=$DERIVED/dmg
+RW=$DERIVED/PrompTTY-rw.dmg
 mkdir -p dist
-ZIP=dist/PrompTTY-$VERSION-$BUILD.zip
-rm -f "$ZIP"
-ditto -c -k --keepParent "$APP" "$ZIP"
-printf '\n%s\nsha256 %s\n' "$ZIP" "$(shasum -a 256 "$ZIP" | cut -d' ' -f1)"
+DMG=dist/PrompTTY-$VERSION-$BUILD.dmg
+rm -rf "$STAGE" "$RW" "$DMG"
+mkdir -p "$STAGE/.background"
+ditto "$APP" "$STAGE/PrompTTY.app"
+ln -s /Applications "$STAGE/Applications"
+# One TIFF with both resolutions: sharp on Retina screens, and the right size on others.
+tiffutil -cathidpicheck packaging/dmg-background.png packaging/dmg-background@2x.png \
+  -out "$STAGE/.background/background.tiff" >/dev/null 2>&1
+# APFS: macOS 26.4 has trouble mounting HFS+ images (see its release notes on external media).
+hdiutil create -quiet -volname PrompTTY -srcfolder "$STAGE" -fs APFS -format UDRW -ov "$RW"
+# (hdiutil calls -nobrowse deprecated in favor of diskutil, whose output differs; it still works.)
+ATTACHED=$(hdiutil attach -nobrowse -noautoopen -readwrite "$RW" 2> >(grep -v deprecated >&2))
+MOUNT=$(grep -o '/Volumes/.*' <<<"$ATTACHED" | tail -1)
+[ -n "$MOUNT" ] || fail "could not mount the disk image: $ATTACHED"
+if ! uv run --quiet --with ds_store --with mac_alias python3 packaging/dmg_layout.py \
+    --mount-dir "$MOUNT" --app-name PrompTTY.app --background .background/background.tiff; then
+  hdiutil detach -quiet -force "$MOUNT" || true
+  fail "could not write the disk image's window layout"
+fi
+sync
+hdiutil detach -quiet "$MOUNT"
+hdiutil convert -quiet "$RW" -format UDZO -imagekey zlib-level=9 -o "$DMG"
+rm -rf "$STAGE" "$RW"
+codesign --sign "Developer ID Application" --timestamp "$DMG"
+codesign --verify --verbose=2 "$DMG" 2>&1 | tail -1
+
+if [ "$notarize" = 1 ]; then
+  step "Notarizing the disk image"
+  notarize "$DMG"
+  xcrun stapler staple "$DMG"
+  spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+else
+  echo "note: signed, not notarized; other Macs will refuse it until it is"
+fi
+
+printf '\n%s\nsha256 %s\n' "$DMG" "$(shasum -a 256 "$DMG" | cut -d' ' -f1)"
