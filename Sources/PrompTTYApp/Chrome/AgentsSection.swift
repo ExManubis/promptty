@@ -3,9 +3,12 @@ import SwiftUI
 import WorkspaceModel
 
 /// The top of the sidebar while agents run: every agent in every window, what it is doing and
-/// since when. A click brings its pane forward.
+/// since when. A click brings its pane forward. The agent in this window's focused pane is shown
+/// selected, like its tab; folded away, its project's header is.
 struct AgentsSection: View {
     let actions: ChromeActions
+    /// The focused pane of this window's selected tab.
+    let focusedPane: PaneID?
     /// Projects folded away, by root.
     @State private var collapsed: Set<String> = []
 
@@ -27,7 +30,8 @@ struct AgentsSection: View {
                 } else {
                     ForEach(groups, id: \.root) { group in
                         let folded = collapsed.contains(group.root)
-                        ProjectHeader(root: group.root, count: group.items.count, display: group.display, folded: folded) {
+                        let holdsFocus = group.items.contains { $0.id == focusedPane }
+                        ProjectHeader(root: group.root, count: group.items.count, display: group.display, folded: folded, selected: folded && holdsFocus) {
                             withAnimation(.easeOut(duration: 0.15)) {
                                 if folded { collapsed.remove(group.root) } else { collapsed.insert(group.root) }
                             }
@@ -49,7 +53,7 @@ struct AgentsSection: View {
 
     private func rows(_ agents: [AgentEntry]) -> some View {
         ForEach(agents) { agent in
-            AgentRow(agent: agent) { actions.reveal(agent.pane) }
+            AgentRow(agent: agent, selected: agent.pane == focusedPane) { actions.reveal(agent.pane) }
         }
     }
 }
@@ -60,6 +64,8 @@ private struct ProjectHeader: View {
     let count: Int
     let display: PaneActivity.Display
     let folded: Bool
+    /// Folded over the focused agent.
+    let selected: Bool
     let toggle: () -> Void
     @State private var hovering = false
 
@@ -88,20 +94,22 @@ private struct ProjectHeader: View {
             .padding(.leading, 6)
             .padding(.trailing, 6)
             .frame(height: 24)
-            .background { RowBackground(selected: false, hovering: hovering) }
+            .background { RowBackground(selected: selected, hovering: hovering) }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help(Tab.abbreviate(root))
         .accessibilityLabel("\((root as NSString).lastPathComponent), \(count) \(count == 1 ? "agent" : "agents")")
-        .accessibilityValue(folded ? "Collapsed" : "Expanded")
+        .accessibilityValue(folded ? (selected ? "Collapsed, holds the focused agent" : "Collapsed") : "Expanded")
         .accessibilityHint(folded ? "Shows its agents" : "Hides its agents")
     }
 }
 
 private struct AgentRow: View {
     let agent: AgentEntry
+    /// The agent in this window's focused pane.
+    let selected: Bool
     let open: () -> Void
     @State private var hovering = false
 
@@ -130,7 +138,7 @@ private struct AgentRow: View {
             .padding(.trailing, 6)
             .frame(height: 38)
             .background {
-                RowBackground(selected: false, hovering: hovering)
+                RowBackground(selected: selected, hovering: hovering)
             }
             .contentShape(Rectangle())
         }
@@ -138,6 +146,7 @@ private struct AgentRow: View {
         .onHover { hovering = $0 }
         .help("Show \(agent.program.name)")
         .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .accessibilityHint("Shows this agent's pane")
     }
 
