@@ -168,9 +168,9 @@ private struct LinkPreview: View {
 private struct ClipboardBanner: View {
     let pane: PaneID
     let actions: ChromeActions
-    /// The buttons work only a moment after a request appears or changes, so a click meant for
-    /// the one before cannot land on the one now shown.
-    @State private var armed = false
+    /// The request whose buttons work: they do only a moment after it appears, so a click meant
+    /// for the one before cannot land on the one now shown.
+    @State private var armedID: Int?
 
     var body: some View {
         if let ticket = actions.clipboardRequest(for: pane) {
@@ -186,11 +186,10 @@ private struct ClipboardBanner: View {
                     ("Deny", { actions.answerClipboardRequest(.deny, id: ticket.id, in: pane) }),
                 ]
             ))
-            .disabled(!armed)
+            .disabled(armedID != ticket.id)
             .task(id: ticket.id) {
-                armed = false
                 try? await Task.sleep(for: .milliseconds(500))
-                if !Task.isCancelled { armed = true }
+                if !Task.isCancelled { armedID = ticket.id }
             }
             .padding(8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

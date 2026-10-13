@@ -468,6 +468,12 @@ extension TerminalSurfaceView {
     /// A program waits for the user's answer to a clipboard read or write.
     public var pendingClipboardKind: ClipboardRequestKind? { pendingClipboard?.kind }
 
+    /// The clipboard settings changed: refuses whatever waits and forgets "always allow".
+    public func resetClipboardPolicy() {
+        denyClipboardRequest()
+        clipboardGrants = ClipboardGrants()
+    }
+
     /// Refuses whatever waits, whoever asked (a settings change, the pane closing).
     public func denyClipboardRequest() { finishClipboard(.deny) }
 

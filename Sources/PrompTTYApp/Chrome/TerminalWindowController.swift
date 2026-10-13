@@ -158,7 +158,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func hoveredLink(for pane: PaneID) -> String? { coordinator.activity.status(for: pane).hoveredLink }
     func clipboardRequest(for pane: PaneID) -> ClipboardTicket? { coordinator.activity.status(for: pane).clipboardRequest }
     func answerClipboardRequest(_ decision: ClipboardDecision, id: Int, in pane: PaneID) { surfaces[pane]?.answerClipboardRequest(decision, id: id) }
-    func denyClipboardRequests() { surfaces.values.forEach { $0.denyClipboardRequest() } }
+    func denyClipboardRequests() { surfaces.values.forEach { $0.resetClipboardPolicy() } }
     func progress(for pane: PaneID) -> PaneProgress? { coordinator.activity.status(for: pane).progress }
     func isSecure(_ pane: PaneID) -> Bool { coordinator.activity.status(for: pane).secure }
     var agentList: AgentList { coordinator.agentList }
