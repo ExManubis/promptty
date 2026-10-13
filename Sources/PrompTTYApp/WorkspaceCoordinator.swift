@@ -589,6 +589,10 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         case .scrollbar, .cellSize:
             if case .surface(let view) = target { view.onLayoutChange?() }
             return true
+        case .render:
+            // Output drew a frame: keeps the window's 120 Hz link running. Constant in a stream.
+            if case .surface(let view) = target { (view.window as? TerminalWindow)?.activityObserver?() }
+            return true
         default: break
         }
         let located: (WindowState, Tab, Pane, TerminalWindowController)?
@@ -663,9 +667,9 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             guard let located else { return false }
             located.3.applyInitialTerminalSize(CGSize(width: Double(w), height: Double(h)))
             return true
-        case .scrollbar, .cellSize:
+        case .scrollbar, .cellSize, .render:
             return true // handled above, before the pane lookup
-        case .render, .configChange:
+        case .configChange:
             return true
         case .colorChange(let kind, let r, let g, let b):
             // Only the focused pane of the selected tab (OSC 11) tints its own window.

@@ -60,6 +60,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         window.minSize = NSSize(width: 520, height: 320)
         super.init(window: window)
         window.delegate = self
+        window.activityObserver = { [weak self] in self?.noteRefreshActivity() }
         window.keyInterceptor = { [weak self] event in
             guard let self else { return false }
             return self.handleVimNavigation(event) || self.handleBlockKeys(event)
@@ -707,7 +708,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func windowDidMove(_ notification: Notification) { persistFrame() }
     func windowDidBecomeKey(_ notification: Notification) {
         focusSelectedPane()
-        updateRefreshRate()
+        noteRefreshActivity()
     }
     func windowDidResignKey(_ notification: Notification) { updateRefreshRate() }
     func windowDidChangeOcclusionState(_ notification: Notification) { updateRefreshRate() }
@@ -728,14 +729,25 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     /// Asks for the display's full refresh rate (Settings › Appearance › Display). A ProMotion
     /// display otherwise lowers its rate when little changes, down to 24 Hz, and the frame for
     /// the next keystroke can wait up to a refresh of that length. Runs only while this window
-    /// is in front, visible, of the active app.
+    /// is in front, visible, of the active app, and only while something is changing: it starts
+    /// on key input or terminal output and stops after `refreshIdleSeconds` without either.
     private var refreshLink: CADisplayLink?
+    /// When a key was last pressed or the terminal last drew.
+    private var lastRefreshActivity: CFTimeInterval = 0
+    private static let refreshIdleSeconds: CFTimeInterval = 1
     /// Display link callbacks, for the debug driver: the rate the system granted.
     private(set) var refreshTicks = 0
     #if DEBUG
     /// Debug driver: runs the display link without the app in front (a driven app never is).
     var forceFullRefreshRate = false
     #endif
+
+    /// Key input or terminal output: keeps the link running, or starts it. Called for every
+    /// render, so it only stamps the time while the link runs.
+    func noteRefreshActivity() {
+        lastRefreshActivity = CACurrentMediaTime()
+        if refreshLink == nil { updateRefreshRate() }
+    }
 
     func updateRefreshRate() {
         var wanted = coordinator.preferences.settings.fullRefreshRate && NSApp.isActive
@@ -757,6 +769,14 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     @objc private func refreshTick(_ link: CADisplayLink) {
         refreshTicks &+= 1
+        var idle = CACurrentMediaTime() - lastRefreshActivity > Self.refreshIdleSeconds
+        #if DEBUG
+        idle = idle && !forceFullRefreshRate
+        #endif
+        if idle {
+            link.invalidate()
+            refreshLink = nil
+        }
     }
 
     private func persistFrame() {
@@ -773,14 +793,19 @@ final class TerminalWindow: NSWindow {
     var keyInterceptor: ((NSEvent) -> Bool)?
     /// Told of every click before it is delivered.
     var mouseDownObserver: ((NSEvent) -> Void)?
+    /// Told of every key press, whichever view takes it (terminal or input bar), and of each
+    /// terminal render.
+    var activityObserver: (() -> Void)?
 
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown { activityObserver?() }
         if event.type == .keyDown, keyInterceptor?(event) == true { return }
         if event.type == .leftMouseDown { mouseDownObserver?(event) }
         super.sendEvent(event)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.type == .keyDown { activityObserver?() }
         if event.type == .keyDown, keyInterceptor?(event) == true { return true }
         return super.performKeyEquivalent(with: event)
     }
