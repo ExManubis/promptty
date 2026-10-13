@@ -527,7 +527,10 @@ final class PaneShell {
             await MainActor.run { [weak self] in
                 // A later prompt has asked again: its answer is the newer one.
                 guard let self, generation == self.stateFileGeneration else { return }
+                let before = self.stateFile?.path
                 if let read, self.applyStateFile(read.file, date: read.date) { self.listCommands() }
+                // The first status ran with the fallback git: run it again with the shell's.
+                if before != self.stateFile?.path { self.refreshGit() }
                 // The history file is the one the state file names.
                 self.reloadHistoryIfChanged()
             }

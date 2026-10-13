@@ -42,4 +42,29 @@ final class PathCommandCacheTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: note.path)
         XCTAssertEqual(PathCommandCache.executables(in: [dir.path, "/nonexistent"]), ["tool"])
     }
+
+    func testANewExecutableInAPathDirectoryIsFoundAgain() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("promptty-path-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let cache = PathCommandCache()
+        let before = await cache.commands(on: [dir.path])
+        XCTAssertEqual(before, [])
+        let tool = dir.appendingPathComponent("rg")
+        try "#!/bin/sh\n".write(to: tool, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tool.path)
+        let after = await cache.commands(on: [dir.path])
+        XCTAssertEqual(after, ["rg"])
+    }
+
+    func testOnlyTheMostRecentPathsStayCached() async {
+        let counter = Counter()
+        let cache = PathCommandCache { _ in counter.hit(); return [] }
+        for i in 0..<12 { _ = await cache.commands(on: ["/usr/bin\(i)"]) }
+        XCTAssertEqual(counter.count, 12)
+        _ = await cache.commands(on: ["/usr/bin11"])
+        XCTAssertEqual(counter.count, 12)
+        _ = await cache.commands(on: ["/usr/bin0"])
+        XCTAssertEqual(counter.count, 13)
+    }
 }

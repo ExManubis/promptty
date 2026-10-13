@@ -52,4 +52,13 @@ final class ProcessRunnerTests: XCTestCase {
         XCTAssertEqual(results.count, 40)
         XCTAssertTrue(results.allSatisfy { $0 == "" })
     }
+
+    func testTimingOutWhileTheChildKeepsWritingIsSafe() async {
+        for _ in 0..<30 {
+            let out = await ProcessRunner.run("/usr/bin/yes", [], timeout: 0.05)
+            XCTAssertNil(out)
+        }
+        // Let the drained handlers finish.
+        try? await Task.sleep(nanoseconds: 200_000_000)
+    }
 }

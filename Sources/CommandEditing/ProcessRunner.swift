@@ -51,8 +51,6 @@ public enum ProcessRunner {
             }
             do { try process.run() } catch {
                 out.fileHandleForReading.readabilityHandler = nil
-                try? out.fileHandleForReading.close()
-                try? out.fileHandleForWriting.close()
                 complete(nil)
                 return
             }
@@ -71,7 +69,9 @@ public enum ProcessRunner {
             if done { complete(result) }
         }
 
-        /// Resumes the caller once and releases the pipe; false when it already was.
+        /// Resumes the caller once; false when it already was. The pipe is not closed here: after a
+        /// timeout the read handler may be running and drains to the end of the output (the
+        /// terminated program's), then the handles close when the run is released.
         @discardableResult
         private func complete(_ result: String?) -> Bool {
             lock.lock()
@@ -81,8 +81,8 @@ public enum ProcessRunner {
             }
             self.continuation = nil
             lock.unlock()
-            out.fileHandleForReading.readabilityHandler = nil
-            try? out.fileHandleForReading.close()
+            // Breaks the cycle through the handler's capture of this run.
+            process.terminationHandler = nil
             continuation.resume(returning: result)
             return true
         }
