@@ -185,8 +185,8 @@ Where the implementation differs from the design above:
 - **A removed project's tabs join the tabs in no project first**, in their order, rather than last.
 - **Tab rows in a project are indented 8 pt** under its header.
 - The tab menu's "None" is **Remove from Project**.
-- Debug driver: `eval project list|add|tab|newtab|fold|move|rename|remove` (see
-  `DebugHooks.swift`).
+- Debug driver: `eval projects`, `projectadd`, `projecttab`, `projectnewtab`, `projectfold`,
+  `projectmove`, `projectrename`, `projectremove` (see `DebugHooks.swift`).
 
 Not yet verified: none of this has been compiled or run; it was written where no Swift toolchain
 was available. `./script/test` and a driver run from the Testing section are the next step.
