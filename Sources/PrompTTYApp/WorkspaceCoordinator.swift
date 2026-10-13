@@ -102,10 +102,11 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         NSApp.isActive && window?.isMainWindow == true && window?.occlusionState.contains(.visible) == true
     }
 
-    /// Whether the user sees one pane: its tab selected in a window they look at.
+    /// Whether the user sees one pane: its tab selected in a window they look at, and not hidden
+    /// behind another pane's zoom.
     private func isSeen(_ pane: PaneID) -> Bool {
         guard let (state, tab) = workspace.tab(containing: pane), let controller = controllers[state.id] else { return false }
-        return controller.state.selectedTabID == tab.id && isSeen(controller.window)
+        return controller.state.selectedTabID == tab.id && tab.isShown(pane) && isSeen(controller.window)
     }
 
     /// Every pane with a terminal, and whether the user sees it. Built once per tick, so the pids
@@ -121,12 +122,14 @@ final class WorkspaceCoordinator: GhosttyActionSink {
                 for pane in tab.orderedPanes {
                     guard let surface = controller.existingSurface(for: pane.id) else { continue }
                     let id = pane.id
+                    // A pane hidden behind another's zoom is not looked at.
+                    let shown = selected && tab.isShown(id)
                     watched.append(ActivityTracker.Watched(
                         pane: id,
                         foregroundPID: { [weak surface] in surface?.foregroundPID },
                         shellPID: { [weak controller] in controller?.shell(for: id)?.state.shellPID },
-                        visible: windowVisible && selected,
-                        seen: windowSeen && selected,
+                        visible: windowVisible && shown,
+                        seen: windowSeen && shown,
                         checkShell: { [weak controller] in controller?.shell(for: id)?.checkForeground() },
                         screen: { [weak surface] in surface?.activeScreenText() },
                         quietUntil: [surface.lastResize.map { $0.addingTimeInterval(1.5) },

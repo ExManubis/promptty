@@ -192,7 +192,22 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         view.onFocusChange = { [weak self] focused in self?.coordinator.secureInput.setFocused(pane, focused) }
         coordinator.refreshSecureIndicators()
         view.onAttachedToWindow = { [weak self] in self?.surfaceAttached(pane) }
-        view.onClipboardRequest = { [weak self] kind in self?.coordinator.activity.status(for: pane).setClipboardRequest(kind) }
+        view.onClipboardRequest = { [weak self] kind in
+            guard let self else { return }
+            self.coordinator.activity.status(for: pane).setClipboardRequest(kind)
+            // The question is asked in the pane's banner: a pane hidden behind another's zoom
+            // comes back into view to show it. On the next turn of the run loop: this is called
+            // from inside libghostty, and a new layout resizes and shows surfaces.
+            guard kind != nil else { return }
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, let tab = self.state.tab(containing: pane), !tab.isShown(pane),
+                          self.coordinator.activity.status(for: pane).clipboardRequest != nil else { return }
+                    tab.unzoom()
+                    self.reload()
+                }
+            }
+        }
         view.onLinkHover = { [weak self] link in self?.coordinator.activity.status(for: pane).hover(over: link) }
         // Dropped files: into the bar while it is shown, else typed for the program, quoted.
         view.onFileDrop = { [weak self, weak view] urls in

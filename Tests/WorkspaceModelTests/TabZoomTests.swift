@@ -19,6 +19,18 @@ final class TabZoomTests: XCTestCase {
         XCTAssertNil(tab.zoomedPaneID)
     }
 
+    func testZoomHidesTheOtherPanes() {
+        let (tab, first, second) = splitTab()
+        XCTAssertTrue(tab.isShown(first))
+        XCTAssertTrue(tab.isShown(second))
+        tab.toggleZoom()
+        XCTAssertFalse(tab.isShown(first))
+        XCTAssertTrue(tab.isShown(second))
+        tab.unzoom()
+        XCTAssertNil(tab.zoomedPaneID)
+        XCTAssertTrue(tab.isShown(first))
+    }
+
     func testSinglePaneTabDoesNotZoom() {
         let tab = Tab(title: "t", workingDirectory: "/a")
         tab.toggleZoom()

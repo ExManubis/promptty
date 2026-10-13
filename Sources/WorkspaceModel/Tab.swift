@@ -57,6 +57,12 @@ public final class Tab {
         focusedPaneID = pane
     }
 
+    /// Whether `pane` is on screen when the tab is: not hidden behind another pane's zoom.
+    public func isShown(_ pane: PaneID) -> Bool { zoomedPaneID == nil || zoomedPaneID == pane }
+
+    /// Shows every pane again.
+    public func unzoom() { zoomedPaneID = nil }
+
     /// Zooms the focused pane, or unzooms. A tab with one pane has nothing to zoom.
     public func toggleZoom() {
         if zoomedPaneID != nil {
