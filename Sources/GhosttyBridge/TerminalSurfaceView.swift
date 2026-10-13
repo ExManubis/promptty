@@ -302,12 +302,57 @@ public final class TerminalSurfaceView: NSView {
     public private(set) var lastResize: Date?
     public internal(set) var lastKeyPress: Date?
 
+    /// How the terminal follows this view's size.
+    public enum ResizeMode: Sendable {
+        /// Every new size goes to the terminal at once.
+        case live
+        /// At most one new size per `ResizeThrottle.interval`, and the latest one always arrives
+        /// (a split divider being dragged).
+        case throttled
+        /// The terminal keeps its size, drawn from the view's top-left corner, and gets the view's
+        /// size when this ends (the sidebar sliding: one resize instead of one per frame).
+        case held
+    }
+
+    public var resizeMode: ResizeMode = .live {
+        didSet {
+            guard resizeMode != oldValue else { return }
+            trailingResize?.cancel()
+            trailingResize = nil
+            sizeDidChange()
+        }
+    }
+
+    private var throttle = ResizeThrottle()
+    /// The size skipped while throttled, sent once the interval is up.
+    private var trailingResize: Task<Void, Never>?
+
     private func sizeDidChange(force: Bool = false) {
         guard let surface else { return }
         let scale = window?.backingScaleFactor ?? 2.0
         let w = UInt32(max(1, (bounds.width * scale).rounded()))
         let h = UInt32(max(1, (bounds.height * scale).rounded()))
         if !force, let sent = sentSize, sent.width == w, sent.height == h { return }
+        let now = CACurrentMediaTime()
+        if !force {
+            switch resizeMode {
+            case .live: break
+            case .held: return
+            case .throttled:
+                let wait = throttle.wait(at: now)
+                guard wait > 0 else { break }
+                if trailingResize == nil {
+                    trailingResize = Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .seconds(wait))
+                        guard !Task.isCancelled, let self else { return }
+                        self.trailingResize = nil
+                        self.sizeDidChange()
+                    }
+                }
+                return
+            }
+        }
+        throttle.noteSent(at: now)
         sentSize = (w, h)
         lastResize = Date()
         #if DEBUG

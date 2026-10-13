@@ -16,6 +16,7 @@ struct PaneHost: NSViewRepresentable {
         host.host(surface)
         host.isHidden = !visible
         surface.setOccluded(!visible)
+        surface.resizeMode = context.environment.terminalResizeMode
     }
 
     static func dismantleNSView(_ host: PaneHostView, coordinator: ()) {
