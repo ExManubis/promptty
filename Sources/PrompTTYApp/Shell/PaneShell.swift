@@ -275,19 +275,26 @@ final class PaneShell {
     /// a checkout or a new branch happens between prompts.
     @ObservationIgnored private var branchCache: [String: [String]] = [:]
     @ObservationIgnored private var branchEpoch = 0
+    @ObservationIgnored private var branchLookups: [String: Task<[String]?, Never>] = [:]
 
     /// The local branches of the repository at `directory`; empty when it is none. Never blocks the
     /// main thread.
     func localBranches(in directory: String) async -> [String] {
         if let cached = branchCache[directory] { return cached }
+        if let running = branchLookups[directory] { return await running.value ?? [] }
         let epoch = branchEpoch
-        let git = Self.executable("git", in: stateFile?.path ?? []) ?? "/usr/bin/git"
-        let branches = await Task.detached(priority: .userInitiated) {
-            let out = Self.run(git, ["-C", directory, "for-each-ref", "--format=%(refname:short)", "refs/heads"], timeout: 1) ?? ""
-            return out.split(separator: "\n").map(String.init)
-        }.value
-        if epoch == branchEpoch { branchCache[directory] = branches }
-        return branches
+        let path = stateFile?.path ?? []
+        let lookup = Task.detached(priority: .userInitiated) { () -> [String]? in
+            let git = Self.executable("git", in: path) ?? "/usr/bin/git"
+            return Self.run(git, ["-C", directory, "for-each-ref", "--format=%(refname:short)", "refs/heads"], timeout: 1)
+                .map { $0.split(separator: "\n").map(String.init) }
+        }
+        branchLookups[directory] = lookup
+        let branches = await lookup.value
+        branchLookups[directory] = nil
+        // A failure or timeout is not remembered: the next Tab asks again.
+        if let branches, epoch == branchEpoch { branchCache[directory] = branches }
+        return branches ?? []
     }
 
     private func listCommands() {

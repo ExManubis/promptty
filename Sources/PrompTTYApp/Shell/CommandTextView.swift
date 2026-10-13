@@ -71,6 +71,8 @@ final class CommandTextView: NSTextView {
     /// Bumped whenever the text, the list or the question changes: a fetch that finishes under an
     /// older number is stale and dropped.
     private var completionRequest = 0
+    /// Fetches under way, so a keystroke while one runs waits for it instead of listing again.
+    private var fetches: [CompletionNeed: Task<Void, Never>] = [:]
     /// Each bar keeps its own undo history; the window's is shared by every pane.
     private let ownUndoManager = UndoManager()
     /// Set while the app itself inserts text (completions, suggestions), which normal mode must
@@ -370,7 +372,7 @@ final class CommandTextView: NSTextView {
         }
         let request = completionRequest
         let text = string
-        Task { [weak self] in
+        let fetch = fetches[need] ?? Task { [weak self] in
             guard let self else { return }
             switch need {
             case .directory(let path):
@@ -380,7 +382,17 @@ final class CommandTextView: NSTextView {
                 let branches = await loadBranches(directory)
                 popupSnapshot?.snapshot.branches[directory] = branches
             }
-            guard request == completionRequest, string == text, selectedRange() == NSRange(location: caret, length: 0) else { return }
+            fetches[need] = nil
+        }
+        fetches[need] = fetch
+        Task { [weak self] in
+            await fetch.value
+            guard let self, request == completionRequest else { return }
+            guard string == text, selectedRange() == NSRange(location: caret, length: 0) else {
+                // Typing moved on while the list loaded; a refilter has its own request.
+                if popup.isVisible == false { NSSound.beep() }
+                return
+            }
             action(self)
         }
     }
@@ -421,7 +433,9 @@ final class CommandTextView: NSTextView {
 
     private func acceptCompletion() {
         defer { popup.close() }
-        guard let item = popup.selectedItem, let completion = currentCompletion() else { return }
+        // A list still waiting for its folder may hold another folder's names: insert only what the
+        // current text completes to.
+        guard let item = popup.selectedItem, let completion = currentCompletion(), completion.candidates.contains(item) else { return }
         let range = NSRange(location: completion.replacement.lowerBound, length: completion.replacement.count)
         insertProgrammatically(item.hasSuffix("/") ? item : item + " ", replacing: range)
     }

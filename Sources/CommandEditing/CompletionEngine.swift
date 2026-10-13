@@ -12,7 +12,7 @@ public protocol CompletionSources: Sendable {
 
 /// What `complete` will read from the file system or git, so the app can fetch it off the main
 /// thread first and hand the engine a `CompletionSnapshot`.
-public enum CompletionNeed: Equatable, Sendable {
+public enum CompletionNeed: Hashable, Sendable {
     /// The entries of this (standardized, absolute) directory.
     case directory(String)
     /// The local branches of the repository at this directory.
