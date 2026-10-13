@@ -159,6 +159,7 @@ final class ActivityTracker {
         }
         for gone in Set(states.keys).subtracting(live) {
             states[gone] = nil
+            statuses[gone]?.hover(over: nil)
             if let status = statuses[gone], status.activity != PaneActivity().visible { status.activity = PaneActivity().visible }
             shellPIDs[gone] = nil
             identified[gone] = nil

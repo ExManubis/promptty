@@ -4,6 +4,7 @@ import GhosttyBridge
 import Observation
 import PaneActivity
 import Preferences
+import UniformTypeIdentifiers
 import WorkspaceModel
 
 /// Owns the mapping between the model, window controllers, and surfaces, and is libghostty's action sink.
@@ -611,6 +612,36 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
+    // MARK: Links
+
+    /// Carries out what `LinkTarget` decided; a refusal or a failure beeps. Nothing is ever run.
+    private func openLink(_ decision: LinkDecision) {
+        switch decision {
+        case .open(let url):
+            if !NSWorkspace.shared.open(url) { NSSound.beep() }
+        case .openAsText(let url):
+            guard let editor = NSWorkspace.shared.urlForApplication(toOpen: .plainText) else {
+                if !NSWorkspace.shared.open(url) { NSSound.beep() }
+                return
+            }
+            NSWorkspace.shared.open([url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+                if error != nil { NSSound.beep() }
+            }
+        case .reveal(let url):
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        case .confirm(let url):
+            let alert = NSAlert()
+            alert.messageText = "Open this link?"
+            alert.informativeText = url.absoluteString
+            // The first button is the default one.
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Open")
+            if alert.runModal() == .alertSecondButtonReturn, !NSWorkspace.shared.open(url) { NSSound.beep() }
+        case .refuse:
+            NSSound.beep()
+        }
+    }
+
     // MARK: Lookup
 
     private func locate(_ view: TerminalSurfaceView) -> (WindowState, Tab, Pane, TerminalWindowController)? {
@@ -758,10 +789,11 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             located.3.shell(for: located.2.id)?.commandFinished(code: code, durationNs: duration)
             located.3.blocks(for: located.2.id)?.setNeedsRefresh()
             return true
-        case .openURL(_, let text):
-            // Only what the system can open, never run: see `LinkTarget`.
-            guard let url = LinkTarget.resolve(text, relativeTo: located?.2.workingDirectory) else { return false }
-            return NSWorkspace.shared.open(url)
+        case .openURL(let kind, let text):
+            // Always true, even when refused: false would make libghostty `open` the text itself,
+            // past every refusal of `LinkTarget`.
+            openLink(LinkTarget.decide(text, kind: kind, relativeTo: located?.2.workingDirectory))
+            return true
         case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .mouseOverLink, .unhandled:
             // Config, mouse-shape and mouse-visibility actions are handled by the runtime.
             return false
