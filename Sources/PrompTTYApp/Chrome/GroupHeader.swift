@@ -112,10 +112,10 @@ extension GroupHeader.Symbol {
     }
 }
 
-/// A project's header, in the tab list or the Agents section. A tap folds it in both places; it
-/// drags to reorder the projects (dropped on another project's header it takes that one's place,
-/// as a tab dropped on a tab does); a tab or an agent dropped on it joins the project; its menu
-/// is the project's.
+/// A project's header in the Agents section. A tap folds it; it drags to reorder the projects
+/// (dropped on another project's header it takes that one's place, as a tab dropped on a tab
+/// does); an agent or a tab dropped on it joins the project; its menu is the project's; its "+"
+/// opens a tab in the project, for an agent to start in.
 struct ProjectHeader: View {
     let project: Project
     let count: Int
@@ -124,8 +124,6 @@ struct ProjectHeader: View {
     /// The most urgent agent inside, shown while folded (the Agents section).
     var display: PaneActivity.Display?
     let selected: Bool
-    /// The tab list's header has the "+" and anchors the icon picker.
-    var inTabList = false
     let chrome: WindowChromeModel
     let actions: ChromeActions
     @State private var dropTargeted = false
@@ -134,7 +132,7 @@ struct ProjectHeader: View {
         GroupHeader(title: project.name, help: project.name, symbol: GroupHeader.Symbol(project),
                     count: count, noun: noun, display: display, folded: project.folded,
                     selected: selected, dropTarget: dropTargeted,
-                    onAdd: inTabList ? { actions.newTab(inProject: project.id) } : nil) {
+                    onAdd: { actions.newTab(inProject: project.id) }) {
             withAnimation(.easeOut(duration: 0.15)) { actions.setProjectFolded(project.id, !project.folded) }
         }
         .contextMenu { ProjectMenu(project: project, chrome: chrome, actions: actions) }
@@ -144,7 +142,7 @@ struct ProjectHeader: View {
         }
         .onDrop(of: [DragPayload.project, DragPayload.tab],
                 delegate: ProjectHeaderDropDelegate(project: project, targeted: $dropTargeted, chrome: chrome, actions: actions))
-        .popover(isPresented: Binding(get: { inTabList && chrome.iconPickerProject == project.id },
+        .popover(isPresented: Binding(get: { chrome.iconPickerProject == project.id },
                                       set: { if !$0, chrome.iconPickerProject == project.id { chrome.iconPickerProject = nil } }),
                  arrowEdge: .trailing) {
             PinIconPicker(current: project.icon) { actions.setProjectIcon(project.id, $0) }
@@ -162,7 +160,6 @@ struct ProjectMenu: View {
         Button("New Tab in \(project.name)") { actions.newTab(inProject: project.id) }
         Divider()
         Button("Rename…") { actions.renameProject(project.id) }
-        // The picker opens from the project's header in the tab list.
         Button("Change Icon…") { chrome.iconPickerProject = project.id }
         Divider()
         let index = actions.projects.firstIndex { $0.id == project.id }
@@ -214,7 +211,7 @@ private struct ProjectHeaderDropDelegate: DropDelegate {
             }
             chrome.draggingTab = nil
             return DragPayload.loadID(DragPayload.tab, from: info.itemProviders(for: [DragPayload.tab])) { [actions] id in
-                actions.placeTab(TabID(rawValue: id), inProject: target, at: nil)
+                actions.placeTab(TabID(rawValue: id), inProject: target)
             }
         }
     }

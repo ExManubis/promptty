@@ -383,11 +383,9 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
-    func placeTab(_ id: TabID, inProject project: ProjectID?, at index: Int?) {
-        guard let state = workspace.window(containing: id), let tab = state.tab(id: id) else { return }
-        if tab.pin != nil, index != nil { state.unpin(id) }
-        state.setProject(id, project, at: index)
-        controllers[state.id]?.reload()
+    func placeTab(_ id: TabID, inProject project: ProjectID?) {
+        guard let state = workspace.window(containing: id) else { return }
+        state.setProject(id, project)
         modelDidChange()
     }
 

@@ -18,8 +18,8 @@ public final class Tab {
     /// Set for a pinned tab: it stays at the top, cannot be closed, and comes back on relaunch.
     /// Changed through its window, which keeps the pinned tabs first.
     public internal(set) var pin: TabPin?
-    /// The sidebar project the tab is in; nil for none. Changed through its window, which keeps
-    /// each project's tabs together.
+    /// The project the tab's agents are grouped under in the Agents section; nil for none. Changed
+    /// through its window.
     public internal(set) var projectID: ProjectID?
     /// The tab's layout. Every leaf has an entry in `panes`.
     public private(set) var root: SplitNode

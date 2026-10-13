@@ -41,13 +41,11 @@ protocol ChromeActions: AnyObject {
     var projects: [Project] { get }
     /// Asks for a name and makes a project; `tab` (if any, in any window) moves into it.
     func newProject(adding tab: TabID?)
-    /// A new tab in the project (in the folder of one of its tabs); nil: a tab in no project (the
-    /// "+ New Tab" row), where ⌘T would join the selected tab's project.
+    /// A new tab in the project (in the folder of one of its tabs); nil: a tab in no project
+    /// (⌘T would join the selected tab's).
     func newTab(inProject project: ProjectID?)
-    /// Puts a tab in a project (nil: in none), at `index` (a drop) or after the project's tabs.
-    /// A pinned tab is unpinned when it has an index (dropped among a project's rows). Without an
-    /// index the tab may be in any window (an agent's tab, dropped on a project's header).
-    func placeTab(_ id: TabID, inProject project: ProjectID?, at index: Int?)
+    /// Puts a tab, in any window, in a project (nil: in none). It keeps its place in the tab list.
+    func placeTab(_ id: TabID, inProject project: ProjectID?)
     /// Asks for a tab's name in a sheet; the tab may be in any window (an agent's).
     func requestRenameTab(_ id: TabID)
     func renameProject(_ id: ProjectID)

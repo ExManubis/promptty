@@ -180,10 +180,10 @@ struct TabRow: View {
         .frame(height: style == .full ? ChromeMetrics.rowHeight : 28)
     }
 
-    /// The title and folder; in the strip, which has no project headers, the project too.
+    /// The title and folder, and the project the tab's agents are grouped under.
     private var tooltip: String {
         let text = tab.listSubtitle.map { "\(tab.listTitle) — \($0)" } ?? tab.listTitle
-        guard style != .full, let project = actions.projects.first(where: { $0.id == tab.projectID }) else { return text }
+        guard let project = actions.projects.first(where: { $0.id == tab.projectID }) else { return text }
         return "\(project.name): \(text)"
     }
 
@@ -193,14 +193,14 @@ struct TabRow: View {
         let projects = actions.projects
         Menu("Move to Project") {
             ForEach(projects, id: \.id) { project in
-                Button(project.name) { actions.placeTab(tab.id, inProject: project.id, at: nil) }
+                Button(project.name) { actions.placeTab(tab.id, inProject: project.id) }
                     .disabled(tab.projectID == project.id)
             }
             if !projects.isEmpty { Divider() }
             Button("New Project…") { actions.newProject(adding: tab.id) }
             if projects.contains(where: { $0.id == tab.projectID }) {
                 Divider()
-                Button("Remove from Project") { actions.placeTab(tab.id, inProject: nil, at: nil) }
+                Button("Remove from Project") { actions.placeTab(tab.id, inProject: nil) }
             }
         }
         Button(tab.pin == nil ? "Pin Tab" : "Unpin Tab", action: togglePin)
@@ -261,8 +261,7 @@ struct TabRow: View {
     }
 }
 
-/// Tab rows accept other tabs (reorder, into this row's project) and panes (move the pane into
-/// this tab).
+/// Tab rows accept other tabs (reorder) and panes (move the pane into this tab).
 private struct RowDropDelegate: DropDelegate {
     let tab: WorkspaceModel.Tab
     let index: Int
@@ -300,16 +299,14 @@ private struct RowDropDelegate: DropDelegate {
             }) {
                 return true
             }
-            // Onto a pinned tile it is pinned there; onto a row it is unpinned and moved there,
-            // into the row's project (or out of any).
+            // Onto a pinned tile it is pinned there, onto a row unpinned there (or just moved).
             let pinned = tab.pin != nil
-            let project = tab.projectID
             chrome.draggingTab = nil
             return DragPayload.loadID(DragPayload.tab, from: info.itemProviders(for: [DragPayload.tab])) { [actions] id in
                 if pinned {
                     actions.pinTab(TabID(rawValue: id), at: destination)
                 } else {
-                    actions.placeTab(TabID(rawValue: id), inProject: project, at: destination)
+                    actions.unpinTab(TabID(rawValue: id), at: destination)
                 }
             }
         }
@@ -341,7 +338,7 @@ struct RowBackground: View {
     }
 }
 
-/// The dim "+ New Tab" row that ends the tab list: a tab in no project.
+/// The dim "+ New Tab" row that ends the tab list.
 struct NewTabRow: View {
     let action: () -> Void
     var newProject: (() -> Void)?

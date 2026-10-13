@@ -170,6 +170,15 @@ With projects defined, headers always show, so a project's name is visible even 
 
 Where the implementation differs from the design above:
 
+- **Projects appear only in the Agents section** (revised after the first build). The tab list
+  is one flat list again, and the model no longer orders tabs by project: `Tab.projectID` only
+  says which project the tab's agents are listed under, and setting it never moves the tab. Every
+  project shows in the Agents section, in order, even with no agents (its header reads "No agents
+  yet" below it), and the section shows whenever projects exist. Tabs and agents join a project by
+  being dropped on its header there or through Move to Project ▸; the header's "+" opens a tab in
+  the project. "+ New Tab" behaves like ⌘T (the selected tab's project). Everything below about
+  project sections in the tab list, the strip's separators, the ordering invariant or drops among
+  a project's rows is superseded by this.
 - **Projects have no folder** (revised after the first build: they are only a way to organize
   tabs and their agents). `Project` is an ID, a name, an icon and a fold state; there is no
   Change Folder… and no missing-folder warning. New Project… asks for a name, suggesting the

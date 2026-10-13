@@ -2,53 +2,84 @@ import PaneActivity
 import SwiftUI
 import WorkspaceModel
 
-/// The top of the sidebar while agents run: every agent in every window, what it is doing and
-/// since when. A click brings its pane forward. Agents are grouped under the sidebar projects of
-/// their tabs, then, for tabs in no project, by repository. The agent in this window's focused
-/// pane is shown selected, like its tab; folded away, its group's header is. An agent drags (as
-/// its tab) onto a project's header to move there, and has a menu; project headers drag and have
-/// the project's menu, as in the tab list.
+/// The top of the sidebar while agents run or projects exist: every agent in every window, what
+/// it is doing and since when. A click brings its pane forward. Agents are grouped under the
+/// projects of their tabs (every project shows, in order, even with no agents), then, for tabs in
+/// no project, by repository. The agent in this window's focused pane is shown selected, like its
+/// tab; folded away, its group's header is. An agent drags (as its tab) onto a project's header to
+/// join it, and has a menu; project headers drag to reorder and have the project's menu.
 struct AgentsSection: View {
     let actions: ChromeActions
     let chrome: WindowChromeModel
     /// The focused pane of this window's selected tab.
     let focusedPane: PaneID?
-    /// The workspace's projects, in sidebar order.
+    /// The workspace's projects, in order.
     let projects: [Project]
-    /// Repositories folded away, by root. Projects keep their own fold, shared with the tab list.
+    /// Repositories folded away, by root. Projects keep their own fold, saved with the session.
     @State private var collapsed: Set<String> = []
 
     var body: some View {
         let agents = actions.agents()
-        if !agents.isEmpty {
+        if !agents.isEmpty || !projects.isEmpty {
             let byPane = Dictionary(uniqueKeysWithValues: agents.map { ($0.pane, $0) })
-            let byKey = Dictionary(uniqueKeysWithValues: projects.map { (Self.key(for: $0.id), $0) })
+            let known = Set(projects.map { Self.key(for: $0.id) })
             let groups = AgentGroups.group(
                 agents.map { agent in
-                    let project = agent.projectID.map(Self.key(for:)).flatMap { byKey[$0] != nil ? $0 : nil }
+                    let project = agent.projectID.map(Self.key(for:)).flatMap { known.contains($0) ? $0 : nil }
                     return AgentGroups.Item(id: agent.pane, key: project.map(AgentGroups.Key.project) ?? .repository(agent.repository.root),
                                             display: agent.activity.display)
                 },
                 projectOrder: projects.map { Self.key(for: $0.id) }
             )
+            let byKey = Dictionary(uniqueKeysWithValues: groups.map { ($0.key, $0) })
+            let repositories = groups.filter { if case .repository = $0.key { true } else { false } }
             VStack(alignment: .leading, spacing: 2) {
                 Text("Agents")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .padding(.leading, 8)
                     .padding(.bottom, 2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .contextMenu { Button("New Project…") { actions.newProject(adding: nil) } }
                     .accessibilityAddTraits(.isHeader)
                 // One repository and no projects: a flat list. Otherwise a header for each group,
                 // so a project's name shows even over a single agent.
-                if groups.count == 1, projects.isEmpty {
-                    rows(groups[0].items.compactMap { byPane[$0.id] })
+                if repositories.count == 1, projects.isEmpty {
+                    rows(repositories[0].items.compactMap { byPane[$0.id] })
                 } else {
-                    ForEach(groups, id: \.key) { group in
-                        let folded = isFolded(group.key, byKey)
-                        header(for: group, byKey, folded: folded)
-                        if !folded {
-                            rows(group.items.compactMap { byPane[$0.id] })
-                                .padding(.leading, 8)
+                    ForEach(projects, id: \.id) { project in
+                        let group = byKey[.project(Self.key(for: project.id))]
+                        let holdsFocus = group?.items.contains { $0.id == focusedPane } ?? false
+                        ProjectHeader(project: project, count: group?.items.count ?? 0, noun: "agent", display: group?.display,
+                                      selected: project.folded && holdsFocus, chrome: chrome, actions: actions)
+                        if !project.folded {
+                            if let group {
+                                rows(group.items.compactMap { byPane[$0.id] })
+                                    .padding(.leading, 8)
+                            } else {
+                                Text("No agents yet")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.leading, 26)
+                                    .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
+                            }
+                        }
+                    }
+                    ForEach(repositories, id: \.key) { group in
+                        if case .repository(let root) = group.key {
+                            let folded = collapsed.contains(root)
+                            GroupHeader(title: (root as NSString).lastPathComponent, help: WorkspaceModel.Tab.abbreviate(root),
+                                        count: group.items.count, noun: "agent", display: group.display, folded: folded,
+                                        selected: folded && group.items.contains { $0.id == focusedPane }) {
+                                withAnimation(.easeOut(duration: 0.15)) {
+                                    if folded { collapsed.remove(root) } else { collapsed.insert(root) }
+                                }
+                            }
+                            if !folded {
+                                rows(group.items.compactMap { byPane[$0.id] })
+                                    .padding(.leading, 8)
+                            }
                         }
                     }
                 }
@@ -63,33 +94,6 @@ struct AgentsSection: View {
 
     /// `AgentGroups` keys projects by string.
     private static func key(for project: ProjectID) -> String { project.rawValue.uuidString }
-
-    private func isFolded(_ key: AgentGroups.Key, _ byKey: [String: Project]) -> Bool {
-        switch key {
-        case .project(let id): return byKey[id]?.folded ?? false
-        case .repository(let root): return collapsed.contains(root)
-        }
-    }
-
-    @ViewBuilder
-    private func header(for group: AgentGroups.Group<PaneID>, _ byKey: [String: Project], folded: Bool) -> some View {
-        let holdsFocus = group.items.contains { $0.id == focusedPane }
-        switch group.key {
-        case .project(let id):
-            if let project = byKey[id] {
-                ProjectHeader(project: project, count: group.items.count, noun: "agent", display: group.display,
-                              selected: folded && holdsFocus, chrome: chrome, actions: actions)
-            }
-        case .repository(let root):
-            GroupHeader(title: (root as NSString).lastPathComponent, help: WorkspaceModel.Tab.abbreviate(root),
-                        count: group.items.count, noun: "agent", display: group.display, folded: folded,
-                        selected: folded && holdsFocus) {
-                withAnimation(.easeOut(duration: 0.15)) {
-                    if folded { collapsed.remove(root) } else { collapsed.insert(root) }
-                }
-            }
-        }
-    }
 
     private func rows(_ agents: [AgentEntry]) -> some View {
         ForEach(agents) { agent in
@@ -158,14 +162,14 @@ private struct AgentRow: View {
         let projects = actions.projects
         Menu("Move to Project") {
             ForEach(projects, id: \.id) { project in
-                Button(project.name) { actions.placeTab(agent.tab, inProject: project.id, at: nil) }
+                Button(project.name) { actions.placeTab(agent.tab, inProject: project.id) }
                     .disabled(agent.projectID == project.id)
             }
             if !projects.isEmpty { Divider() }
             Button("New Project…") { actions.newProject(adding: agent.tab) }
             if projects.contains(where: { $0.id == agent.projectID }) {
                 Divider()
-                Button("Remove from Project") { actions.placeTab(agent.tab, inProject: nil, at: nil) }
+                Button("Remove from Project") { actions.placeTab(agent.tab, inProject: nil) }
             }
         }
     }

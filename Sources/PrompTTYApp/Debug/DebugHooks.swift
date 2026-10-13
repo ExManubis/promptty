@@ -101,7 +101,7 @@ enum DebugHooks {
                   c.state.tabs.indices.contains(i) else { return "error: projecttab <tab> <project|none>" }
             var project: ProjectID?
             if let p = Int(args[1]), projects.indices.contains(p) { project = projects[p].id }
-            c.placeTab(c.state.tabs[i].id, inProject: project, at: nil)
+            c.placeTab(c.state.tabs[i].id, inProject: project)
             return ""
         }
         // eval projectnewtab <project> — the header's "+".

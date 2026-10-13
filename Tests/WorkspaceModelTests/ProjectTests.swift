@@ -31,97 +31,37 @@ final class ProjectTests: XCTestCase {
         XCTAssertEqual(ws.projects.map(\.id), [b.id, a.id, c.id])
     }
 
-    // MARK: Tab order
+    // MARK: Tabs
 
-    func testPuttingTabsInProjectsGroupsThemInProjectOrder() {
+    func testAProjectDoesNotMoveItsTabs() {
         let (ws, w) = workspace(tabCount: 4)
         let web = ws.addProject(name: "web")
-        let api = ws.addProject(name: "api")
-        w.setProject(id("t3", in: w), api.id)
-        XCTAssertEqual(titles(w), ["t3", "t0", "t1", "t2"])
-        w.setProject(id("t2", in: w), web.id)
-        XCTAssertEqual(titles(w), ["t2", "t3", "t0", "t1"], "web's tabs before api's, the others after")
-        w.setProject(id("t0", in: w), web.id)
-        XCTAssertEqual(titles(w), ["t2", "t0", "t3", "t1"], "after the project's other tabs")
-        w.setProject(id("t0", in: w), web.id, at: 0)
-        XCTAssertEqual(titles(w), ["t0", "t2", "t3", "t1"], "a drop at the top of the project")
-        w.setProject(id("t0", in: w), nil)
-        XCTAssertEqual(titles(w), ["t2", "t3", "t1", "t0"], "out of the project: after the others")
-    }
-
-    func testANewTabGoesAfterTheSelectedTabInItsProject() {
-        let (ws, w) = workspace(tabCount: 2)
-        let web = ws.addProject(name: "web")
-        w.setProject(id("t0", in: w), web.id)
-        w.setProject(id("t1", in: w), web.id)
-        XCTAssertEqual(titles(w), ["t0", "t1"])
-        w.select(id: id("t0", in: w))
-        let new = w.addTab(title: "n", workingDirectory: "/web", project: web.id)
-        XCTAssertEqual(titles(w), ["t0", "n", "t1"])
-        XCTAssertEqual(w.selectedTabID, new.id)
-        XCTAssertEqual(new.projectID, web.id)
-    }
-
-    func testANewTabInAnotherProjectGoesFirstInIt() {
-        let (ws, w) = workspace(tabCount: 3)
-        let web = ws.addProject(name: "web")
-        let api = ws.addProject(name: "api")
-        w.setProject(id("t0", in: w), web.id)
-        w.setProject(id("t1", in: w), api.id)
-        XCTAssertEqual(titles(w), ["t0", "t1", "t2"])
-        w.select(id: id("t0", in: w))
-        _ = w.addTab(title: "a", workingDirectory: "/api", project: api.id)
-        XCTAssertEqual(titles(w), ["t0", "a", "t1", "t2"])
-        w.select(id: id("t0", in: w))
-        _ = w.addTab(title: "n", workingDirectory: "/tmp")
-        XCTAssertEqual(titles(w), ["t0", "a", "t1", "n", "t2"], "first among the tabs in no project")
-    }
-
-    func testANewTabNeverGoesAmongThePinnedTabs() {
-        let (ws, w) = workspace(tabCount: 2)
-        let web = ws.addProject(name: "web")
-        w.pin(id("t0", in: w), TabPin(directory: "/tmp/0", command: nil))
-        w.select(id: id("t0", in: w))
-        _ = w.addTab(title: "n", workingDirectory: "/web", project: web.id)
-        XCTAssertEqual(titles(w), ["t0", "n", "t1"])
-    }
-
-    func testMovingATabStaysInItsProject() {
-        let (ws, w) = workspace(tabCount: 4)
-        let web = ws.addProject(name: "web")
-        w.setProject(id("t0", in: w), web.id)
+        w.setProject(id("t3", in: w), web.id)
         w.setProject(id("t1", in: w), web.id)
         XCTAssertEqual(titles(w), ["t0", "t1", "t2", "t3"])
-        w.moveTab(id: id("t0", in: w), to: 3)
-        XCTAssertEqual(titles(w), ["t1", "t0", "t2", "t3"], "clamped to the end of web")
-        w.moveTab(id: id("t3", in: w), to: 0)
-        XCTAssertEqual(titles(w), ["t1", "t0", "t3", "t2"], "clamped to the start of the others")
+        XCTAssertEqual(w.tabs.map { w.project(of: $0) }, [nil, web.id, nil, web.id])
+        w.setProject(id("t1", in: w), nil)
+        XCTAssertEqual(titles(w), ["t0", "t1", "t2", "t3"])
+        XCTAssertNil(w.tab(id: id("t1", in: w))?.projectID)
     }
 
-    func testAPinnedTabKeepsItsPlaceWhenGivenAProject() {
+    func testANewTabInAProjectGoesAfterTheSelectedTab() {
         let (ws, w) = workspace(tabCount: 3)
         let web = ws.addProject(name: "web")
-        w.pin(id("t2", in: w), TabPin(directory: "/tmp/2", command: nil))
-        XCTAssertEqual(titles(w), ["t2", "t0", "t1"])
-        w.setProject(id("t2", in: w), web.id)
-        XCTAssertEqual(titles(w), ["t2", "t0", "t1"])
-        XCTAssertEqual(w.tabs[0].projectID, web.id)
+        w.select(id: id("t0", in: w))
+        let new = w.addTab(title: "n", workingDirectory: "/web", project: web.id)
+        XCTAssertEqual(titles(w), ["t0", "n", "t1", "t2"])
+        XCTAssertEqual(new.projectID, web.id)
+        XCTAssertEqual(w.selectedTabID, new.id)
     }
 
-    func testUnpinningGoesFirstAmongItsProjectsTabs() {
-        let (ws, w) = workspace(tabCount: 3)
+    func testAPinnedTabCanBeInAProject() {
+        let (ws, w) = workspace(tabCount: 2)
         let web = ws.addProject(name: "web")
-        w.setProject(id("t0", in: w), web.id)
-        w.setProject(id("t1", in: w), web.id)
         w.pin(id("t1", in: w), TabPin(directory: "/tmp/1", command: nil))
-        XCTAssertEqual(titles(w), ["t1", "t0", "t2"])
-        w.unpin(id("t1", in: w))
-        XCTAssertEqual(titles(w), ["t1", "t0", "t2"])
-        XCTAssertEqual(w.pinnedCount, 0)
-        w.pin(id("t0", in: w), TabPin(directory: "/tmp/0", command: nil))
-        XCTAssertEqual(titles(w), ["t0", "t1", "t2"])
-        w.unpin(id("t0", in: w), at: 99)
-        XCTAssertEqual(titles(w), ["t1", "t0", "t2"], "clamped to the end of web")
+        w.setProject(id("t1", in: w), web.id)
+        XCTAssertEqual(titles(w), ["t1", "t0"])
+        XCTAssertEqual(w.project(of: w.tabs[0]), web.id)
     }
 
     func testRemovingAProjectKeepsItsTabsInNone() {
@@ -130,51 +70,32 @@ final class ProjectTests: XCTestCase {
         let api = ws.addProject(name: "api")
         w.setProject(id("t2", in: w), api.id)
         w.setProject(id("t1", in: w), web.id)
-        XCTAssertEqual(titles(w), ["t1", "t2", "t0"])
         ws.removeProject(id: web.id)
-        XCTAssertEqual(w.tabs.count, 3)
+        XCTAssertEqual(titles(w), ["t0", "t1", "t2"])
         XCTAssertNil(w.tab(id: id("t1", in: w))?.projectID)
-        XCTAssertEqual(titles(w), ["t2", "t1", "t0"], "api's tab first, then the others")
+        XCTAssertEqual(w.tab(id: id("t2", in: w))?.projectID, api.id)
         XCTAssertEqual(ws.projects.map(\.id), [api.id])
     }
 
-    func testMovingAProjectMovesItsTabsInEveryWindow() {
-        let ws = Workspace()
+    func testMovingAProjectReordersOnlyTheProjects() {
+        let (ws, w) = workspace(tabCount: 2)
         let web = ws.addProject(name: "web")
         let api = ws.addProject(name: "api")
-        let w1 = ws.addWindow()
-        let w2 = ws.addWindow()
-        for w in [w1, w2] {
-            _ = w.addTab(title: "w", workingDirectory: "/web", project: web.id)
-            _ = w.addTab(title: "a", workingDirectory: "/api", project: api.id)
-            _ = w.addTab(title: "x", workingDirectory: "/tmp")
-            XCTAssertEqual(titles(w), ["w", "a", "x"])
-        }
+        w.setProject(id("t0", in: w), web.id)
+        w.setProject(id("t1", in: w), api.id)
         ws.moveProject(id: api.id, to: 0)
         XCTAssertEqual(ws.projects.map(\.id), [api.id, web.id])
-        XCTAssertEqual(titles(w1), ["a", "w", "x"])
-        XCTAssertEqual(titles(w2), ["a", "w", "x"])
+        XCTAssertEqual(titles(w), ["t0", "t1"])
+        ws.moveProject(id: api.id, to: 99)
+        XCTAssertEqual(ws.projects.map(\.id), [web.id, api.id], "clamped to the end")
     }
 
     func testAWindowAddedLaterKnowsTheProjects() {
         let ws = Workspace()
         let web = ws.addProject(name: "web")
         let w = ws.addWindow()
-        _ = w.addTab(title: "x", workingDirectory: "/tmp")
-        _ = w.addTab(title: "w", workingDirectory: "/web", project: web.id)
-        XCTAssertEqual(titles(w), ["w", "x"])
-        XCTAssertEqual(w.project(of: w.tabs[0]), web.id)
-    }
-
-    func testGoingToTabsFollowsTheGroupedOrder() {
-        let (ws, w) = workspace(tabCount: 3)
-        let web = ws.addProject(name: "web")
-        w.setProject(id("t2", in: w), web.id)
-        XCTAssertEqual(titles(w), ["t2", "t0", "t1"])
-        w.gotoTab(.index(1))
-        XCTAssertEqual(w.selectedTab?.title, "t2")
-        w.gotoTab(.next)
-        XCTAssertEqual(w.selectedTab?.title, "t0")
+        let tab = w.addTab(title: "w", workingDirectory: "/web", project: web.id)
+        XCTAssertEqual(w.project(of: tab), web.id)
     }
 
     func testAPaneMovedIntoAnotherTabIsInThatTabsProject() {
@@ -198,7 +119,7 @@ final class ProjectTests: XCTestCase {
         _ = w.addTab(title: "a", workingDirectory: "/api", project: api.id)
         _ = w.addTab(title: "w", workingDirectory: "/web", project: web.id)
         w.pin(w.tabs.first { $0.title == "a" }!.id, TabPin(directory: "/api", command: "claude"))
-        XCTAssertEqual(titles(w), ["a", "w", "x"])
+        XCTAssertEqual(titles(w), ["a", "x", "w"])
 
         let data = try JSONEncoder().encode(ws.snapshot())
         let snap = try JSONDecoder().decode(SessionSnapshot.self, from: data)
@@ -206,14 +127,14 @@ final class ProjectTests: XCTestCase {
             ProjectSnapshot(id: web.id, name: "web", icon: PinIcon(symbol: "globe", color: .blue)),
             ProjectSnapshot(id: api.id, name: "api", folded: true),
         ])
-        XCTAssertEqual(snap.windows[0].tabs.map(\.project), [api.id, web.id, nil])
+        XCTAssertEqual(snap.windows[0].tabs.map(\.project), [api.id, nil, web.id])
 
         let restored = Workspace.restore(from: snap, directoryExists: { _ in true })
         XCTAssertEqual(restored.projects.map(\.id), [web.id, api.id])
         XCTAssertEqual(restored.projects.map(\.folded), [false, true])
         let rw = restored.windows[0]
-        XCTAssertEqual(titles(rw), ["a", "w", "x"])
-        XCTAssertEqual(rw.tabs.map(\.projectID), [api.id, web.id, nil])
+        XCTAssertEqual(titles(rw), ["a", "x", "w"])
+        XCTAssertEqual(rw.tabs.map(\.projectID), [api.id, nil, web.id])
         XCTAssertNotNil(rw.tabs[0].pin, "the pinned tab stays pinned, in its project")
     }
 

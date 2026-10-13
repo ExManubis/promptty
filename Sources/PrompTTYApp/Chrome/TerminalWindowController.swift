@@ -471,12 +471,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         }
     }
 
-    func placeTab(_ id: TabID, inProject project: ProjectID?, at index: Int?) {
-        // A tab dragged in from another window has no place among this window's rows; into a
-        // project (no index) it can go from anywhere, staying in its window.
-        guard index == nil || state.tab(id: id) != nil else { return }
-        coordinator.placeTab(id, inProject: project, at: index)
-    }
+    func placeTab(_ id: TabID, inProject project: ProjectID?) { coordinator.placeTab(id, inProject: project) }
 
     func requestRenameTab(_ id: TabID) {
         guard let window, window.attachedSheet == nil,
