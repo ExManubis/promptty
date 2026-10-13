@@ -67,8 +67,9 @@ final class ActivityTracker {
         let screen: () -> String?
         /// Screen changes before this are the terminal's doing (a resize, a key echoed).
         let quietUntil: Date?
-        /// The user's last key press in the pane: it answers an agent's permission prompt.
-        let lastKeyPress: Date?
+        /// The user's last key in the pane that answers a prompt (Return, Esc, y, n, a digit): it
+        /// ends an agent's permission prompt.
+        let lastAnswerKey: Date?
     }
 
     /// The panes to watch right now; set by the coordinator.
@@ -108,6 +109,9 @@ final class ActivityTracker {
     private var hooks: [PaneID: AgentHookState] = [:]
     /// The agent each pane's hooks came from: another agent in front later is not theirs.
     private var hookPrograms: [PaneID: String] = [:]
+    /// While hooks say an agent works: its screen as a hash, and when that last changed. An
+    /// interrupted turn runs no hook; a screen gone still says it.
+    private var hookScreens: [PaneID: (hash: Int, changed: Date)] = [:]
 
     /// The folder an agent's process works in (it may differ from the shell's: `cd x && claude`).
     func agentDirectory(for pane: PaneID) -> String? { agentDirectories[pane] }
@@ -173,6 +177,7 @@ final class ActivityTracker {
             if hooks[watched.pane] != nil { checkHooks(watched, activity: activity, at: now) }
             if hooks[watched.pane] != nil {
                 screens[watched.pane] = nil
+                watchStillness(watched, at: now)
                 reportHooks(watched.pane, into: &activity, at: now, seen: watched.seen)
             } else if agentInFront {
                 if cadence.isDue(Job(pane: watched.pane, kind: .screen), every: watched.visible ? 0.5 : 1.5, at: now),
@@ -208,6 +213,7 @@ final class ActivityTracker {
             agentDirectories[gone] = nil
             hooks[gone] = nil
             hookPrograms[gone] = nil
+            hookScreens[gone] = nil
             for kind in Job.Kind.allCases { cadence.forget(Job(pane: gone, kind: kind)) }
         }
         // A box is kept while its pane exists (a view may hold it before the pane has a
@@ -270,6 +276,7 @@ final class ActivityTracker {
             } else {
                 // The session ended: the screen tells again.
                 hooks[pane] = nil
+                hookScreens[pane] = nil
                 hookPrograms[pane] = nil
             }
             reportHooks(pane, into: &activity, at: now, seen: seen)
@@ -288,13 +295,34 @@ final class ActivityTracker {
         let otherAgent = agent != nil && hookPrograms[watched.pane].map { $0 != agent } == true
         guard !otherAgent, hook.isActive(at: now, agentInFront: agent != nil) else {
             hooks[watched.pane] = nil
+            hookScreens[watched.pane] = nil
             hookPrograms[watched.pane] = nil
             return
         }
         if let agent, hookPrograms[watched.pane] == nil { hookPrograms[watched.pane] = agent }
-        if let key = watched.lastKeyPress, let since = hook.since, key > since {
+        if let key = watched.lastAnswerKey, let since = hook.since, key > since {
             hook.userResponded(at: key)
             hooks[watched.pane] = hook
+        }
+    }
+
+    /// While the hooks say the agent works, its screen is still checked (on the screen job's
+    /// cadence): still for a while, with no hook since, the turn was interrupted (Esc, ⌃C, a
+    /// permission prompt answered "no"), and the agent waits for a prompt.
+    private func watchStillness(_ watched: Watched, at now: Date) {
+        guard var hook = hooks[watched.pane], hook.phase == .working else {
+            hookScreens[watched.pane] = nil
+            return
+        }
+        guard cadence.isDue(Job(pane: watched.pane, kind: .screen), every: watched.visible ? 0.5 : 1.5, at: now),
+              let text = watched.screen() else { return }
+        let hash = text.hashValue
+        // The first look is a change: nothing is known of before.
+        let changed = hookScreens[watched.pane].flatMap { $0.hash == hash ? $0.changed : nil } ?? now
+        hookScreens[watched.pane] = (hash, changed)
+        if hook.screenStill(since: changed, at: now) {
+            hooks[watched.pane] = hook
+            hookScreens[watched.pane] = nil
         }
     }
 

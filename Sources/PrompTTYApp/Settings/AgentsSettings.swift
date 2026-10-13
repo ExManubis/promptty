@@ -35,15 +35,21 @@ enum ClaudeHooks {
             "",
         ]
         if status == .otherCopy { lines.append("The hooks of another copy of PrompTTY are replaced.") }
+        if status == .partial { lines.append("Some of them are there already; the missing ones are added.") }
         lines.append(exists
-            ? "Your other settings and hooks stay as they are. The file is first copied to settings.json.bak."
+            ? "Your other settings and hooks stay as they are, but the file is rewritten with its keys sorted and its own layout. \(backupNote)"
             : "The file does not exist yet; PrompTTY creates it.")
         lines.append("Claude Code sessions started afterwards use the hooks.")
         return lines.joined(separator: "\n")
     }
 
     static var removeSummary: String {
-        "PrompTTY will take its own hooks (the commands running promptty-hook) out of \(displayPath) and leave everything else as it is. The file is first copied to settings.json.bak."
+        "PrompTTY will take its own hooks (the commands running promptty-hook) out of \(displayPath) and leave everything else as it is, rewriting the file with its keys sorted. \(backupNote)"
+    }
+
+    /// Where the file is copied first: an earlier backup (the original before any install) is kept.
+    private static var backupNote: String {
+        "It is first copied to \(ClaudeHookSettings.backup(of: settingsFile.resolvingSymlinksInPath()).lastPathComponent)."
     }
 }
 
@@ -67,7 +73,7 @@ struct AgentsSettingsSection: View {
                         .foregroundStyle(status == .installed ? Color.primary : Color.secondary)
                 }
                 HStack(spacing: 8) {
-                    Button("Install Claude Code Hooks…") { pending = .install }
+                    Button(status == .partial ? "Complete Claude Code Hooks…" : "Install Claude Code Hooks…") { pending = .install }
                         .disabled(AppPaths.hookHelper == nil || status == .installed || status == .unreadable)
                     Button("Remove…") { pending = .remove }
                         .disabled(status == nil || status == .notInstalled || status == .unreadable)
@@ -99,6 +105,10 @@ struct AgentsSettingsSection: View {
         }
         .formStyle(.grouped)
         .onAppear { status = ClaudeHooks.status() }
+        // The file may be changed elsewhere (by hand, by Claude Code's /hooks) while Settings is open.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            status = ClaudeHooks.status()
+        }
         .alert(pending == .remove ? "Remove PrompTTY's Claude Code hooks?" : "Install Claude Code hooks?",
                isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
                presenting: pending) { action in
@@ -112,6 +122,7 @@ struct AgentsSettingsSection: View {
     private var statusText: String {
         switch status {
         case .installed: "Installed"
+        case .partial: "Partly installed"
         case .otherCopy: "Installed for another copy of PrompTTY"
         case .notInstalled: "Not installed"
         case .unreadable: "\(ClaudeHooks.displayPath) is not valid JSON"

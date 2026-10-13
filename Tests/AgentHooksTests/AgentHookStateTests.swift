@@ -27,8 +27,11 @@ final class AgentHookStateTests: XCTestCase {
     }
 
     func testAPromptIsWork() {
-        let s = state([(.sessionStart, HookPayload()), (.userPromptSubmit, HookPayload())])
+        let s = state([(.sessionStart, HookPayload()), (.userPromptSubmit, HookPayload(sessionID: "s9", transcriptPath: "/t9"))])
         XCTAssertEqual(s.phase, .working)
+        // Known from any event, not only SessionStart.
+        XCTAssertEqual(s.sessionID, "s9")
+        XCTAssertEqual(s.transcriptPath, "/t9")
         XCTAssertNil(s.tool)
         XCTAssertEqual(s.since, at(1))
     }
@@ -97,6 +100,32 @@ final class AgentHookStateTests: XCTestCase {
         // Anything else is not a prompt answered.
         var t = state([(.stop, HookPayload())])
         t.userResponded(at: at(10))
+        XCTAssertEqual(t.phase, .turnEnded)
+    }
+
+    /// Interrupting a turn runs no hook: no event, and a still screen, end the work.
+    func testAStillScreenWithoutEventsIsAnInterruptedTurn() {
+        var s = state([(.userPromptSubmit, HookPayload()), (.preToolUse, HookPayload(toolName: "Bash"))])  // last event at 1
+        // The screen moved recently, or an event came lately: still working.
+        XCTAssertFalse(s.screenStill(since: at(5), at: at(7)))
+        XCTAssertFalse(s.screenStill(since: at(1), at: at(5.5)))
+        XCTAssertEqual(s.phase, .working)
+        XCTAssertTrue(s.screenStill(since: at(3), at: at(7)))
+        XCTAssertEqual(s.phase, .ready)
+        XCTAssertNil(s.tool)
+        XCTAssertEqual(s.since, at(3))
+        // The next prompt is work again.
+        s.apply(.userPromptSubmit, HookPayload(), at: at(20))
+        XCTAssertEqual(s.phase, .working)
+    }
+
+    /// A permission prompt or a finished turn is still, and stays what it is.
+    func testOnlyWorkIsEndedByAStillScreen() {
+        var p = state([(.notification, HookPayload(message: "Claude needs your permission to use Bash"))])
+        XCTAssertFalse(p.screenStill(since: at(0), at: at(600)))
+        XCTAssertEqual(p.phase, .permission)
+        var t = state([(.stop, HookPayload())])
+        XCTAssertFalse(t.screenStill(since: at(0), at: at(600)))
         XCTAssertEqual(t.phase, .turnEnded)
     }
 

@@ -70,10 +70,16 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     /// Listens for agents' hooks (`promptty-hook`, run by Claude Code inside a pane). Without the
     /// socket, agents are still followed by their screens.
     private func startHooks() {
-        let listener = HookListener(path: AppPaths.hookSocket) { [weak self] message in self?.activity.hookMessage(message) }
+        // Delivered on the main queue.
+        let listener = HookListener(path: AppPaths.hookSocket) { [weak self] message in
+            MainActor.assumeIsolated { self?.activity.hookMessage(message) }
+        }
         do {
             try listener.start()
             hookListener = listener
+        } catch HookListener.Failure.inUse {
+            // Another PrompTTY on the same data folder: its panes' hooks are its own.
+            NSLog("PrompTTY: another app listens at \(AppPaths.hookSocket); hooks go there")
         } catch {
             NSLog("PrompTTY: no hook socket at \(AppPaths.hookSocket): \(error)")
         }
@@ -125,7 +131,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
                         screen: { [weak surface] in surface?.activeScreenText() },
                         quietUntil: [surface.lastResize.map { $0.addingTimeInterval(1.5) },
                                      surface.lastKeyPress.map { $0.addingTimeInterval(1) }].compactMap { $0 }.max(),
-                        lastKeyPress: surface.lastKeyPress
+                        lastAnswerKey: surface.lastAnswerKey
                     ))
                 }
             }

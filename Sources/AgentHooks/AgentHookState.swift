@@ -33,6 +33,11 @@ public struct AgentHookState: Equatable, Sendable {
     /// With no event for this long and no agent in front any more, the hooks are taken to be gone
     /// (the agent was killed before it could say so).
     public static let staleAfter: TimeInterval = 10 * 60
+    /// An interrupted turn (Esc, ⌃C, a permission prompt answered "no") runs no hook: working, with
+    /// no event for this long and a screen still for `screenQuiet` (Claude Code's spinner and timer
+    /// move while it works), the turn is over.
+    public static let interruptQuiet: TimeInterval = 5
+    public static let screenQuiet: TimeInterval = 3
 
     public init() {}
 
@@ -43,10 +48,11 @@ public struct AgentHookState: Equatable, Sendable {
         }
         lastEvent = now
         if event != .codexNotify { reportsEveryChange = true }
+        // Every event names its session: hooks installed during one are known from its next event.
+        sessionID = payload.sessionID ?? sessionID
+        transcriptPath = payload.transcriptPath ?? transcriptPath
         switch event {
         case .sessionStart:
-            sessionID = payload.sessionID ?? sessionID
-            transcriptPath = payload.transcriptPath ?? transcriptPath
             // Compacting starts a new session in the middle of a turn: the work goes on.
             if payload.source != "compact" || phase == nil { enter(.ready, at: now) }
         case .userPromptSubmit:
@@ -89,6 +95,17 @@ public struct AgentHookState: Equatable, Sendable {
         let asking = tool
         enter(.working, at: now)
         tool = asking
+    }
+
+    /// While working: the pane's screen last changed at `lastChange`. Returns whether that, with no
+    /// event for a while, means the turn was interrupted; the agent then waits for a prompt, as
+    /// after a session start (and nothing tells the user their turn came: they ended it).
+    @discardableResult
+    public mutating func screenStill(since lastChange: Date, at now: Date) -> Bool {
+        guard phase == .working, let lastEvent, now.timeIntervalSince(lastEvent) >= Self.interruptQuiet,
+              now.timeIntervalSince(lastChange) >= Self.screenQuiet else { return false }
+        enter(.ready, at: max(lastChange, lastEvent))
+        return true
     }
 
     /// Whether the hooks, not the screen, say what the pane's agent does: while they report, for

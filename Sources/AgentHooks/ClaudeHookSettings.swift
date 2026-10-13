@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// PrompTTY's hooks in Claude Code's settings (`~/.claude/settings.json`): one command hook per
@@ -140,15 +141,18 @@ public enum ClaudeHookSettings {
 
     public enum Status: Equatable, Sendable {
         case installed
+        /// Some of this copy's hooks, not all (one taken out by hand): installing completes them.
+        case partial
         /// Hooks of a PrompTTY elsewhere (an older copy, a build): installing replaces them.
         case otherCopy
         case notInstalled
         case unreadable
     }
 
-    /// Merges PrompTTY's hooks into the settings file, creating it (and its folder) if missing.
-    /// An existing file is copied to `<name>.bak` first and keeps its permissions; a symlink
-    /// (dotfiles) is written through. A file that is not valid settings is not touched.
+    /// Merges PrompTTY's hooks into the settings file, creating it (and its folder, mode 0600) if
+    /// missing. An existing file is backed up first (`backup(of:)`); the new file replaces it in
+    /// one rename and has its permissions from the start; a symlink (dotfiles) is written through.
+    /// A file that is not valid settings is not touched.
     public static func install(helper: String, in file: URL) throws -> Outcome {
         try rewrite(file) { try installing(helper: helper, into: $0) }
     }
@@ -161,12 +165,33 @@ public enum ClaudeHookSettings {
     public static func status(helper: String, in file: URL) -> Status {
         let data = try? Data(contentsOf: file)
         do {
-            if try isInstalled(helper: helper, in: data) { return .installed }
-            return try commands(in: hooksObject(of: parse(data))?.values.flatMap { $0 as? [Any] ?? [] }).contains(where: isOurs)
-                ? .otherCopy : .notInstalled
+            guard let hooks = try hooksObject(of: parse(data)) else { return .notInstalled }
+            let present = events.filter { commands(in: hooks[$0.rawValue]).contains(command(helper: helper, event: $0)) }
+            if present.count == events.count { return .installed }
+            if !present.isEmpty { return .partial }
+            return commands(in: hooks.values.flatMap { $0 as? [Any] ?? [] }).contains(where: isOurs) ? .otherCopy : .notInstalled
         } catch {
             return .unreadable
         }
+    }
+
+    /// Where the backup of `file` goes: `<name>.bak`, or when that exists (an earlier install's
+    /// backup of the user's original, which is kept) `<name>.bak-<date and time>`.
+    public static func backup(of file: URL, at date: Date = Date()) -> URL {
+        let fm = FileManager.default
+        let plain = file.appendingPathExtension("bak")
+        guard fm.fileExists(atPath: plain.path) else { return plain }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let stamped = file.lastPathComponent + ".bak-" + formatter.string(from: date)
+        var candidate = file.deletingLastPathComponent().appendingPathComponent(stamped)
+        var n = 2
+        while fm.fileExists(atPath: candidate.path) {
+            candidate = file.deletingLastPathComponent().appendingPathComponent("\(stamped)-\(n)")
+            n += 1
+        }
+        return candidate
     }
 
     private static func rewrite(_ file: URL, _ change: (Data?) throws -> Data) throws -> Outcome {
@@ -178,16 +203,41 @@ public enum ClaudeHookSettings {
         guard try NSDictionary(dictionary: parse(updated)) != NSDictionary(dictionary: parse(existing)) else { return .unchanged }
         guard let existing else {
             try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try updated.write(to: target, options: .atomic)
+            try write(updated, to: target, mode: 0o600)
             return .changed
         }
-        let permissions = try fm.attributesOfItem(atPath: target.path)[.posixPermissions]
-        let backup = target.appendingPathExtension("bak")
-        try existing.write(to: backup, options: .atomic)
         // The settings may hold keys (`env`): the backup and the new file are as private as the old.
-        if let permissions { try fm.setAttributes([.posixPermissions: permissions], ofItemAtPath: backup.path) }
-        try updated.write(to: target, options: .atomic)
-        if let permissions { try fm.setAttributes([.posixPermissions: permissions], ofItemAtPath: target.path) }
+        let mode = ((try fm.attributesOfItem(atPath: target.path)[.posixPermissions] as? NSNumber)?.uint16Value ?? 0o600) & 0o7777
+        try write(existing, to: backup(of: target), mode: mode_t(mode))
+        try write(updated, to: target, mode: mode_t(mode))
         return .changed
+    }
+
+    /// Writes a file in one step: a new file beside it, made with `mode` (never more open than
+    /// that), then renamed over it.
+    static func write(_ data: Data, to target: URL, mode: mode_t) throws {
+        let temporary = target.deletingLastPathComponent().appendingPathComponent(".\(target.lastPathComponent).\(UUID().uuidString)")
+        let fd = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, mode)
+        guard fd >= 0 else { throw posixError() }
+        var ok = fchmod(fd, mode) == 0
+        data.withUnsafeBytes { raw in
+            var offset = 0
+            while ok, offset < raw.count {
+                let n = Darwin.write(fd, raw.baseAddress! + offset, raw.count - offset)
+                if n > 0 { offset += n } else if n < 0, errno == EINTR { continue } else { ok = false }
+            }
+        }
+        ok = ok && fsync(fd) == 0
+        let error = ok ? nil : posixError()
+        close(fd)
+        guard ok, rename(temporary.path, target.path) == 0 else {
+            let failure = error ?? posixError()
+            unlink(temporary.path)
+            throw failure
+        }
+    }
+
+    private static func posixError() -> Error {
+        POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }
 }

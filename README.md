@@ -145,8 +145,9 @@ when it took 10 s or more and you were looking elsewhere). **Settings › Agents
 Code Hooks…** shows what it will change, then adds one hook per event (SessionStart, SessionEnd,
 UserPromptSubmit, PreToolUse, PostToolUse, Notification, Stop, SubagentStop) to
 `~/.claude/settings.json`, each running `'<PrompTTY.app>/Contents/MacOS/promptty-hook' <Event>`.
-It keeps every other setting and hook, copies the file to `settings.json.bak` first, and
-installing again changes nothing; **Remove…** takes out only PrompTTY's entries (any command
+It keeps every other setting and hook (the file is rewritten with its keys sorted), copies the
+file to `settings.json.bak` first (or, when that backup exists already, to a dated
+`settings.json.bak-<date>`, so the original survives), and installing again changes nothing; **Remove…** takes out only PrompTTY's entries (any command
 running a `…/promptty-hook`). Nothing is written until you click. Claude Code sessions started
 afterwards use the hooks.
 
@@ -159,7 +160,12 @@ input), and sends them with the pane's id as one line to the socket. It prints n
 exits 0, gives up after 200 ms and does nothing outside PrompTTY. The app accepts only processes of
 the same user. While a pane's hooks report, they decide its agent's state and its screen is not
 watched; without hooks, or after ten minutes without one once the agent has gone, the screen is
-watched again. A key pressed at a permission prompt counts as the answer.
+watched again. Return, Esc, y, n, a digit or ⌃C pressed at a permission prompt counts as the answer.
+An interrupted turn (Esc, ⌃C, a prompt answered "no") runs no hook: while the hooks say the agent
+works, a screen still for 3 s with no hook for 5 s ends the turn, without a notification. If
+another PrompTTY already listens on the socket (two copies sharing a data folder) it is left
+alone. Programs started from a pane inherit its variables, so agents in a tmux session or an
+editor's terminal report to the pane that started tmux or the editor.
 
 For **Codex**, add `notify = ["<PrompTTY.app>/Contents/MacOS/promptty-hook", "codex-notify"]` at
 the top of `~/.codex/config.toml` (Settings › Agents shows the line with the path filled in): the

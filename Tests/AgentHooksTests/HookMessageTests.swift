@@ -123,7 +123,8 @@ final class HookMessageTests: XCTestCase {
         XCTAssertNotEqual(a, HookSocket.path(dataFolder: long + "x", temporaryDirectory: "/var/folders/x/T/"))
         // A temporary folder too long as well: /tmp, with the user's id.
         let b = HookSocket.path(dataFolder: long, temporaryDirectory: long, userID: 501)
-        XCTAssertTrue(b.hasPrefix("/tmp/promptty-501-"), b)
+        XCTAssertTrue(b.hasPrefix("/tmp/promptty-501/"), b)
+        XCTAssertEqual((b as NSString).deletingLastPathComponent, HookSocket.sharedFolder(userID: 501))
         XCTAssertLessThanOrEqual(b.utf8.count, HookSocket.maxPathBytes)
     }
 }

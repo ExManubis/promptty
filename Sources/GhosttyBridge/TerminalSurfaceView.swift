@@ -329,6 +329,9 @@ public final class TerminalSurfaceView: NSView {
     /// activity of their own.
     public private(set) var lastResize: Date?
     public internal(set) var lastKeyPress: Date?
+    /// The last key that answers a prompt for a choice (`PromptAnswerKey`): it ends an agent's
+    /// permission prompt.
+    public internal(set) var lastAnswerKey: Date?
 
     /// How the terminal follows this view's size.
     public enum ResizeMode: Sendable {

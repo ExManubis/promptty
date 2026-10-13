@@ -148,15 +148,19 @@ public enum HookSocket {
 
     /// `hooks.sock` in the app's data folder; when that path is too long for a socket, a short one
     /// in the user's temporary folder named by a hash of the data folder (so each data folder, as a
-    /// debug run's, still has its own), or failing that in `/tmp` with the user's id.
+    /// debug run's, still has its own), or failing that in `/tmp/promptty-<uid>/`, a folder only
+    /// the user may enter (`HookListener` makes and checks it).
     public static func path(dataFolder: String, temporaryDirectory: String, userID: UInt32 = getuid()) -> String {
         let preferred = (dataFolder as NSString).appendingPathComponent("hooks.sock")
         if preferred.utf8.count <= maxPathBytes { return preferred }
         let name = "promptty-\(hash(dataFolder)).sock"
         let temporary = (temporaryDirectory as NSString).appendingPathComponent(name)
         if temporary.utf8.count <= maxPathBytes { return temporary }
-        return "/tmp/promptty-\(userID)-\(hash(dataFolder)).sock"
+        return sharedFolder(userID: userID) + "/\(hash(dataFolder)).sock"
     }
+
+    /// The last resort's folder, in the world-writable `/tmp`.
+    public static func sharedFolder(userID: UInt32 = getuid()) -> String { "/tmp/promptty-\(userID)" }
 
     /// FNV-1a, 64 bits, in hex: stable from run to run, unlike `hashValue`.
     static func hash(_ string: String) -> String {

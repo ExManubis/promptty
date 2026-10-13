@@ -135,8 +135,9 @@ final class ClaudeHookSettingsTests: XCTestCase {
         let file = directory.appendingPathComponent(".claude/settings.json")
         XCTAssertEqual(try ClaudeHookSettings.install(helper: helper, in: file), .changed)
         XCTAssertTrue(try ClaudeHookSettings.isInstalled(helper: helper, in: Data(contentsOf: file)))
-        // Nothing to back up: there was no file.
+        // Nothing to back up: there was no file. A new file is the user's alone.
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path + ".bak"))
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int, 0o600)
         XCTAssertEqual(try ClaudeHookSettings.install(helper: helper, in: file), .unchanged)
     }
 
@@ -148,7 +149,35 @@ final class ClaudeHookSettingsTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: directory.appendingPathComponent("settings.json.bak"), encoding: .utf8), existing)
         let permissions = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
         XCTAssertEqual(permissions, 0o600)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: file.path + ".bak")[.posixPermissions] as? Int, 0o600)
         XCTAssertEqual(try object(Data(contentsOf: file))["model"] as? String, "opus")
+        // Nothing but the file and its backup: no temporary file left behind.
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted(), ["settings.json", "settings.json.bak"])
+    }
+
+    /// Install then remove: the first backup, the user's original, survives; the second goes beside it.
+    func testALaterChangeKeepsTheFirstBackup() throws {
+        let file = directory.appendingPathComponent("settings.json")
+        try Data(existing.utf8).write(to: file)
+        _ = try ClaudeHookSettings.install(helper: helper, in: file)
+        let installed = try Data(contentsOf: file)
+        XCTAssertEqual(try ClaudeHookSettings.remove(in: file), .changed)
+        XCTAssertEqual(try String(contentsOf: directory.appendingPathComponent("settings.json.bak"), encoding: .utf8), existing)
+        let others = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.hasPrefix("settings.json.bak-") }
+        XCTAssertEqual(others.count, 1)
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent(others[0])), installed)
+    }
+
+    func testBackupNames() throws {
+        let file = directory.appendingPathComponent("settings.json")
+        XCTAssertEqual(ClaudeHookSettings.backup(of: file).lastPathComponent, "settings.json.bak")
+        try Data().write(to: directory.appendingPathComponent("settings.json.bak"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let date = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 13, hour: 9, minute: 5, second: 7)))
+        XCTAssertEqual(ClaudeHookSettings.backup(of: file, at: date).lastPathComponent, "settings.json.bak-20261013-090507")
+        try Data().write(to: directory.appendingPathComponent("settings.json.bak-20261013-090507"))
+        XCTAssertEqual(ClaudeHookSettings.backup(of: file, at: date).lastPathComponent, "settings.json.bak-20261013-090507-2")
     }
 
     func testInstallWritesThroughASymlink() throws {
@@ -189,6 +218,15 @@ final class ClaudeHookSettingsTests: XCTestCase {
         _ = try ClaudeHookSettings.install(helper: "/old/PrompTTY.app/Contents/MacOS/promptty-hook", in: file)
         XCTAssertEqual(ClaudeHookSettings.status(helper: helper, in: file), .otherCopy)
         _ = try ClaudeHookSettings.install(helper: helper, in: file)
+        XCTAssertEqual(ClaudeHookSettings.status(helper: helper, in: file), .installed)
+        // One of this copy's hooks taken out by hand: partly installed, and installing completes it.
+        var settings = try object(Data(contentsOf: file))
+        var hooks = try XCTUnwrap(settings["hooks"] as? [String: Any])
+        hooks["Stop"] = nil
+        settings["hooks"] = hooks
+        try JSONSerialization.data(withJSONObject: settings).write(to: file)
+        XCTAssertEqual(ClaudeHookSettings.status(helper: helper, in: file), .partial)
+        XCTAssertEqual(try ClaudeHookSettings.install(helper: helper, in: file), .changed)
         XCTAssertEqual(ClaudeHookSettings.status(helper: helper, in: file), .installed)
         try Data("{ broken".utf8).write(to: file)
         XCTAssertEqual(ClaudeHookSettings.status(helper: helper, in: file), .unreadable)
