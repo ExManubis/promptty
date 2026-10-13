@@ -41,6 +41,10 @@ public final class TerminalSurfaceView: NSView {
     public var overlay: NSView?
     /// The pointer moved over the terminal (the event), or left it (nil).
     public var onPointerMoved: ((NSEvent?) -> Void)?
+    /// The screen scrolled, the scrollback grew, or the cells changed size: whatever is drawn over
+    /// the terminal in step with its rows has moved. Reaching the overlay directly saves the
+    /// app looking this surface's pane up on every one of these (thousands a second in a stream).
+    public var onLayoutChange: (() -> Void)?
 
     /// Size libghostty asked for during `ghostty_surface_new`, before this view had a window.
     public private(set) var pendingInitialSize: CGSize?
@@ -273,6 +277,13 @@ public final class TerminalSurfaceView: NSView {
         super.viewDidChangeBackingProperties()
         guard let surface, let window, window.backingScaleFactor != sentScale else { return }
         sentScale = window.backingScaleFactor
+        // libghostty's layer is not told the new scale by AppKit; without this a window moved
+        // from a Retina to a 1x screen draws four times the pixels, and the other way is blurry.
+        // As upstream Ghostty does, without an implicit animation.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.contentsScale = window.backingScaleFactor
+        CATransaction.commit()
         let scale = Double(window.backingScaleFactor)
         ghostty_surface_set_content_scale(surface, scale, scale)
         sizeDidChange(force: true)
@@ -353,10 +364,15 @@ public final class TerminalSurfaceView: NSView {
         updateOcclusion()
     }
 
+    /// The visibility last sent: every call wakes the renderer, and these are called often.
+    private var sentVisible: Bool?
+
     private func updateOcclusion() {
         guard let surface else { return }
         let windowVisible = window?.occlusionState.contains(.visible) ?? false
         let visible = windowVisible && !isHiddenOrHasHiddenAncestor && !explicitlyOccluded
+        guard visible != sentVisible else { return }
+        sentVisible = visible
         ghostty_surface_set_occlusion(surface, visible)
     }
 

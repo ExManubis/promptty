@@ -568,6 +568,14 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     // MARK: GhosttyActionSink
 
     func handle(_ action: GhosttyAction, target: GhosttyActionTarget) -> Bool {
+        // The screen moved in the scrollback, the scrollback grew, or rows changed height: the
+        // command blocks moved. These arrive constantly in a stream, so no `locate` for them.
+        switch action {
+        case .scrollbar, .cellSize:
+            if case .surface(let view) = target { view.onLayoutChange?() }
+            return true
+        default: break
+        }
         let located: (WindowState, Tab, Pane, TerminalWindowController)?
         if case .surface(let view) = target { located = locate(view) } else { located = nil }
         let state = located?.0 ?? keyWindowState
@@ -641,10 +649,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             located.3.applyInitialTerminalSize(CGSize(width: Double(w), height: Double(h)))
             return true
         case .scrollbar, .cellSize:
-            // The screen moved in the scrollback, the scrollback grew, or rows changed height:
-            // the command blocks moved.
-            if let located { located.3.blocks(for: located.2.id)?.setNeedsRefresh() }
-            return true
+            return true // handled above, before the pane lookup
         case .render, .configChange:
             return true
         case .colorChange(let kind, let r, let g, let b):

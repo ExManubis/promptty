@@ -64,6 +64,7 @@ final class BlockOverlayView: NSView {
             copyCommand: { [weak self] in self?.copyHovered(.command) }
         ))
         surface.overlay = self
+        surface.onLayoutChange = { [weak self] in self?.setNeedsRefresh() }
         surface.onPointerMoved = { [weak self] event in self?.pointerMoved(event) }
     }
 

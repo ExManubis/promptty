@@ -1,4 +1,5 @@
 import AppKit
+import os
 import GhosttyKit
 
 public struct GhosttyRuntimeError: Error, CustomStringConvertible {
@@ -17,6 +18,9 @@ public final class GhosttyRuntime {
     nonisolated(unsafe) private var config: UnsafeMutableRawPointer
 
     var app: UnsafeMutableRawPointer { appHandle }
+
+    /// Whether a tick is already queued on the main queue. Set from any thread by `wakeup_cb`.
+    nonisolated let tickPending = OSAllocatedUnfairLock(initialState: false)
 
     public weak var sink: GhosttyActionSink?
     public private(set) var configDiagnostics: [String] = []
@@ -176,8 +180,14 @@ public final class GhosttyRuntime {
 private func ghosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
     guard let userdata else { return }
     let runtime = Unmanaged<GhosttyRuntime>.fromOpaque(userdata).takeUnretainedValue()
+    // Output can wake the app thousands of times a second; one queued tick serves them all.
+    guard runtime.tickPending.withLock({ pending in
+        defer { pending = true }
+        return !pending
+    }) else { return }
     DispatchQueue.main.async {
         MainActor.assumeIsolated {
+            runtime.tickPending.withLock { $0 = false }
             runtime.tick()
         }
     }
