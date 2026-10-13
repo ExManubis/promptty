@@ -16,4 +16,11 @@ final class ClipboardGrantsTests: XCTestCase {
         g.grant(.read)
         XCTAssertTrue(g.allows(.read))
     }
+
+    func testAnAnswerAppliesOnlyToTheRequestItWasGivenFor() {
+        XCTAssertEqual(ClipboardAnswer.resolve(.allow, answering: 3, pending: 3), .allow)
+        XCTAssertEqual(ClipboardAnswer.resolve(.alwaysAllow, answering: 3, pending: 3), .alwaysAllow)
+        XCTAssertEqual(ClipboardAnswer.resolve(.allow, answering: 3, pending: 4), .deny, "swapped request")
+        XCTAssertEqual(ClipboardAnswer.resolve(.allow, answering: 3, pending: nil), .deny)
+    }
 }

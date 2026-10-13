@@ -33,6 +33,20 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(try JSONDecoder().decode(Settings.self, from: Data(#"{"version":2}"#.utf8)).fullRefreshRate)
     }
 
+    func testClipboardAccessIsSavedAndAsksByDefault() throws {
+        var s = Settings()
+        XCTAssertEqual(s.clipboardRead, .ask)
+        XCTAssertEqual(s.clipboardWrite, .ask)
+        s.clipboardRead = .deny
+        s.clipboardWrite = .allow
+        let back = try JSONDecoder().decode(Settings.self, from: JSONEncoder().encode(s))
+        XCTAssertEqual(back.clipboardRead, .deny)
+        XCTAssertEqual(back.clipboardWrite, .allow)
+        let old = try JSONDecoder().decode(Settings.self, from: Data(#"{"version":2}"#.utf8))
+        XCTAssertEqual(old.clipboardRead, .ask)
+        XCTAssertEqual(old.clipboardWrite, .ask)
+    }
+
     func testSecureKeyboardEntryIsSavedAndOffByDefault() throws {
         var s = Settings()
         XCTAssertFalse(s.secureKeyboardEntry)

@@ -56,10 +56,11 @@ public final class TerminalSurfaceView: NSView {
 
     /// A program asks to read or write the clipboard and waits for the user's answer
     /// (`answerClipboardRequest`), or that question is gone (nil).
-    public var onClipboardRequest: ((ClipboardRequestKind?) -> Void)?
+    public var onClipboardRequest: ((ClipboardTicket?) -> Void)?
     /// What the program waits for; its text (what it would write, or what the clipboard holds)
     /// stays here and out of logs.
     struct PendingClipboard {
+        let id: Int
         let kind: ClipboardRequestKind
         let text: String
         /// libghostty's request state, for a read.
@@ -67,6 +68,7 @@ public final class TerminalSurfaceView: NSView {
     }
     var pendingClipboard: PendingClipboard?
     var clipboardGrants = ClipboardGrants()
+    var lastClipboardID = 0
 
     /// Size libghostty asked for during `ghostty_surface_new`, before this view had a window.
     public private(set) var pendingInitialSize: CGSize?
@@ -216,6 +218,8 @@ public final class TerminalSurfaceView: NSView {
     /// Frees the surface exactly once. Safe to call from both the tab-close path and `close_surface_cb`.
     public func teardown() {
         guard let handle = surface, !isFreed else { return }
+        // A read still pending must be completed while the surface exists.
+        denyClipboardRequest()
         // A freed surface reports nothing more: whoever tracks its focus is told it lost it.
         onFocusChange?(false)
         // Clear state first so nothing re-entering during the free sees a live handle.
@@ -464,6 +468,9 @@ extension TerminalSurfaceView {
     /// A program waits for the user's answer to a clipboard read or write.
     public var pendingClipboardKind: ClipboardRequestKind? { pendingClipboard?.kind }
 
+    /// Refuses whatever waits, whoever asked (a settings change, the pane closing).
+    public func denyClipboardRequest() { finishClipboard(.deny) }
+
     /// libghostty wants the user's confirmation for a read (`text` is the clipboard) or a write
     /// (`text` is what the program sets). Answered at once if this pane was allowed for good,
     /// else shown by `onClipboardRequest`.
@@ -471,16 +478,19 @@ extension TerminalSurfaceView {
         // One question at a time: an unanswered read must still be completed, so the older
         // request is denied.
         if pendingClipboard != nil { finishClipboard(.deny) }
-        pendingClipboard = PendingClipboard(kind: kind, text: text, state: state)
+        lastClipboardID += 1
+        let request = PendingClipboard(id: lastClipboardID, kind: kind, text: text, state: state)
+        pendingClipboard = request
         if clipboardGrants.allows(kind) {
             finishClipboard(.allow)
         } else {
-            onClipboardRequest?(kind)
+            onClipboardRequest?(ClipboardTicket(id: request.id, kind: kind))
         }
     }
 
-    public func answerClipboardRequest(_ decision: ClipboardDecision) {
-        finishClipboard(decision)
+    /// The user's answer to the request `id`; an answer to one that is no longer pending denies.
+    public func answerClipboardRequest(_ decision: ClipboardDecision, id: Int) {
+        finishClipboard(ClipboardAnswer.resolve(decision, answering: id, pending: pendingClipboard?.id))
     }
 
     private func finishClipboard(_ decision: ClipboardDecision) {

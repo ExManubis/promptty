@@ -669,6 +669,11 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         }
     }
 
+    /// The clipboard policy may have changed: requests asked under the old one are refused.
+    func denyClipboardRequests() {
+        for controller in controllers.values { controller.denyClipboardRequests() }
+    }
+
     // MARK: Lookup
 
     private func locate(_ view: TerminalSurfaceView) -> (WindowState, Tab, Pane, TerminalWindowController)? {

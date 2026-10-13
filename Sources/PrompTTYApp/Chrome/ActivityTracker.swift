@@ -19,10 +19,10 @@ final class PaneStatus {
     private(set) var secure = false
 
     /// A program waits to read or write the clipboard until the user answers, in the pane's banner.
-    private(set) var clipboardRequest: ClipboardRequestKind?
+    private(set) var clipboardRequest: ClipboardTicket?
 
-    func setClipboardRequest(_ kind: ClipboardRequestKind?) {
-        if clipboardRequest != kind { clipboardRequest = kind }
+    func setClipboardRequest(_ ticket: ClipboardTicket?) {
+        if clipboardRequest != ticket { clipboardRequest = ticket }
     }
 
     /// What a program reports of its progress (OSC 9;4); nil when it reports none.

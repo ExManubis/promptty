@@ -168,21 +168,30 @@ private struct LinkPreview: View {
 private struct ClipboardBanner: View {
     let pane: PaneID
     let actions: ChromeActions
+    /// The buttons work only a moment after a request appears or changes, so a click meant for
+    /// the one before cannot land on the one now shown.
+    @State private var armed = false
 
     var body: some View {
-        if let kind = actions.clipboardRequest(for: pane) {
+        if let ticket = actions.clipboardRequest(for: pane) {
             let program = actions.activity(for: pane).program?.name ?? "A program"
-            let action = kind == .read ? "read" : "write to"
+            let action = ticket.kind == .read ? "read" : "write to"
             BannerView(content: BannerContent(
                 message: "\(program) wants to \(action) the clipboard",
                 actionTitle: "Allow",
-                action: { actions.answerClipboardRequest(.allow, in: pane) },
+                action: { actions.answerClipboardRequest(.allow, id: ticket.id, in: pane) },
                 symbol: "doc.on.clipboard",
                 extraActions: [
-                    ("Always allow for this pane", { actions.answerClipboardRequest(.alwaysAllow, in: pane) }),
-                    ("Deny", { actions.answerClipboardRequest(.deny, in: pane) }),
+                    ("Always allow for this pane", { actions.answerClipboardRequest(.alwaysAllow, id: ticket.id, in: pane) }),
+                    ("Deny", { actions.answerClipboardRequest(.deny, id: ticket.id, in: pane) }),
                 ]
             ))
+            .disabled(!armed)
+            .task(id: ticket.id) {
+                armed = false
+                try? await Task.sleep(for: .milliseconds(500))
+                if !Task.isCancelled { armed = true }
+            }
             .padding(8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }

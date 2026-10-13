@@ -81,7 +81,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let router = NotificationRouter { [weak self] pane in self?.coordinator.reveal(pane) }
         notificationRouter = router
         UNUserNotificationCenter.current().delegate = router
-        preferences.onTerminalConfigChanged = { [weak self] in self?.runtime.reloadConfig() }
+        preferences.onTerminalConfigChanged = { [weak self] in
+            self?.coordinator.denyClipboardRequests()
+            self?.runtime.reloadConfig()
+        }
         preferences.onShortcutsChanged = { NSApp.mainMenu = MainMenu.build(shortcuts: $0) }
         // Shifted punctuation shortcuts are declared per keyboard layout; rebuild when it changes.
         layoutObserver = DistributedNotificationCenter.default().addObserver(
