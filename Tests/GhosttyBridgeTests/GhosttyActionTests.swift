@@ -136,4 +136,32 @@ final class GhosttyActionTests: XCTestCase {
         XCTAssertFalse(GhosttyAction(a).isImplemented)
         XCTAssertTrue(GhosttyAction.newTab.isImplemented)
     }
+
+    func testOpenURLUsesItsLengthNotATerminator() {
+        var a = action(GHOSTTY_ACTION_OPEN_URL)
+        a.action.open_url.kind = GHOSTTY_ACTION_OPEN_URL_KIND_TEXT
+        let decoded: GhosttyAction = "https://example.com/abc".withCString { ptr in
+            a.action.open_url.url = ptr
+            a.action.open_url.len = 19
+            return GhosttyAction(a)
+        }
+        XCTAssertEqual(decoded, .openURL(kind: .text, url: "https://example.com"))
+        a.action.open_url.kind = GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
+        a.action.open_url.url = nil
+        a.action.open_url.len = 0
+        XCTAssertEqual(GhosttyAction(a), .openURL(kind: .unknown, url: ""))
+    }
+
+    func testMouseOverLink() {
+        var a = action(GHOSTTY_ACTION_MOUSE_OVER_LINK)
+        let over: GhosttyAction = "https://example.com".withCString { ptr in
+            a.action.mouse_over_link.url = ptr
+            a.action.mouse_over_link.len = 19
+            return GhosttyAction(a)
+        }
+        XCTAssertEqual(over, .mouseOverLink("https://example.com"))
+        a.action.mouse_over_link.url = nil
+        a.action.mouse_over_link.len = 0
+        XCTAssertEqual(GhosttyAction(a), .mouseOverLink(nil))
+    }
 }

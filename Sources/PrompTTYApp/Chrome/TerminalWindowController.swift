@@ -155,6 +155,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func shell(for pane: PaneID) -> PaneShell? { shells[pane] }
     func blocks(for pane: PaneID) -> BlockOverlayView? { surfaces[pane]?.overlay as? BlockOverlayView }
     func activity(for pane: PaneID) -> PaneActivity.Visible { coordinator.activity.activity(for: pane) }
+    func hoveredLink(for pane: PaneID) -> String? { coordinator.activity.status(for: pane).hoveredLink }
     var agentList: AgentList { coordinator.agentList }
     func reveal(_ pane: PaneID) { coordinator.reveal(pane) }
     func screenText(for pane: PaneID) -> String? { surfaces[pane]?.visibleText() }
@@ -181,6 +182,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     private func bind(_ view: TerminalSurfaceView, to pane: PaneID) {
         view.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
         view.onAttachedToWindow = { [weak self] in self?.surfaceAttached(pane) }
+        view.onLinkHover = { [weak self] link in self?.coordinator.activity.status(for: pane).hover(over: link) }
         // Dropped files: into the bar while it is shown, else typed for the program, quoted.
         view.onFileDrop = { [weak self, weak view] urls in
             if let shell = self?.shells[pane], shell.bar != .hidden {

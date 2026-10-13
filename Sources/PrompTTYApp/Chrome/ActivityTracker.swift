@@ -11,6 +11,13 @@ import WorkspaceModel
 final class PaneStatus {
     /// The pane's activity as views show it; set only when that changes.
     fileprivate(set) var activity = PaneActivity().visible
+    /// The link under the pointer, shown at the pane's corner; nil when there is none.
+    private(set) var hoveredLink: String?
+
+    /// Moves arrive with every mouse move over text; an unchanged link changes nothing.
+    func hover(over link: String?) {
+        if hoveredLink != link { hoveredLink = link }
+    }
 }
 
 /// Every pane's activity (what runs in it, what happened there unseen), for the tab rows and pane

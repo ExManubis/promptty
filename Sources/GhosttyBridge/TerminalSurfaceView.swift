@@ -46,6 +46,10 @@ public final class TerminalSurfaceView: NSView {
     /// app looking this surface's pane up on every one of these (thousands a second in a stream).
     public var onLayoutChange: (() -> Void)?
 
+    /// The pointer is over a link in the output (its text), or left it (nil). Arrives with every
+    /// mouse move over text, so it goes straight to whoever shows it.
+    public var onLinkHover: ((String?) -> Void)?
+
     /// Size libghostty asked for during `ghostty_surface_new`, before this view had a window.
     public private(set) var pendingInitialSize: CGSize?
     public private(set) var cellSize: CGSize = .zero

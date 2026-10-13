@@ -14,6 +14,9 @@ public enum MouseShape: Equatable, Sendable {
     case other
 }
 
+/// What libghostty says a link's target is; `text` is a file to show in an editor.
+public enum OpenURLKind: Equatable, Sendable { case unknown, text, html }
+
 public enum ColorKind: Equatable, Sendable {
     case foreground, background, cursor
     case palette(Int)
@@ -49,6 +52,10 @@ public enum GhosttyAction: Equatable, Sendable {
     /// The screen moved in the scrollback, or the scrollback grew: rows in all, the first row on
     /// screen, and how many are on screen.
     case scrollbar(total: UInt64, offset: UInt64, length: UInt64)
+    /// ⌘-click on a link or a file path in the output.
+    case openURL(kind: OpenURLKind, url: String)
+    /// The pointer is over a link (its text), or left it (nil).
+    case mouseOverLink(String?)
     /// Synthesized from `close_surface_cb`, not a `ghostty_action_tag_e`.
     case closeSurface(processAlive: Bool)
     case unhandled(tag: UInt32)
@@ -112,6 +119,18 @@ public enum GhosttyAction: Equatable, Sendable {
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             let n = c.action.desktop_notification
             self = .desktopNotification(title: Self.string(n.title), body: Self.string(n.body))
+        case GHOSTTY_ACTION_OPEN_URL:
+            let o = c.action.open_url
+            let kind: OpenURLKind
+            switch o.kind {
+            case GHOSTTY_ACTION_OPEN_URL_KIND_TEXT: kind = .text
+            case GHOSTTY_ACTION_OPEN_URL_KIND_HTML: kind = .html
+            default: kind = .unknown
+            }
+            self = .openURL(kind: kind, url: Self.string(o.url, length: Int(o.len)) ?? "")
+        case GHOSTTY_ACTION_MOUSE_OVER_LINK:
+            let l = c.action.mouse_over_link
+            self = .mouseOverLink(Self.string(l.url, length: Int(l.len)).flatMap { $0.isEmpty ? nil : $0 })
         default:
             self = .unhandled(tag: c.tag.rawValue)
         }
@@ -121,6 +140,14 @@ public enum GhosttyAction: Equatable, Sendable {
     private static func string(_ ptr: UnsafePointer<CChar>?) -> String {
         guard let ptr else { return "" }
         return String(cString: ptr)
+    }
+
+    /// Copies `length` bytes, which are not NUL-terminated.
+    private static func string(_ ptr: UnsafePointer<CChar>?, length: Int) -> String? {
+        guard let ptr, length > 0 else { return nil }
+        return ptr.withMemoryRebound(to: UInt8.self, capacity: length) {
+            String(decoding: UnsafeBufferPointer(start: $0, count: length), as: UTF8.self)
+        }
     }
 
     private static func mouseShape(_ s: ghostty_action_mouse_shape_e) -> MouseShape {

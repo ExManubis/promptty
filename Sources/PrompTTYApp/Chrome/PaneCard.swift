@@ -39,6 +39,8 @@ struct PaneCard: View {
                 .animation(PaneAnimation.focusFade, value: focused)
                 .allowsHitTesting(false)
 
+            LinkPreview(pane: pane.id, actions: actions)
+
             if let code = chrome.exitedPanes[pane.id] {
                 // A pinned tab's last pane is restarted, not closed.
                 ExitedOverlay(exitCode: code, restarts: tab.pin != nil && !tab.hasSplits) { actions.requestClosePane(pane.id) }
@@ -128,5 +130,28 @@ struct FlatSurface: View {
             .fill(colorScheme == .dark ? Color(white: 0.17) : Color.white)
             .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0.10), radius: 4, y: 1)
             .overlay(shape.strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
+    }
+}
+
+/// The link under the pointer, at the pane's bottom-left like a browser's status bar. Its own view,
+/// so the hover changes redraw only this.
+private struct LinkPreview: View {
+    let pane: PaneID
+    let actions: ChromeActions
+
+    var body: some View {
+        if let link = actions.hoveredLink(for: pane) {
+            Text(link)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+                .padding(6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .allowsHitTesting(false)
+        }
     }
 }

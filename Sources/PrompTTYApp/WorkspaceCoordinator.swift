@@ -634,6 +634,10 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         case .scrollbar, .cellSize:
             if case .surface(let view) = target { view.onLayoutChange?() }
             return true
+        case .mouseOverLink(let link):
+            // On every mouse move over text, so straight to the pane's card.
+            if case .surface(let view) = target { view.onLinkHover?(link) }
+            return true
         default: break
         }
         let located: (WindowState, Tab, Pane, TerminalWindowController)?
@@ -754,7 +758,11 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             located.3.shell(for: located.2.id)?.commandFinished(code: code, durationNs: duration)
             located.3.blocks(for: located.2.id)?.setNeedsRefresh()
             return true
-        case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .unhandled:
+        case .openURL(_, let text):
+            // Only what the system can open, never run: see `LinkTarget`.
+            guard let url = LinkTarget.resolve(text, relativeTo: located?.2.workingDirectory) else { return false }
+            return NSWorkspace.shared.open(url)
+        case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .mouseOverLink, .unhandled:
             // Config, mouse-shape and mouse-visibility actions are handled by the runtime.
             return false
         }

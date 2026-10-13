@@ -63,6 +63,10 @@ and Option acts as Alt by default. libghostty itself binds nothing (`keybind = c
 
 All of these can be changed in Settings › Keyboard.
 
+⌘-click opens a link or file path in the terminal's output (web links in the browser, files in
+their app; programs are never run). While the pointer is over one, its address shows at the
+pane's bottom-left.
+
 Vim-style navigation is on by default and can be turned off in Settings › Keyboard (its keys are
 fixed): ⌥H/J/K/L move focus to the pane on that side, ⌥⇧J/K go to the next and previous tab.
 With it on, those keys never reach the terminal.

@@ -11,6 +11,8 @@ protocol ChromeActions: AnyObject {
     func shell(for pane: PaneID) -> PaneShell?
     /// What runs in a pane and what happened there unseen (observes that pane alone).
     func activity(for pane: PaneID) -> PaneActivity.Visible
+    /// The link under the pointer in a pane (observes that pane alone).
+    func hoveredLink(for pane: PaneID) -> String?
     /// Every pane running an agent, in every window (observable).
     var agentList: AgentList { get }
     /// Brings a pane forward, in whichever window it is.
