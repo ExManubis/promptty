@@ -51,6 +51,8 @@ public struct Settings: Equatable, Sendable {
 
     // Keyboard
     public var optionAsAlt = OptionAsAlt.both
+    /// ⌥H/J/K/L focus panes and ⌥⇧J/K switch tabs (`VimNavigation`), taken from the terminal.
+    public var vimNavigation = true
     /// `ShortcutAction.rawValue` → shortcut, only for actions that differ from the defaults.
     public var shortcuts: [String: Shortcut] = [:]
 
@@ -77,7 +79,7 @@ extension Settings: Codable {
     enum CodingKeys: String, CodingKey {
         case version, fontFamily, fontSize, followSystemAppearance, lightTheme, darkTheme, theme
         case cursorStyle, cursorBlink, tintStrength, tabLayout, sidebarWidth, tabListHidden
-        case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, shortcuts
+        case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, shortcuts
     }
 
     public init(from decoder: Decoder) throws {
@@ -103,6 +105,7 @@ extension Settings: Codable {
         s.restoreSession = value(.restoreSession, s.restoreSession)
         s.confirmCloseRunning = value(.confirmCloseRunning, s.confirmCloseRunning)
         s.optionAsAlt = value(.optionAsAlt, s.optionAsAlt)
+        s.vimNavigation = value(.vimNavigation, s.vimNavigation)
         // Decode shortcuts one by one so a single bad entry does not drop the rest.
         if let raw = try? c.decodeIfPresent([String: String].self, forKey: .shortcuts) {
             s.shortcuts = raw.compactMapValues(Shortcut.init(string:))
@@ -135,6 +138,7 @@ extension Settings: Codable {
         try c.encode(restoreSession, forKey: .restoreSession)
         try c.encode(confirmCloseRunning, forKey: .confirmCloseRunning)
         try c.encode(optionAsAlt, forKey: .optionAsAlt)
+        try c.encode(vimNavigation, forKey: .vimNavigation)
         try c.encode(shortcuts, forKey: .shortcuts)
     }
 }

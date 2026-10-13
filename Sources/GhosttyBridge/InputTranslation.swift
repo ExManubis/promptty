@@ -1,8 +1,9 @@
 import AppKit
 import GhosttyKit
 
-/// Who gets a key press first. PrompTTY's shortcuts all contain ⌘ and live in the menu; every
-/// other key belongs to the terminal, including Control and Option combinations.
+/// Who gets a key press first. PrompTTY's menu shortcuts all contain ⌘; every other key belongs
+/// to the terminal, including Control and Option combinations. (The app takes its vim-style
+/// ⌥H/J/K/L and ⌥⇧J/K before the window delivers them.)
 public enum KeyRouting {
     public static func terminalHandlesKeyEquivalent(flags: NSEvent.ModifierFlags) -> Bool {
         !flags.contains(.command)

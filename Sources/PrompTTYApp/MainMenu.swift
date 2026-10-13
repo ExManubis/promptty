@@ -2,7 +2,8 @@ import AppKit
 import Preferences
 
 /// The menu bar. Every editable shortcut comes from `ShortcutMap`, and every shortcut contains ⌘,
-/// so no menu item ever takes a key the terminal should get.
+/// so no menu item ever takes a key the terminal should get. (Vim-style navigation, ⌥H/J/K/L and
+/// ⌥⇧J/K, is taken by the terminal window itself; see `VimNavigation`.)
 enum MainMenu {
     /// Responder-chain actions, implemented by `AppDelegate` and `TerminalWindowController`.
     enum Action {

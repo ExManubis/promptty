@@ -134,10 +134,11 @@ struct KeyboardSection: View {
                     Text("Right only").tag(OptionAsAlt.right)
                     Text("Off").tag(OptionAsAlt.off)
                 }
+                Toggle("Vim-style navigation", isOn: $model.settings.vimNavigation)
             } header: {
                 Text("Terminal")
             } footer: {
-                Text("PrompTTY only uses shortcuts with ⌘. Every ⌃, ⌥ and ⌃⇧ combination goes straight to the terminal and the programs in it, like Neovim. Turn Alt off to type characters such as å with ⌥.")
+                Text("Vim-style navigation: ⌥H, ⌥J, ⌥K and ⌥L focus the pane in that direction, ⌥⇧J and ⌥⇧K go to the next and previous tab. Apart from those, PrompTTY only uses shortcuts with ⌘: every other ⌃, ⌥ and ⌃⇧ combination goes straight to the terminal and the programs in it, like Neovim. Turn Alt off to type characters such as å with ⌥.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }

@@ -21,7 +21,17 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(s.restoreSession)
         XCTAssertTrue(s.confirmCloseRunning)
         XCTAssertEqual(s.optionAsAlt, .both)
+        XCTAssertTrue(s.vimNavigation)
         XCTAssertTrue(s.shortcuts.isEmpty)
+    }
+
+    func testVimNavigationCanBeTurnedOffAndStaysOnForOlderFiles() throws {
+        var s = Settings()
+        s.vimNavigation = false
+        let decoded = try JSONDecoder().decode(Settings.self, from: JSONEncoder().encode(s))
+        XCTAssertFalse(decoded.vimNavigation)
+        let older = try JSONDecoder().decode(Settings.self, from: Data(#"{"version":2}"#.utf8))
+        XCTAssertTrue(older.vimNavigation)
     }
 
     func testJSONRoundTrip() throws {

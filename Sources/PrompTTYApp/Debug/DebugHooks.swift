@@ -370,6 +370,7 @@ enum DebugHooks {
             case "sidebarWidth": coordinator.preferences.update { $0.sidebarWidth = Double(args[1]) ?? 220 }
             case "tintStrength": coordinator.preferences.update { $0.tintStrength = Double(args[1]) ?? 0.5 }
             case "follow": coordinator.preferences.update { $0.followSystemAppearance = args[1] == "on" }
+            case "vim": coordinator.preferences.update { $0.vimNavigation = args[1] == "on" }
             case "theme": coordinator.preferences.update { $0.theme = args[1].replacingOccurrences(of: "_", with: " ") }
             default: return "error: unknown setting"
             }

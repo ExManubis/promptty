@@ -36,7 +36,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         self.state = state
         self.coordinator = coordinator
         self.runtime = runtime
-        let window = NSWindow(
+        let window = TerminalWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 650),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
@@ -60,6 +60,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         window.minSize = NSSize(width: 520, height: 320)
         super.init(window: window)
         window.delegate = self
+        window.keyInterceptor = { [weak self] event in self?.handleVimNavigation(event) ?? false }
         let root = WindowRootView(
             state: state,
             workspace: coordinator.workspace,
@@ -503,6 +504,35 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     @objc func focusPaneRight(_ sender: Any?) { moveFocus(.right) }
     @objc func focusPaneDown(_ sender: Any?) { moveFocus(.down) }
 
+    /// ⌥H/J/K/L and ⌥⇧J/K, before the terminal or the input bar sees them. Other text fields
+    /// (renaming a tab) and text being composed keep their keys.
+    func handleVimNavigation(_ event: NSEvent) -> Bool {
+        guard coordinator.preferences.settings.vimNavigation, window?.attachedSheet == nil,
+              let responder = window?.firstResponder,
+              responder is TerminalSurfaceView || responder is CommandTextView,
+              (responder as? NSTextInputClient)?.hasMarkedText() != true,
+              let key = event.charactersIgnoringModifiers else { return false }
+        let flags = event.modifierFlags
+        var modifiers: Shortcut.Modifiers = []
+        if flags.contains(.option) { modifiers.insert(.option) }
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if flags.contains(.command) { modifiers.insert(.command) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        guard let command = VimNavigation.command(key: key, modifiers: modifiers) else { return false }
+        switch command {
+        case .focusPane(let direction):
+            switch direction {
+            case .left: moveFocus(.left)
+            case .down: moveFocus(.down)
+            case .up: moveFocus(.up)
+            case .right: moveFocus(.right)
+            }
+        case .nextTab: nextTab(nil)
+        case .previousTab: previousTab(nil)
+        }
+        return true
+    }
+
     private func moveFocus(_ direction: SplitDirection) {
         guard let tab = state.selectedTab, tab.moveFocus(direction) else { return }
         reload()
@@ -578,5 +608,16 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         guard let f = window?.frame else { return }
         state.frame = WindowFrame(x: f.origin.x, y: f.origin.y, width: f.width, height: f.height)
         coordinator.modelDidChange()
+    }
+}
+
+/// The terminal window: lets its controller take a key before anything in the window does, as
+/// both real key presses and the debug driver's go through `sendEvent`.
+final class TerminalWindow: NSWindow {
+    var keyInterceptor: ((NSEvent) -> Bool)?
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, keyInterceptor?(event) == true { return }
+        super.sendEvent(event)
     }
 }
