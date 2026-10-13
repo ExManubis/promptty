@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# Builds PrompTTY for distribution outside the App Store: a Release build signed with the
+# Developer ID, notarized by Apple and stapled, zipped into dist/.
+#
+#   script/release                 build, sign, notarize, staple, package
+#   script/release --no-notarize   build and sign only, to check signing without Apple
+#
+# Notarization signs in with a notarytool keychain profile ("promptty", or $NOTARY_PROFILE),
+# created once with an app-specific password from account.apple.com:
+#   xcrun notarytool store-credentials promptty --apple-id <your Apple ID> --team-id RQ2CW4W282
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+notarize=1
+case "${1:-}" in
+  --no-notarize) notarize=0 ;;
+  "") ;;
+  *) echo "usage: script/release [--no-notarize]" >&2; exit 2 ;;
+esac
+PROFILE=${NOTARY_PROFILE:-promptty}
+DERIVED=.build/release
+APP=$DERIVED/Build/Products/Release/PrompTTY.app
+LOG=$DERIVED/build.log
+
+step() { printf '\n==> %s\n' "$*"; }
+fail() { printf '\nrelease: %s\n' "$*" >&2; exit 1; }
+
+step "Checking the signing identity and the notary profile"
+security find-identity -v -p codesigning | grep -q '"Developer ID Application' \
+  || fail "no \"Developer ID Application\" certificate in the keychain"
+if [ "$notarize" = 1 ]; then
+  xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 \
+    || fail "no notarytool profile \"$PROFILE\"; create it with: xcrun notarytool store-credentials $PROFILE --apple-id <your Apple ID> --team-id RQ2CW4W282"
+fi
+[ -z "$(git status --porcelain)" ] || echo "note: the working tree has uncommitted changes; they are in this build"
+
+step "Building Release"
+mkdir -p "$DERIVED"
+rm -rf "$APP"
+xcodegen generate >/dev/null
+# The build number is the commit count, as in script/run, so each release is newer than the last.
+if ! xcodebuild -project PrompTTY.xcodeproj -scheme PrompTTYApp -configuration Release \
+    -destination "platform=macOS,arch=arm64" -derivedDataPath "$DERIVED" \
+    CURRENT_PROJECT_VERSION="$(git rev-list --count HEAD)" build >"$LOG" 2>&1; then
+  grep -E ' error: ' "$LOG" | head -20 >&2 || tail -30 "$LOG" >&2
+  fail "the build failed (full log: $LOG)"
+fi
+VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Contents/Info.plist")
+BUILD=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" "$APP/Contents/Info.plist")
+echo "PrompTTY $VERSION ($BUILD)"
+
+step "Verifying the signature"
+codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 | tail -2
+SIGNATURE=$(codesign -dvv "$APP" 2>&1)
+grep -q "Authority=Developer ID Application" <<<"$SIGNATURE" || fail "not signed with a Developer ID Application certificate"
+grep -q "flags=.*runtime" <<<"$SIGNATURE" || fail "the hardened runtime is off; notarization would reject it"
+grep -q "Timestamp=" <<<"$SIGNATURE" || fail "the signature has no secure timestamp; notarization would reject it"
+if codesign -d --entitlements - "$APP" 2>/dev/null | grep -q "get-task-allow"; then
+  fail "the app carries the get-task-allow (debugging) entitlement; notarization would reject it"
+fi
+grep -E "^(Authority=Developer ID Application|TeamIdentifier|Timestamp)" <<<"$SIGNATURE"
+
+if [ "$notarize" = 0 ]; then
+  printf '\nSigned, not notarized: %s\n' "$APP"
+  exit 0
+fi
+
+step "Notarizing (usually a few minutes)"
+SUBMISSION=$DERIVED/PrompTTY-notarize.zip
+rm -f "$SUBMISSION"
+ditto -c -k --keepParent "$APP" "$SUBMISSION"
+RESULT=$(xcrun notarytool submit "$SUBMISSION" --keychain-profile "$PROFILE" --wait --output-format json) \
+  || fail "the submission failed: $RESULT"
+STATUS=$(plutil -extract status raw -o - - <<<"$RESULT")
+ID=$(plutil -extract id raw -o - - <<<"$RESULT")
+if [ "$STATUS" != "Accepted" ]; then
+  xcrun notarytool log "$ID" --keychain-profile "$PROFILE" >&2 || true
+  fail "notarization: $STATUS (submission $ID)"
+fi
+echo "Accepted (submission $ID)"
+
+step "Stapling the ticket"
+xcrun stapler staple "$APP"
+xcrun stapler validate "$APP"
+spctl --assess --type execute --verbose=2 "$APP"
+
+step "Packaging"
+mkdir -p dist
+ZIP=dist/PrompTTY-$VERSION-$BUILD.zip
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+printf '\n%s\nsha256 %s\n' "$ZIP" "$(shasum -a 256 "$ZIP" | cut -d' ' -f1)"

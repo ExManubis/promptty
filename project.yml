@@ -63,6 +63,16 @@ targets:
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
+      # Release builds are for distribution (script/release): signed with the Developer ID, with
+      # the hardened runtime and a secure timestamp that notarization requires. Only this target:
+      # the Swift packages' resource bundles sign themselves. Debug stays ad hoc, needing no key.
+      configs:
+        Release:
+          CODE_SIGN_IDENTITY: "Developer ID Application"
+          DEVELOPMENT_TEAM: RQ2CW4W282
+          ENABLE_HARDENED_RUNTIME: YES
+          OTHER_CODE_SIGN_FLAGS: "--timestamp"
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
 schemes:
   PrompTTYApp:
     build:
