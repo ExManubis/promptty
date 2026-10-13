@@ -134,6 +134,8 @@ final class PaneShell {
     /// using the same HISTFILE share (until the shell reports which that is, a file of its own).
     @ObservationIgnored private(set) var history = CommandHistory()
     private(set) var bar: BarPresentation = .hidden
+    /// ⌃R's history search, while it is open.
+    var historyPicker: HistoryPickerModel?
     /// The last command run from the bar or a picker, for a notification when it finishes unseen.
     @ObservationIgnored private(set) var lastCommand: String?
     /// The editor's height for its current text (one to eight lines).
@@ -251,6 +253,7 @@ final class PaneShell {
             await Task.detached(priority: .userInitiated) { DirectoryListing.entries(inDirectory: path) }.value
         }
         text.loadBranches = { [weak self] directory in await self?.localBranches(in: directory) ?? [] }
+        text.onHistorySearch = { [weak self] in self?.openHistorySearch(seed: $0) }
         text.onShellControl = { [weak self] in self?.surface?.sendControl($0) }
         text.onTextChange = { [weak self] in self?.editorTextChanged() }
         return view
@@ -377,6 +380,26 @@ final class PaneShell {
 
     /// After a picker closes from its own keys or a click on a row: the keys go back to the bar.
     /// (Closed by a click elsewhere, the keys stay where that click put them.)
+    /// ⌃R in the bar: merges the history once and opens the search over it.
+    func openHistorySearch(seed: String) {
+        guard bar == .active, historyPicker == nil else { return }
+        historyPicker = HistoryPickerModel(newestFirst: history.newestFirst,
+                                           folder: FolderHistoryStore.shared.ranked(for: directory), seed: seed)
+    }
+
+    /// Puts `command` in the bar without running it.
+    func chooseHistoryCommand(_ command: String) {
+        historyPicker = nil
+        editor.textView.setCommand(command)
+        returnKeysToBar()
+    }
+
+    func closeHistorySearch() {
+        guard historyPicker != nil else { return }
+        historyPicker = nil
+        returnKeysToBar()
+    }
+
     func returnKeysToBar() {
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {

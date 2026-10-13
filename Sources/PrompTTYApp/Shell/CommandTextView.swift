@@ -39,6 +39,8 @@ final class CommandTextView: NSTextView {
     var onSubmit: ((String) -> Void)?
     /// Control keys for the shell: `d` (end of input) on an empty bar, `l` (clear screen).
     var onShellControl: ((Character) -> Void)?
+    /// ⌃R: opens the history search, seeded with the bar's text.
+    var onHistorySearch: ((String) -> Void)?
     var onFocus: (() -> Void)?
     var onTextChange: (() -> Void)?
     /// The terminal next to the bar: ⌘C copies its selection when the bar has none.
@@ -591,6 +593,8 @@ final class CommandTextView: NSTextView {
             onShellControl?("d")
         case "l":
             onShellControl?("l")
+        case "r":
+            onHistorySearch?(string)
         case "u":
             let caret = selectedRange().location
             let lineStart = (string as NSString).lineRange(for: NSRange(location: caret, length: 0)).location

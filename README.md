@@ -92,7 +92,9 @@ When your login shell is zsh, each idle pane shows a native input bar in place o
 prompt. Above it are the folder and git branch, the last command's duration (from a second) and
 its exit code (when it failed); the folder and branch buttons open pickers. The bar has history
 (↑/↓), ghost-text suggestions, Tab completion, syntax coloring and vi mode (when you use
-`bindkey -v`). While a program runs (`nvim`, `ssh`, `sudo`, a REPL) the bar is gone and every key
+`bindkey -v`). ⌃R opens a fuzzy search over the history, newest first, with the commands you ran in
+the current folder on top; ⏎ puts the chosen command in the bar without running it, ⌃R again moves
+to the next match, ⎋ closes. While a program runs (`nvim`, `ssh`, `sudo`, a REPL) the bar is gone and every key
 goes to the terminal.
 
 PrompTTY loads its zsh integration through `ZDOTDIR` and then your own files. Other shells get a
