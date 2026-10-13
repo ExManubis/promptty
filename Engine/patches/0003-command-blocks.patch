@@ -156,7 +156,7 @@ index 17eea73d0..60d4266a3 100644
  };
  
 diff --git a/src/terminal/Terminal.zig b/src/terminal/Terminal.zig
-index 6740a93e6..2249b2c1c 100644
+index 6740a93e6..dcd14c202 100644
 --- a/src/terminal/Terminal.zig
 +++ b/src/terminal/Terminal.zig
 @@ -30,6 +30,7 @@ const size = @import("size.zig");
@@ -167,7 +167,19 @@ index 6740a93e6..2249b2c1c 100644
  const ScreenSet = @import("ScreenSet.zig");
  const Page = pagepkg.Page;
  const Cell = pagepkg.Cell;
-@@ -1302,6 +1303,9 @@ pub fn semanticPrompt(
+@@ -1189,7 +1190,10 @@ pub fn semanticPrompt(
+     cmd: osc.Command.SemanticPrompt,
+ ) !void {
+     switch (cmd.action) {
+-        .fresh_line => try self.semanticPromptFreshLine(),
++        .fresh_line => {
++            try self.semanticPromptFreshLine();
++            if (cmd.readOption(.gap) orelse false) try self.semanticPromptGap();
++        },
+ 
+         .fresh_line_new_prompt => {
+             // "First do a fresh-line."
+@@ -1302,10 +1306,26 @@ pub fn semanticPrompt(
              // its reasonable at this point to reset our semantic content
              // state but the spec doesn't really say what to do.
              self.screens.active.cursorSetSemanticContent(.output);
@@ -177,12 +189,29 @@ index 6740a93e6..2249b2c1c 100644
          },
      }
  }
+ 
++// PrompTTY's OSC 133;L;gap=1, sent before a prompt that follows a
++// command: one blank row between the command's output and the prompt.
++// The cursor's row is cleared (it holds only spaces a shell printed to
++// find a fresh line), and the cursor moves past it unless the row above
++// is already blank, as when the command printed nothing and its output
++// would have started on that row.
++fn semanticPromptGap(self: *Terminal) !void {
++    self.eraseLine(.complete, false);
++    const above = self.screens.active.cursor.page_pin.up(1) orelse return;
++    if (!blocks.rowHasText(above)) return;
++    try self.index();
++}
++
+ // OSC 133;L
+ fn semanticPromptFreshLine(self: *Terminal) !void {
+     const left_margin = if (self.screens.active.cursor.x < self.scrolling_region.left)
 diff --git a/src/terminal/blocks.zig b/src/terminal/blocks.zig
 new file mode 100644
-index 000000000..d96707916
+index 000000000..39a578f56
 --- /dev/null
 +++ b/src/terminal/blocks.zig
-@@ -0,0 +1,286 @@
+@@ -0,0 +1,321 @@
 +//! Command blocks: each command the shell ran, found from its semantic
 +//! prompt marks (OSC 133), with the output it printed. A block starts on
 +//! the first row of a prompt that has input and runs to the last row with
@@ -292,15 +321,23 @@ index 000000000..d96707916
 +    return false;
 +}
 +
-+/// The last row from `first` to `last` (inclusive) with any text, or
-+/// `first` when none has.
++/// The last row from `first` to `last` (inclusive) showing anything
++/// but spaces, or `first` when none does.
 +fn lastRowWithText(first: Pin, last: Pin) Pin {
 +    var row = last;
 +    while (true) {
 +        if (row.node == first.node and row.y == first.y) return first;
-+        for (row.cells(.all)) |cell| if (cell.hasText()) return row.left(row.x);
++        if (rowHasText(row)) return row.left(row.x);
 +        row = row.up(1) orelse return first;
 +    }
++}
++
++/// True when the row `pin` is on shows anything but spaces.
++pub fn rowHasText(pin: Pin) bool {
++    for (pin.cells(.all)) |cell| {
++        if (cell.hasText() and cell.content.codepoint != ' ') return true;
++    }
++    return false;
 +}
 +
 +/// Moves `end` back to the last cell with text, not before `start`.
@@ -321,7 +358,8 @@ index 000000000..d96707916
 +
 +// What a PrompTTY pane sends around each command: zsh with Ghostty's
 +// integration (the marks), PrompTTY's (an empty prompt, input from the
-+// bar) and another integration that repeats the marks.
++// bar, a blank row before the output and one after it) and another
++// integration that repeats the marks.
 +const Session = struct {
 +    const prompt =
 +        "\r\x1b[0m\x1b[27m\x1b[24m\x1b[J\x1b]133;A;cl=line\x07\x1b]133;B\x07\x1b[K\x1b[6 q\x1b[K" ++
@@ -329,12 +367,12 @@ index 000000000..d96707916
 +
 +    fn command(comptime text: []const u8) []const u8 {
 +        return "\x1b[K" ++ text[0..1] ++ "\r" ++ text ++ "\r\x1b[32m" ++ text ++ "\x1b[39m\x1b[5 q\x1b[?2004l\r\r\n" ++
-+            "\x1b[6 q\x1b]133;C;\x07\x1b[?25h\x1b]133;C\x07\x1b[0 q";
++            "\x1b[6 q\x1b]133;C;\x07\x1b[?25h\x1b]133;C\x07\r\n\x1b]133;C\x07\x1b[0 q";
 +    }
 +
 +    fn finished(comptime code: []const u8) []const u8 {
 +        return "\x1b[1m\x1b[7m%\x1b[27m\x1b[1m\x1b[0m" ++ (" " ** 39) ++ "\r \r" ++
-+            "\x1b]133;D;" ++ code ++ "\x07\x1b]133;D;" ++ code ++ "\x07";
++            "\x1b]133;D;" ++ code ++ "\x07\x1b]133;L;gap=1\x07\x1b]133;D;" ++ code ++ "\x07";
 +    }
 +};
 +
@@ -348,7 +386,7 @@ index 000000000..d96707916
 +
 +test "blocks: commands with and without output" {
 +    const alloc = testing.allocator;
-+    var t = try testTerminal(alloc, 10);
++    var t = try testTerminal(alloc, 20);
 +    defer t.deinit(alloc);
 +    var s = t.vtStream();
 +    defer s.deinit();
@@ -361,10 +399,11 @@ index 000000000..d96707916
 +    var out: [8]Block = undefined;
 +    const n = list(t.screens.active, &out);
 +    try testing.expectEqual(3, n);
-+    try testing.expectEqual(Block{ .row = 0, .end_row = 1, .exit_code = 0 }, out[0]);
-+    // The next prompt takes the line after the output (zsh's PROMPT_SP).
-+    try testing.expectEqual(Block{ .row = 2, .end_row = 2, .exit_code = 1 }, out[1]);
-+    try testing.expectEqual(Block{ .row = 3, .end_row = 6, .exit_code = 0 }, out[2]);
++    // A blank row between each command and its output, and one after: a
++    // command that printed nothing has only the one.
++    try testing.expectEqual(Block{ .row = 0, .end_row = 2, .exit_code = 0 }, out[0]);
++    try testing.expectEqual(Block{ .row = 4, .end_row = 4, .exit_code = 1 }, out[1]);
++    try testing.expectEqual(Block{ .row = 6, .end_row = 10, .exit_code = 0 }, out[2]);
 +
 +    const screen = t.screens.active;
 +    {
@@ -378,20 +417,21 @@ index 000000000..d96707916
 +        try testing.expectEqualStrings("hello", text);
 +    }
 +    {
-+        const text = try testText(alloc, screen, selection(screen, 3, .output).?);
++        const text = try testText(alloc, screen, selection(screen, 6, .output).?);
 +        defer alloc.free(text);
 +        try testing.expectEqualStrings("a\nb\nc", text);
 +    }
 +    {
-+        const text = try testText(alloc, screen, selection(screen, 3, .all).?);
++        const text = try testText(alloc, screen, selection(screen, 6, .all).?);
 +        defer alloc.free(text);
-+        try testing.expectEqualStrings("printf\na\nb\nc", text);
++        try testing.expectEqualStrings("printf\n\na\nb\nc", text);
 +    }
-+    try testing.expect(selection(screen, 2, .output) == null);
-+    // Rows that do not start a block: output, the empty prompt, nothing.
++    try testing.expect(selection(screen, 4, .output) == null);
++    // Rows that do not start a block: blank, output, the empty prompt, nothing.
 +    try testing.expect(selection(screen, 1, .command) == null);
-+    try testing.expect(selection(screen, 7, .command) == null);
-+    try testing.expect(selection(screen, 9, .command) == null);
++    try testing.expect(selection(screen, 2, .command) == null);
++    try testing.expect(selection(screen, 12, .command) == null);
++    try testing.expect(selection(screen, 19, .command) == null);
 +}
 +
 +test "blocks: a running command has no exit status yet" {
@@ -404,7 +444,7 @@ index 000000000..d96707916
 +    s.nextSlice(comptime Session.prompt ++ Session.command("sleep") ++ "working\r\n");
 +    var out: [8]Block = undefined;
 +    try testing.expectEqual(1, list(t.screens.active, &out));
-+    try testing.expectEqual(Block{ .row = 0, .end_row = 1, .exit_code = null }, out[0]);
++    try testing.expectEqual(Block{ .row = 0, .end_row = 2, .exit_code = null }, out[0]);
 +}
 +
 +test "blocks: none without shell integration, or at an empty prompt" {
@@ -449,7 +489,7 @@ index 000000000..d96707916
 +    s.nextSlice(comptime Session.prompt);
 +    var out: [2]Block = undefined;
 +    try testing.expectEqual(1, list(t.screens.active, &out));
-+    try testing.expectEqual(Block{ .row = 0, .end_row = 7, .exit_code = 0 }, out[0]);
++    try testing.expectEqual(Block{ .row = 0, .end_row = 8, .exit_code = 0 }, out[0]);
 +    const text = try testText(alloc, t.screens.active, selection(t.screens.active, 0, .output).?);
 +    defer alloc.free(text);
 +    try testing.expectEqualStrings("1\n2\n3\n4\n5\n6\n7", text);
@@ -469,6 +509,30 @@ index 000000000..d96707916
 +    try testing.expectEqual(1, list(t.screens.active, &out));
 +    try testing.expectEqual(@as(?u8, 7), out[0].exit_code);
 +}
++
++test "blocks: the gap before a prompt leaves one blank row" {
++    const alloc = testing.allocator;
++    var t = try testTerminal(alloc, 10);
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++
++    // Output ending in a newline: the cursor's row becomes the gap.
++    s.nextSlice("out\r\n\x1b]133;L;gap=1\x07");
++    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.y);
++    // Already after a blank row: no second one.
++    s.nextSlice("\x1b]133;L;gap=1\x07");
++    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.y);
++    // Output without a final newline: a fresh line, then the gap.
++    s.nextSlice("abc\x1b]133;L;gap=1\x07");
++    try testing.expectEqual(@as(usize, 4), t.screens.active.cursor.y);
++    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
++    // The gap row holds nothing, not even the spaces a shell printed there.
++    s.nextSlice("x\r\n   \r\x1b]133;L;gap=1\x07");
++    try testing.expectEqual(@as(usize, 6), t.screens.active.cursor.y);
++    const gap = t.screens.active.cursor.page_pin.up(1).?;
++    for (gap.cells(.all)) |cell| try testing.expect(!cell.hasText());
++}
 diff --git a/src/terminal/main.zig b/src/terminal/main.zig
 index 87a9aded9..cfd8041b2 100644
 --- a/src/terminal/main.zig
@@ -481,6 +545,78 @@ index 87a9aded9..cfd8041b2 100644
  pub const dcs = @import("dcs.zig");
  pub const osc = @import("osc.zig");
  pub const point = @import("point.zig");
+diff --git a/src/terminal/osc/parsers/semantic_prompt.zig b/src/terminal/osc/parsers/semantic_prompt.zig
+index 25152d7c3..2af5f8fc6 100644
+--- a/src/terminal/osc/parsers/semantic_prompt.zig
++++ b/src/terminal/osc/parsers/semantic_prompt.zig
+@@ -94,6 +94,10 @@ pub const Option = enum {
+     // parse it into our options.
+     exit_code,
+ 
++    // PrompTTY: with 'L', after the fresh line, leave one blank row
++    // above the cursor (see Terminal.semanticPromptGap).
++    gap,
++
+     pub fn Type(comptime self: Option) type {
+         return switch (self) {
+             .aid => []const u8,
+@@ -103,6 +107,7 @@ pub const Option = enum {
+             .redraw => Redraw,
+             .special_key => bool,
+             .click_events => bool,
++            .gap => bool,
+             .cmdline => []const u8,
+             .cmdline_url => []const u8,
+             .exit_code => i32,
+@@ -118,6 +123,7 @@ pub const Option = enum {
+             .redraw => "redraw",
+             .special_key => "special_key",
+             .click_events => "click_events",
++            .gap => "gap",
+             .cmdline => "cmdline",
+             .cmdline_url => "cmdline_url",
+ 
+@@ -200,7 +206,7 @@ pub const Option = enum {
+                     .last
+                 else
+                     null,
+-                .special_key, .click_events => if (value.len == 1) switch (value[0]) {
++                .special_key, .click_events, .gap => if (value.len == 1) switch (value[0]) {
+                     '0' => false,
+                     '1' => true,
+                     else => null,
+@@ -348,9 +354,11 @@ pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
+                 parser.command.semantic_prompt.options_unvalidated = data[2..];
+             },
+ 
+-            'L' => {
+-                if (data.len > 1) break :valid;
++            'L' => fresh_line: {
+                 parser.command = .{ .semantic_prompt = .init(.fresh_line) };
++                if (data.len == 1) break :fresh_line;
++                if (data[1] != ';') break :valid;
++                parser.command.semantic_prompt.options_unvalidated = data[2..];
+             },
+ 
+             'N' => new_command: {
+@@ -713,12 +721,14 @@ test "OSC 133: fresh_line extra contents" {
+         try testing.expect(p.end(null) == null);
+     }
+ 
+-    // Options
++    // Options (PrompTTY reads gap from them)
+     {
+         var p: Parser = .init(null);
+-        const input = "133;L;aid=foo";
++        const input = "133;L;gap=1";
+         for (input) |ch| p.next(ch);
+-        try testing.expect(p.end(null) == null);
++        const cmd = p.end(null).?.*;
++        try testing.expect(cmd.semantic_prompt.action == .fresh_line);
++        try testing.expect(cmd.semantic_prompt.readOption(.gap).?);
+     }
+ }
+ 
 diff --git a/src/terminal/page.zig b/src/terminal/page.zig
 index 0942e260c..bbcf1643d 100644
 --- a/src/terminal/page.zig

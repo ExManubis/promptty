@@ -70,9 +70,9 @@ public enum ZshIntegration {
         }
 
         # Every prompt: hide zsh's own prompt (the input bar replaces it) and refresh what the bar
-        # knows about the shell. After a command, a blank row first, so commands stand apart: from
-        # a fresh line, as zsh's PROMPT_SP finds one (its end-of-line mark after output that did
-        # not end in a newline, then spaces to the next line), erased so the terminal sees it empty.
+        # knows about the shell. After a command, the terminal is asked to leave a blank row before
+        # the prompt (PrompTTY's OSC 133;L;gap=1): only it knows whether the row above is blank
+        # already, as when the command printed nothing.
         _promptty_precmd() {
             'builtin' 'local' REPLY
             _promptty_prompt
@@ -80,16 +80,23 @@ public enum ZshIntegration {
             PROMPT="$REPLY" RPROMPT=''
             if (( ${_promptty_gap:-0} )); then
                 _promptty_gap=0
-                'builtin' 'print' -rnP -- "${PROMPT_EOL_MARK-%B%S%#%s%b}"
-                'builtin' 'print' -rn -- "${(l:COLUMNS-1:: :)}"$'\r\e[K\n'
+                'builtin' 'print' -rn -- $'\e]133;L;gap=1\a'
             fi
             _promptty_write_state
         }
 
-        # A command runs. A blank row will follow it, unless it clears the screen.
+        # A command runs: its output starts after a blank row, and a blank row will follow it,
+        # unless it clears the screen. The output is marked as starting here (OSC 133;C), before
+        # the newline, so the blank row belongs to the output and not to the command. A command
+        # that prints nothing leaves the cursor on that row, which then is the gap after it.
         _promptty_preexec() {
             'builtin' 'print' -rn -- $'\e[?25h'
-            [[ "${1%% *}" == (clear|reset) ]] && _promptty_gap=0 || _promptty_gap=1
+            if [[ "${1%% *}" == (clear|reset) ]]; then
+                _promptty_gap=0
+            else
+                _promptty_gap=1
+                'builtin' 'print' -rn -- $'\e]133;C\a\n'
+            fi
         }
 
         # zle is about to read a line: the prompt is ready. A theme that set its prompt after our

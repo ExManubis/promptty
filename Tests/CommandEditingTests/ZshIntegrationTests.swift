@@ -122,18 +122,26 @@ final class ZshIntegrationTests: XCTestCase {
         return String(output[output.index(after: start)..<end]).replacingOccurrences(of: "\u{1b}[?25h", with: "")
     }
 
-    /// Commands are spaced apart: after one runs, a blank row before the next prompt (from a fresh
-    /// line, past output that did not end in one, which keeps zsh's end-of-line mark).
+    /// Commands are spaced apart: after one runs, the terminal is asked for a blank row before the
+    /// next prompt (PrompTTY's OSC 133;L;gap=1). It knows whether the row above is blank already,
+    /// as when the command printed nothing; the shell does not.
     func testABlankRowFollowsEachCommand() throws {
         try XCTSkipUnless(FileManager.default.isExecutableFile(atPath: "/bin/zsh"))
         let gap = try gapAfter("echo hi")
-        // The row is erased, not overwritten with spaces, so the terminal sees it empty.
-        XCTAssertTrue(gap.hasSuffix("     \r\u{1b}[K\n"), gap.debugDescription)
-        XCTAssertTrue(gap.contains("%"), gap.debugDescription)
+        XCTAssertTrue(gap.hasSuffix("\u{1b}]133;L;gap=1\u{07}"), gap.debugDescription)
         // Not before the first prompt, nor after an empty line, nor on a cleared screen.
         XCTAssertEqual(try gapAfter(nil), "")
         XCTAssertEqual(try gapAfter("clear"), "")
         XCTAssertEqual(try gapAfter("reset -q"), "")
+    }
+
+    /// A command's output starts after a blank row: the shell marks where output begins (so the
+    /// row is output, not part of the command) and moves down one. Not for clear/reset.
+    func testABlankRowSeparatesACommandFromItsOutput() throws {
+        try XCTSkipUnless(FileManager.default.isExecutableFile(atPath: "/bin/zsh"))
+        let ran = try gapAfter("echo hi")
+        XCTAssertTrue(ran.hasPrefix("\u{1b}]133;C\u{07}\n"), ran.debugDescription)
+        XCTAssertEqual(try gapAfter("clear"), "")
     }
 
     /// Runs the integration in a real interactive zsh with an empty home and checks the state file
