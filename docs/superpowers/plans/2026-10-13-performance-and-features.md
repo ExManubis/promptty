@@ -159,7 +159,7 @@ Each task states its own acceptance criteria.
 **Files:** `Sources/PrompTTYApp/Blocks/*`, `Sources/CommandBlocks/CommandBlocks.swift`, `ShortcutMap.swift`, `MainMenu.swift`, `PaneShell.swift` (rerun into input bar)
 
 1. **Rerun:** put the selected block's command into the input bar (not executed; user presses Return). Available from the block's hover buttons, the context menu, and a shortcut (default ⇧⌘R).
-2. **Jump to failed:** select previous/next block whose exit code was non-zero (`CommandBlock.failed`), default ⌥⌘↑ / ⌥⌘↓.
+2. **Jump to failed:** select previous/next block whose exit code was non-zero (`CommandBlock.failed`), default ⌃⌘↑ / ⌃⌘↓ (⌥⌘arrows already move pane focus).
 3. **Copy as Markdown:** command and output as a fenced block: "```console\n$ <command>\n<output>\n```".
 4. **Context menu** on a block header/area: Copy Command, Copy Output, Copy as Markdown, Rerun.
 5. Unit-test the Markdown formatting and failed-block navigation logic in CommandBlocks tests.
@@ -214,7 +214,7 @@ Each task states its own acceptance criteria.
 
 ### Task 20: Diff review panel for an agent's changes
 
-**Files:** new `Sources/PrompTTYApp/Chrome/ChangesPanel.swift`, pure diff parsing in a library (e.g. `CommandEditing/GitDiff.swift`) with tests, `AgentsSection.swift`/`TabRow.swift` context menus, `ShortcutMap.swift` (⌥⌘D "Show Changes")
+**Files:** new `Sources/PrompTTYApp/Chrome/ChangesPanel.swift`, pure diff parsing in a library (e.g. `CommandEditing/GitDiff.swift`) with tests, `AgentsSection.swift`/`TabRow.swift` context menus, `ShortcutMap.swift` (⇧⌘E "Show Changes"; ⌥⌘D is the system Dock shortcut)
 
 1. "Show Changes" for a tab/agent whose folder is in a git repository opens a panel (sheet or trailing inspector in the window) listing changed files (`git status --porcelain=v2`) and, for the selected file, its unified diff (`git diff` against HEAD, including untracked files as additions) with added/removed line coloring in a monospaced font. Runs off the main thread; refresh button; refreshes automatically when that pane's agent reaches "your turn" (Task 17/screen-hash state) while the panel is open.
 2. Read-only (no staging/committing).
