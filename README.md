@@ -73,8 +73,8 @@ When your login shell is zsh, each idle pane shows a native input bar in place o
 prompt. Above it are the folder and git branch, the last command's duration (from a second) and
 its exit code (when it failed); the folder and branch buttons open pickers. The bar has history
 (↑/↓), ghost-text suggestions, Tab completion, syntax coloring and vi mode (when you use
-`bindkey -v`). While a program runs
-(`nvim`, `ssh`, `sudo`, a REPL) the bar is gone and every key goes to the terminal.
+`bindkey -v`). While a program runs (`nvim`, `ssh`, `sudo`, a REPL) the bar is gone and every key
+goes to the terminal.
 
 PrompTTY loads its zsh integration through `ZDOTDIR` and then your own files. Other shells get a
 plain terminal.
@@ -85,9 +85,9 @@ command.
 ## Tabs and agents
 
 Drag tabs to reorder them. **Pin Tab** (in a tab's context menu, or drag it onto the pinned
-tiles) keeps the tab's folder and the command running in it
-(`claude`, `npm run dev`): a pinned tab comes back on relaunch, restarts instead of closing, and
-can be reset, given another command, or given its own icon (**Change Icon…**).
+tiles) keeps the tab's folder and the command running in it (`claude`, `npm run dev`): a pinned
+tab comes back on relaunch, restarts instead of closing, and can be reset, given another command,
+or given its own icon (**Change Icon…**).
 
 PrompTTY recognizes coding agents (Claude Code, Codex, Amp, Cline and others) running in a pane.
 While any run, the top of the sidebar lists every agent in every window, grouped by project, with
