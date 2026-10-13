@@ -258,10 +258,7 @@ final class CommandTextView: NSTextView {
             let range = NSRange(location: prefix, length: old.count - prefix - suffix)
             let replacement = String(decoding: new[prefix..<(new.count - suffix)], as: UTF16.self)
             breakUndoCoalescing()
-            if shouldChangeText(in: range, replacementString: replacement) {
-                textStorage?.replaceCharacters(in: range, with: replacement)
-                didChangeText()
-            }
+            replaceText(in: range, with: replacement)
         }
         setSelectedRange(NSRange(location: min(buffer.cursor, (string as NSString).length), length: 0))
     }
@@ -279,25 +276,26 @@ final class CommandTextView: NSTextView {
         guard let next else { return }
         replacingFromHistory = true
         defer { replacingFromHistory = false }
-        let all = NSRange(location: 0, length: (string as NSString).length)
         breakUndoCoalescing()
-        if shouldChangeText(in: all, replacementString: next) {
-            textStorage?.replaceCharacters(in: all, with: next)
-            didChangeText()
-        }
+        replaceText(in: NSRange(location: 0, length: (string as NSString).length), with: next)
         var end = (next as NSString).length
         if vi.mode == .normal, end > 0 { end -= 1 }
         setSelectedRange(NSRange(location: end, length: 0))
     }
 
+    /// Replaces `range` with `text` as an undoable edit, in the bar's own font and line height: a
+    /// plain string would take the attributes of the text it replaces, and into an empty bar that
+    /// is none at all (AppKit's Helvetica 12).
+    private func replaceText(in range: NSRange, with text: String) {
+        guard shouldChangeText(in: range, replacementString: text) else { return }
+        textStorage?.replaceCharacters(in: range, with: NSAttributedString(string: text, attributes: typingAttributes))
+        didChangeText()
+    }
+
     /// Replaces what is typed with `command`, the caret at its end, as one undoable edit.
     func setCommand(_ command: String) {
-        let all = NSRange(location: 0, length: (string as NSString).length)
         breakUndoCoalescing()
-        if shouldChangeText(in: all, replacementString: command) {
-            textStorage?.replaceCharacters(in: all, with: command)
-            didChangeText()
-        }
+        replaceText(in: NSRange(location: 0, length: (string as NSString).length), with: command)
         var end = (command as NSString).length
         if vi.mode == .normal, end > 0 { end -= 1 }
         setSelectedRange(NSRange(location: end, length: 0))
