@@ -85,6 +85,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         saver = DebouncedSaver(delay: .seconds(1)) { [weak self] in self?.saveSession() }
         coordinator.onModelChanged = { [weak self] in self?.saver.schedule() }
         runtime.sink = coordinator
+        // Output in any terminal wakes the runtime (`.render` is never sent on macOS). The 120 Hz
+        // link runs only in the key window, so that is the only one told.
+        runtime.onTick = {
+            #if DEBUG
+            // A driven app has no key window.
+            if NSApp.keyWindow == nil { (NSApp.windows.first { $0 is TerminalWindow } as? TerminalWindow)?.activityObserver?(); return }
+            #endif
+            (NSApp.keyWindow as? TerminalWindow)?.activityObserver?()
+        }
         runtime.onConfigDiagnostics = { [weak self] diags in
             self?.coordinator.configDidReload()
             self?.coordinator.showConfigDiagnostics(diags)

@@ -23,6 +23,8 @@ public final class GhosttyRuntime {
     nonisolated let tickPending = OSAllocatedUnfairLock(initialState: false)
 
     public weak var sink: GhosttyActionSink?
+    /// Called on the main thread at each coalesced wakeup tick: some terminal had output.
+    public var onTick: (() -> Void)?
     public private(set) var configDiagnostics: [String] = []
     /// Called after every reload with the current diagnostics (possibly empty).
     public var onConfigDiagnostics: (([String]) -> Void)?
@@ -63,7 +65,10 @@ public final class GhosttyRuntime {
 
     // MARK: Public API
 
-    public func tick() { ghostty_app_tick(app) }
+    public func tick() {
+        onTick?()
+        ghostty_app_tick(app)
+    }
 
     /// Re-reads `configURL` and applies it to every surface.
     public func reloadConfig() {

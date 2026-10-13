@@ -738,12 +738,13 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     /// Display link callbacks, for the debug driver: the rate the system granted.
     private(set) var refreshTicks = 0
     #if DEBUG
-    /// Debug driver: runs the display link without the app in front (a driven app never is).
+    /// Debug driver: allows the display link without the app in front (a driven app never is);
+    /// it still starts and stops with activity.
     var forceFullRefreshRate = false
     #endif
 
-    /// Key input or terminal output: keeps the link running, or starts it. Called for every
-    /// render, so it only stamps the time while the link runs.
+    /// Key input or terminal output: keeps the link running, or starts it. Called at every
+    /// runtime wakeup, so it only stamps the time while the link runs.
     func noteRefreshActivity() {
         lastRefreshActivity = CACurrentMediaTime()
         if refreshLink == nil { updateRefreshRate() }
@@ -761,6 +762,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             link.preferredFrameRateRange = CAFrameRateRange(minimum: rate, maximum: rate, preferred: rate)
             link.add(to: .main, forMode: .common)
             refreshLink = link
+            lastRefreshActivity = CACurrentMediaTime() // activation or the setting turning on counts
         } else if !wanted, let link = refreshLink {
             link.invalidate()
             refreshLink = nil
@@ -769,11 +771,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     @objc private func refreshTick(_ link: CADisplayLink) {
         refreshTicks &+= 1
-        var idle = CACurrentMediaTime() - lastRefreshActivity > Self.refreshIdleSeconds
-        #if DEBUG
-        idle = idle && !forceFullRefreshRate
-        #endif
-        if idle {
+        if CACurrentMediaTime() - lastRefreshActivity > Self.refreshIdleSeconds {
             link.invalidate()
             refreshLink = nil
         }
@@ -794,7 +792,7 @@ final class TerminalWindow: NSWindow {
     /// Told of every click before it is delivered.
     var mouseDownObserver: ((NSEvent) -> Void)?
     /// Told of every key press, whichever view takes it (terminal or input bar), and of each
-    /// terminal render.
+    /// wakeup of the terminal runtime (output).
     var activityObserver: (() -> Void)?
 
     override func sendEvent(_ event: NSEvent) {
