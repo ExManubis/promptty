@@ -4,17 +4,35 @@ import XCTest
 final class AgentListingTests: XCTestCase {
     private let claude = ProgramCatalog.identify(executable: "/usr/local/bin/claude", arguments: ["claude"])!
 
-    func testTitleIsThePanesOwnUnlessItIsEmptyOrTheFolder() {
-        XCTAssertEqual(AgentListing.title(paneTitle: " Fix login ", workingDirectory: "/src/app", program: claude), "Fix login")
-        XCTAssertEqual(AgentListing.title(paneTitle: "  ", workingDirectory: "/src/app", program: claude), claude.name)
-        XCTAssertEqual(AgentListing.title(paneTitle: "/src/app", workingDirectory: "/src/app", program: claude), claude.name)
-    }
-
     func testElapsed() {
         XCTAssertEqual(AgentListing.elapsed(-3), "0 s")
         XCTAssertEqual(AgentListing.elapsed(59.9), "59 s")
         XCTAssertEqual(AgentListing.elapsed(60), "1 min")
         XCTAssertEqual(AgentListing.elapsed(3_725), "1 h 2 min")
+    }
+
+    func testTheMostUrgentAgentShowsTiesToTheFocusedPaneThenOrder() {
+        XCTAssertNil(AgentListing.mostUrgent([(id: Int, display: PaneActivity.Display)](), focused: nil))
+        XCTAssertEqual(AgentListing.mostUrgent([(1, .working), (2, .permission), (3, .attention)], focused: 1), 2)
+        XCTAssertEqual(AgentListing.mostUrgent([(1, .working), (2, .working)], focused: 2), 2)
+        XCTAssertEqual(AgentListing.mostUrgent([(1, .working), (2, .working)], focused: 9), 1)
+    }
+
+    func testTheOtherAgentsCount() {
+        XCTAssertNil(AgentListing.others(0))
+        XCTAssertEqual(AgentListing.others(1), "+1 agent")
+        XCTAssertEqual(AgentListing.others(3), "+3 agents")
+    }
+
+    func testStatusLine() {
+        let now = Date(timeIntervalSinceReferenceDate: 1000)
+        XCTAssertEqual(AgentListing.status(branch: "feature-x", display: .working, tool: "Bash", since: now - 20, others: 0, now: now),
+                       "feature-x · Working · Bash · 20 s")
+        XCTAssertEqual(AgentListing.status(branch: nil, display: .permission, tool: "Bash", since: now - 5, others: 1, now: now),
+                       "Needs permission · Bash · 5 s · +1 agent")
+        XCTAssertEqual(AgentListing.status(branch: nil, display: .attention, tool: "Bash", since: now - 120, others: 2, now: now),
+                       "Your turn · 2 min · +2 agents")
+        XCTAssertEqual(AgentListing.status(branch: nil, display: .idle, tool: nil, since: nil, others: 0, now: now), "Waiting")
     }
 
     /// Every second while the label shows seconds, then on each minute boundary.

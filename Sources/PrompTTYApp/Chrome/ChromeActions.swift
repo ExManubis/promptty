@@ -20,7 +20,7 @@ protocol ChromeActions: AnyObject {
     func progress(for pane: PaneID) -> PaneProgress?
     /// Whether secure keyboard input is on for a pane (observes that pane alone).
     func isSecure(_ pane: PaneID) -> Bool
-    /// Every pane running an agent, in every window (observable).
+    /// The agents of every tab, in every window (observable).
     var agentList: AgentList { get }
     /// Brings a pane forward, in whichever window it is.
     func reveal(_ pane: PaneID)
@@ -51,13 +51,13 @@ protocol ChromeActions: AnyObject {
     var projects: [Project] { get }
     /// Asks for a name and makes a project; `tab` (if any, in any window) moves into it.
     func newProject(adding tab: TabID?)
-    /// A new tab in the project (in the folder of one of its tabs); nil: a tab in no project
-    /// (⌘T would join the selected tab's).
+    /// A new tab in the project (in the folder of one of its tabs); nil: a tab in no project (the
+    /// "+ New Tab" row), where ⌘T would join the selected tab's project.
     func newTab(inProject project: ProjectID?)
-    /// Puts a tab, in any window, in a project (nil: in none). It keeps its place in the tab list.
-    func placeTab(_ id: TabID, inProject project: ProjectID?)
-    /// Asks for a tab's name in a sheet; the tab may be in any window (an agent's).
-    func requestRenameTab(_ id: TabID)
+    /// Puts a tab in a project (nil: in none), at `index` (a drop) or after the project's tabs.
+    /// A pinned tab is unpinned when it has an index (dropped among a project's rows). Without an
+    /// index the tab may be in any window.
+    func placeTab(_ id: TabID, inProject project: ProjectID?, at index: Int?)
     func renameProject(_ id: ProjectID)
     func setProjectIcon(_ id: ProjectID, _ icon: PinIcon?)
     func setProjectFolded(_ id: ProjectID, _ folded: Bool)
@@ -78,34 +78,37 @@ protocol ChromeActions: AnyObject {
     func movePane(_ pane: PaneID, intoTab tab: TabID)
 }
 
-/// The sidebar's agents, worked out by the coordinator when panes, what runs in them or their
-/// repositories change, not by the view that shows them.
+/// The agents on the sidebar's tab rows, worked out by the coordinator when panes, what runs in
+/// them or their repositories change, not by the views that show them.
 @MainActor
 @Observable
 final class AgentList {
-    /// Window by window, tab by tab.
-    var entries: [AgentEntry] = []
+    /// Every tab running an agent, in every window.
+    var tabs: [TabID: TabAgentSummary] = [:]
+
+    func summary(for tab: TabID) -> TabAgentSummary? { tabs[tab] }
 }
 
-/// An agent pane, for the sidebar's Agents section.
-struct AgentEntry: Identifiable, Equatable {
+/// What a tab row shows of the agents in its tab: the most urgent one, and how many others.
+struct TabAgentSummary: Equatable {
+    let entry: AgentEntry
+    /// The tab's other agents.
+    let others: Int
+}
+
+/// An agent pane.
+struct AgentEntry: Equatable {
     let pane: PaneID
-    /// The tab the agent's pane is in, in whichever window.
-    let tab: TabID
-    let program: Program
-    let title: String
-    /// What the agent shows, for grouping and ordering; its row reads the rest from `status`.
+    /// What the agent shows, for choosing the tab's most urgent; its row reads the rest from
+    /// `status`.
     let display: PaneActivity.Display
     /// The repository (or folder) the agent works in.
     let repository: Repository
-    /// The sidebar project of the agent's tab; nil when it is in none.
-    let projectID: ProjectID?
     /// The pane's box, which its row observes.
     let status: PaneStatus
-    var id: PaneID { pane }
 
     nonisolated static func == (a: AgentEntry, b: AgentEntry) -> Bool {
-        a.pane == b.pane && a.tab == b.tab && a.program == b.program && a.title == b.title && a.display == b.display
-            && a.repository == b.repository && a.projectID == b.projectID && a.status === b.status
+        a.pane == b.pane && a.display == b.display && a.repository == b.repository
+            && a.status === b.status
     }
 }

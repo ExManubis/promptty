@@ -114,14 +114,14 @@ while the pane is at a prompt.
 
 ## Tabs, projects and agents
 
-**Projects** organize the Agents section: named groups the agents are listed under. They are
-not folders, and the tab list stays one flat list. Make one with **New Project…** (File menu,
-right-click "Agents", or an agent's or a tab's **Move to Project** menu). Drag an agent onto a
-project's header to move it there (its tab joins the project, so later agents in that tab do too);
-drag a header onto another to reorder the projects. A header's menu renames the project, gives it
-an icon, moves it up or down, or removes it; its "+" opens a tab in the project, for an agent to
-start in. Every project shows, even with no agents running. ⌘T opens the new tab in the selected
-tab's project. Projects are saved with the session.
+**Projects** group the tab list: each project's tabs sit under its header, before the tabs in no
+project. They are not folders: a project's tabs can be anywhere. Make one with **New Project…**
+(File menu, the "+ New Tab" row's menu, or a tab's **Move to Project** menu). Drag a tab onto a
+project's header, or among its tabs, to move it there; drag a header onto another to reorder the
+projects. A header's menu renames the project, gives it an icon, moves it up or down, or removes
+it; its "+" opens a tab in the project. Folded, a header shows how many tabs it hides and their
+most urgent activity. ⌘T opens the new tab in the selected tab's project, and ⌘1…⌘9 follow the
+order shown. Projects are saved with the session.
 
 Drag tabs to reorder them. **Pin Tab** (in a tab's context menu, or drag it onto the pinned
 tiles) keeps the tab's folder and the command running in it (`claude`, `npm run dev`): a pinned
@@ -129,11 +129,10 @@ tab comes back on relaunch, restarts instead of closing, and can be reset, given
 or given its own icon (**Change Icon…**).
 
 PrompTTY recognizes coding agents (Claude Code, Codex, Amp, Cline and others) running in a pane.
-While any run (or projects exist), the top of the sidebar lists every agent in every window, with
-whether it is working, waiting or wants your turn, and since when; click one to bring its pane
-forward, or right-click it to rename its tab or move it to a project. Agents are grouped under
-their projects, in order, then (outside any project) by git repository. The agent in the window's focused pane is
-highlighted like its tab.
+A tab running one says so on a second line of its row: the branch (unless it is `main` or
+`master`), whether the agent is working, waiting or wants your turn (in orange), the tool it runs,
+and since when. A tab with several agents shows its most urgent one and how many others it has
+("+1 agent"). Every tab row also shows its activity as a dot.
 
 ### Agent hooks
 

@@ -168,6 +168,9 @@ With projects defined, headers always show, so a project's name is visible even 
 
 ## As built (2026-10-13)
 
+> Superseded on the sidebar's layout by `2026-10-13-sidebar-merge-tabs-agents-design.md`: the
+> Agents section is merged into the tab list, which is grouped by project again.
+
 Where the implementation differs from the design above:
 
 - **Projects appear only in the Agents section** (revised after the first build). The tab list

@@ -60,42 +60,4 @@ final class RepositoryTests: XCTestCase {
         XCTAssertNil(Repository(root: "/a", branch: "master").notableBranch)
         XCTAssertEqual(Repository(root: "/a", branch: "fix-1").notableBranch, "fix-1")
     }
-
-    func testRepositoriesGroupMostUrgentFirstThenByName() {
-        let items = [
-            AgentGroups.Item(id: 1, key: .repository("/z/beta"), display: .running),
-            AgentGroups.Item(id: 2, key: .repository("/a/alpha"), display: .running),
-            AgentGroups.Item(id: 3, key: .repository("/z/beta"), display: .attention),
-            AgentGroups.Item(id: 4, key: .repository("/a/alpha"), display: .working),
-            AgentGroups.Item(id: 5, key: .repository("/c/gamma"), display: .running),
-        ]
-        let groups = AgentGroups.group(items)
-        XCTAssertEqual(groups.map(\.key), [.repository("/z/beta"), .repository("/a/alpha"), .repository("/c/gamma")])
-        XCTAssertEqual(groups.map { $0.items.map(\.id) }, [[3, 1], [4, 2], [5]])
-        XCTAssertEqual(groups.map(\.display), [.attention, .working, .running])
-    }
-
-    func testProjectsComeFirstInSidebarOrderWhateverTheirUrgency() {
-        let items = [
-            AgentGroups.Item(id: 1, key: .repository("/src/loose"), display: .attention),
-            AgentGroups.Item(id: 2, key: .project("web"), display: .running),
-            AgentGroups.Item(id: 3, key: .project("api"), display: .running),
-            AgentGroups.Item(id: 4, key: .project("web"), display: .attention),
-            AgentGroups.Item(id: 5, key: .project("api"), display: .working),
-        ]
-        let groups = AgentGroups.group(items, projectOrder: ["api", "web"])
-        XCTAssertEqual(groups.map(\.key), [.project("api"), .project("web"), .repository("/src/loose")])
-        XCTAssertEqual(groups.map { $0.items.map(\.id) }, [[5, 3], [4, 2], [1]], "most urgent first inside each")
-        XCTAssertEqual(groups.map(\.display), [.working, .attention, .attention])
-    }
-
-    func testAProjectMissingFromTheOrderGoesAfterTheOthers() {
-        let items = [
-            AgentGroups.Item(id: 1, key: .project("gone"), display: .running),
-            AgentGroups.Item(id: 2, key: .project("web"), display: .running),
-            AgentGroups.Item(id: 3, key: .repository("/r"), display: .running),
-        ]
-        let groups = AgentGroups.group(items, projectOrder: ["web"])
-        XCTAssertEqual(groups.map(\.key), [.project("web"), .project("gone"), .repository("/r")])
-    }
 }

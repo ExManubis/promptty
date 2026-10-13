@@ -1,13 +1,38 @@
 import Foundation
 
-/// What the sidebar's Agents section shows of an agent pane, worked out once when something
-/// changes rather than in a view's body.
+/// What a sidebar tab row shows of the agents in its tab, worked out once when something changes
+/// rather than in a view's body.
 public enum AgentListing {
-    /// The row's title: the pane's own title, or the program's name when the pane has none (or
-    /// only its folder as a title).
-    public static func title(paneTitle: String, workingDirectory: String, program: Program) -> String {
-        let own = paneTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        return own.isEmpty || own == workingDirectory ? program.name : own
+    /// The agent a tab's row shows: the most urgent; ties go to the focused pane, then pane order.
+    public static func mostUrgent<ID: Equatable>(_ agents: [(id: ID, display: PaneActivity.Display)], focused: ID?) -> ID? {
+        guard let top = agents.map(\.display).max() else { return nil }
+        let candidates = agents.filter { $0.display == top }
+        return (candidates.first { $0.id == focused } ?? candidates[0]).id
+    }
+
+    /// A tab row's second line: "feature-x · Working · Bash · 20 s", "Needs permission · Bash ·
+    /// 5 s · +1 agent", "Your turn · 2 min", "Waiting". The branch tells parallel agents apart; the
+    /// tool shows while the agent works or asks to run it; `others` counts the tab's other agents.
+    public static func status(branch: String?, display: PaneActivity.Display, tool: String?, since: Date?,
+                              others: Int, now: Date) -> String {
+        var parts: [String] = branch.map { [$0] } ?? []
+        switch display {
+        case .permission: parts.append("Needs permission")
+        case .attention: parts.append("Your turn")
+        case .working: parts.append("Working")
+        default: parts.append("Waiting")
+        }
+        if let tool, display == .working || display == .permission { parts.append(tool) }
+        if let since { parts.append(elapsed(now.timeIntervalSince(since))) }
+        if let others = self.others(others) { parts.append(others) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// How many other agents a tab has: "+1 agent", "+3 agents"; nil for none. Shown apart from
+    /// the rest of the line, which truncates first.
+    public static func others(_ count: Int) -> String? {
+        guard count > 0 else { return nil }
+        return count == 1 ? "+1 agent" : "+\(count) agents"
     }
 
     /// "1 min 20 s" is too busy beside an agent: seconds, then minutes, then hours and minutes.
@@ -28,7 +53,7 @@ public enum AgentListing {
     }
 }
 
-/// Repositories by folder for the Agents section, found off the main thread (`Repository.find`
+/// Repositories by folder for the tab rows' agents, found off the main thread (`Repository.find`
 /// reads the disk): which folders to look up now (new ones, and ones not looked at for a while:
 /// an agent may switch branches), and folders no longer used forgotten.
 public struct RepositoryCache {
