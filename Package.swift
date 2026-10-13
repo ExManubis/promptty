@@ -11,6 +11,10 @@ let package = Package(
         .library(name: "CommandEditing", targets: ["CommandEditing"]),
         .library(name: "PaneActivity", targets: ["PaneActivity"]),
         .library(name: "CommandBlocks", targets: ["CommandBlocks"]),
+        .library(name: "AgentHooks", targets: ["AgentHooks"]),
+        // Claude Code's (and Codex's) hooks run it to tell the app what the agent does; the app
+        // bundle carries its own copy (project.yml).
+        .executable(name: "promptty-hook", targets: ["promptty-hook"]),
     ],
     dependencies: [
         // libghostty-spm's GhosttyKit, built locally with PrompTTY's engine patches
@@ -26,6 +30,10 @@ let package = Package(
         .testTarget(name: "PaneActivityTests", dependencies: ["PaneActivity"]),
         .target(name: "CommandBlocks"),
         .testTarget(name: "CommandBlocksTests", dependencies: ["CommandBlocks"]),
+        .target(name: "AgentHooks"),
+        .executableTarget(name: "promptty-hook", dependencies: ["AgentHooks"]),
+        // Depends on the helper so `swift test` builds it: the tests run it.
+        .testTarget(name: "AgentHooksTests", dependencies: ["AgentHooks", "promptty-hook"]),
         .testTarget(name: "PreferencesTests", dependencies: ["Preferences"]),
         .target(
             name: "GhosttyBridge",
