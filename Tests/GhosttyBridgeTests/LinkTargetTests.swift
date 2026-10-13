@@ -68,7 +68,7 @@ final class LinkTargetTests: XCTestCase {
         XCTAssertEqual(decide(note), .open(URL(fileURLWithPath: note)))
         XCTAssertEqual(decide("file://\(note)"), .open(URL(fileURLWithPath: note)))
         XCTAssertEqual(decide(try make("blob.xyz123")), .reveal(URL(fileURLWithPath: folder.appendingPathComponent("blob.xyz123").path)))
-        XCTAssertEqual(decide(folder.path), .open(folder))
+        XCTAssertEqual(decide(folder.path), .open(URL(fileURLWithPath: folder.path, isDirectory: true)))
     }
 
     func testProgramsAreRefused() throws {
