@@ -877,7 +877,14 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         case .openURL(let kind, let text):
             // Always true, even when refused: false would make libghostty `open` the text itself,
             // past every refusal of `LinkTarget`.
-            openLink(LinkTarget.decide(text, kind: kind, relativeTo: located?.2.workingDirectory))
+            let decision = LinkTarget.decide(text, kind: kind, relativeTo: located?.2.workingDirectory)
+            // Carried out on the next turn of the run loop, never inside this callback: a ⌘-click
+            // reaches here with libghostty holding the terminal's lock, and the confirmation's
+            // modal alert (or another app coming forward) takes the keys from the window, whose
+            // focus change calls back into libghostty for that same lock on this thread.
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated { self?.openLink(decision) }
+            }
             return true
         case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .mouseOverLink, .progressReport, .unhandled:
             // Config, mouse-shape and mouse-visibility actions are handled by the runtime.
