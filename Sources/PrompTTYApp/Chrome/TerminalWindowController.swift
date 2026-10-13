@@ -463,6 +463,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         }
     }
 
+    var projects: [Project] { coordinator.workspace.projects }
+
     func newTab(inProject project: ProjectID?) {
         if let project {
             coordinator.newTab(in: state, project: project)
