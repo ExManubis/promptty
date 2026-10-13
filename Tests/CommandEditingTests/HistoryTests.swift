@@ -36,6 +36,7 @@ final class ZshHistoryTests: XCTestCase {
     }
 }
 
+@MainActor
 final class CommandHistoryTests: XCTestCase {
     func testNewestFirstWithoutDuplicates() {
         let h = CommandHistory(fileEntries: ["ls", "git status", "ls", "make"])
@@ -63,13 +64,51 @@ final class CommandHistoryTests: XCTestCase {
         XCTAssertEqual(h.newestFirst.count, 13)
     }
 
-    func testAddIsNotAFullRebuild() {
+    func testAddAndReadNeverMergesTheWholeHistory() {
         let h = CommandHistory(fileEntries: (0..<50_000).map { "command \($0)" })
-        _ = h.newestFirst
         let start = Date()
-        for i in 0..<20_000 { h.add("session \(i % 100)") }
-        XCTAssertLessThan(Date().timeIntervalSince(start), 0.5, "20 000 adds with no read in between must not rebuild each time")
+        var suggester = IncrementalSuggester()
+        for i in 0..<2_000 {
+            h.add("session \(i % 100)")
+            // What Enter and the next keys do: take the walkable list, scan it, start a walk.
+            XCTAssertEqual(suggester.suggestion(for: "session", local: [], history: h.merged, generation: h.version) != nil, true)
+            var walk = HistoryNavigator(history: h.merged)
+            XCTAssertEqual(walk.older(current: ""), "session \(i % 100)")
+        }
+        XCTAssertEqual(h.mergeCount, 0)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 1.0)
         XCTAssertEqual(h.newestFirst.count, 50_100)
+        XCTAssertEqual(h.mergeCount, 1)
+    }
+
+    func testMergedWalksSessionThenFileWithoutShadowedEntries() {
+        let h = CommandHistory(fileEntries: ["a", "b", "c"])
+        h.add("b")
+        h.add("x")
+        XCTAssertEqual(Array(h.merged), ["x", "b", "c", "a"])
+        XCTAssertEqual(Array(h.merged), h.newestFirst)
+        var walk = HistoryNavigator(history: h.merged)
+        XCTAssertEqual([walk.older(current: "d"), walk.older(current: "d"), walk.older(current: "d"), walk.older(current: "d"), walk.older(current: "d")], ["x", "b", "c", "a", nil])
+        XCTAssertEqual(walk.newer(), "c")
+    }
+
+    func testPanesSharingAStoreKeepTheirOwnCommands() {
+        let store = HistoryStore(entries: ["a", "b"])
+        let one = CommandHistory(store: store)
+        let two = CommandHistory(store: store)
+        one.add("only-one")
+        XCTAssertEqual(one.newestFirst, ["only-one", "b", "a"])
+        XCTAssertEqual(two.newestFirst, ["b", "a"])
+        store.appendFile(["c"])
+        XCTAssertEqual(one.newestFirst, ["only-one", "c", "b", "a"])
+        XCTAssertEqual(two.newestFirst, ["c", "b", "a"])
+    }
+
+    func testMovingToAnotherStoreKeepsThePanesOwnCommands() {
+        let h = CommandHistory(fileEntries: [])
+        h.add("mine")
+        h.use(HistoryStore(entries: ["f"]))
+        XCTAssertEqual(h.newestFirst, ["mine", "f"])
     }
 
     func testLargeHistoriesAreReadyWithoutRecomputing() {
@@ -77,7 +116,7 @@ final class CommandHistoryTests: XCTestCase {
         let h = CommandHistory(fileEntries: entries)
         // Read on every keystroke (ghost text): must not rebuild the list each time.
         let start = Date()
-        for _ in 0..<100 { _ = h.newestFirst.first }
+        for _ in 0..<100 { _ = h.merged.first(where: { _ in true }) }
         XCTAssertLessThan(Date().timeIntervalSince(start), 0.05)
         XCTAssertEqual(h.newestFirst.count, 50_000)
         XCTAssertEqual(h.newestFirst.first, "command 49999")
@@ -188,9 +227,10 @@ final class HistoryStoreTests: XCTestCase {
     @MainActor func testReloadReadsTheFileAndKeepsSessionOnTop() async throws {
         let path = try write(": 1:0;ls\n: 2:0;make\n: 3:0;ls\n")
         let store = HistoryStore.shared(forPath: path)
-        store.add("mine")
+        let pane = CommandHistory(store: store)
+        pane.add("mine")
         await store.reload()
-        XCTAssertEqual(store.newestFirst, ["mine", "ls", "make"])
+        XCTAssertEqual(pane.newestFirst, ["mine", "ls", "make"])
     }
 
     @MainActor func testGrowthIsReadFromTheEndAndTruncationReadsAgain() async throws {
@@ -236,13 +276,33 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertTrue(store.newestFirst.contains("for x in 1\ndo echo\ndone"))
     }
 
+    @MainActor func testARenamedReplacementOfTheSameShapeIsReadInFull() async throws {
+        let path = try write("aaaa\nbbbb\n")
+        let store = HistoryStore.shared(forPath: path)
+        await store.reload()
+        XCTAssertEqual(store.newestFirst, ["bbbb", "aaaa"])
+        // zsh writes a temporary file and renames it over the history; the tail looks the same.
+        let temp = dir.appendingPathComponent("hist.new")
+        try Data("xxxx\nbbbb\ncccc\n".utf8).write(to: temp)
+        _ = try FileManager.default.replaceItemAt(URL(fileURLWithPath: path), withItemAt: temp)
+        await store.reload()
+        XCTAssertEqual(store.newestFirst, ["cccc", "bbbb", "xxxx"])
+        XCTAssertEqual(store.lastReloadWasIncremental, false)
+    }
+
+    @MainActor func testStoreLookupDoesNotDisturbLiveStores() throws {
+        let path = try write("a\n")
+        let store = HistoryStore.shared(forPath: path)
+        for i in 0..<20 { _ = HistoryStore.shared(forPath: dir.appendingPathComponent("f\(i)").path) }
+        XCTAssertTrue(HistoryStore.shared(forPath: path) === store)
+    }
+
     @MainActor func testPanesWithDifferentFilesKeepSeparateHistory() async throws {
         let one = HistoryStore.shared(forPath: try write("a\n", to: "one"))
         let two = HistoryStore.shared(forPath: try write("b\n", to: "two"))
-        one.add("only-one")
         await one.reload()
         await two.reload()
-        XCTAssertEqual(one.newestFirst, ["only-one", "a"])
+        XCTAssertEqual(one.newestFirst, ["a"])
         XCTAssertEqual(two.newestFirst, ["b"])
     }
 
@@ -259,9 +319,10 @@ final class HistoryStoreTests: XCTestCase {
 
     @MainActor func testAMissingFileLeavesTheSessionAlone() async {
         let store = HistoryStore.shared(forPath: dir.appendingPathComponent("nope").path)
-        store.add("x")
+        let pane = CommandHistory(store: store)
+        pane.add("x")
         await store.reload()
-        XCTAssertEqual(store.newestFirst, ["x"])
+        XCTAssertEqual(pane.newestFirst, ["x"])
     }
 }
 

@@ -27,7 +27,9 @@ public enum Autosuggester {
 /// `Autosuggester.suggestion(for:local:history:)` for text typed one key at a time. A scan that
 /// found nothing for some text finds nothing for any extension of it, and one that found a
 /// match at an index skips everything before that index for an extension, so each key costs a
-/// look at (usually) one entry rather than the whole history.
+/// look at (usually) one entry rather than the whole history. The lists are scanned in order:
+/// this folder's, the pane's own commands, the history file's (an entry of the file that the pane
+/// also ran gives the same suggestion from the earlier list).
 public struct IncrementalSuggester {
     private enum Scan {
         case exhausted
@@ -36,30 +38,35 @@ public struct IncrementalSuggester {
 
     private var text = ""
     private var generation = 0
-    private var local: Scan?
-    private var history: Scan?
+    private var scans: [Scan?] = [nil, nil, nil]
+    private var started = false
     private var result: String?
-    /// How many history entries were looked at since creation; for tests.
+    /// How many entries were looked at since creation; for tests.
     public private(set) var scanCount = 0
 
     public init() {}
 
+    public mutating func suggestion(for text: String, local: [String], history: [String], generation: Int) -> String? {
+        suggestion(for: text, local: local, history: MergedHistory(newestFirst: history), generation: generation)
+    }
+
     /// `generation` identifies the lists: when it differs from the last call's, they may have
     /// changed and everything is scanned afresh.
-    public mutating func suggestion(for text: String, local: [String], history: [String], generation: Int) -> String? {
+    public mutating func suggestion(for text: String, local: [String], history: MergedHistory, generation: Int) -> String? {
         guard !text.isEmpty, !text.contains("\n") else {
             reset(to: text, generation: generation)
             return nil
         }
-        if generation == self.generation, text == self.text, self.local != nil { return result }
-        let extends = generation == self.generation && !self.text.isEmpty && text.hasPrefix(self.text)
+        if started, generation == self.generation, text == self.text { return result }
+        let extends = started && generation == self.generation && !self.text.isEmpty && text.hasPrefix(self.text)
         if !extends { reset(to: text, generation: generation) }
+        started = true
         self.text = text
-        let found: String?
-        if let match = Self.scan(text, in: local, state: &self.local, count: &scanCount) {
-            found = match
-        } else {
-            found = Self.scan(text, in: history, state: &self.history, count: &scanCount)
+        let lists = [local, history.session, history.file]
+        var found: String?
+        for tier in 0..<3 {
+            found = Self.scan(text, in: lists[tier], state: &scans[tier], count: &scanCount)
+            if found != nil { break }
         }
         result = found
         return found
@@ -68,8 +75,8 @@ public struct IncrementalSuggester {
     private mutating func reset(to text: String, generation: Int) {
         self.text = text
         self.generation = generation
-        local = nil
-        history = nil
+        scans = [nil, nil, nil]
+        started = false
         result = nil
     }
 

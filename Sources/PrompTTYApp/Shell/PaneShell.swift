@@ -130,9 +130,9 @@ final class PaneShell {
     private(set) var directory: String
     private(set) var git: GitStatus?
     private(set) var stateFile: ShellStateFile?
-    /// The commands the bar offers. Shared with the panes using the same HISTFILE; until the
-    /// shell reports which that is, a store of its own.
-    @ObservationIgnored private(set) var history = HistoryStore()
+    /// The commands the bar offers: this pane's own on top of the history file's, which the panes
+    /// using the same HISTFILE share (until the shell reports which that is, a file of its own).
+    @ObservationIgnored private(set) var history = CommandHistory()
     private(set) var bar: BarPresentation = .hidden
     /// The last command run from the bar or a picker, for a notification when it finishes unseen.
     @ObservationIgnored private(set) var lastCommand: String?
@@ -223,11 +223,10 @@ final class PaneShell {
         text.styleChanged()
         text.terminal = surface
         text.onSubmit = { [weak self] in self?.submit($0) }
-        text.history = { [weak self] in self?.history.newestFirst ?? [] }
+        text.history = { [weak self] in self?.history.merged ?? MergedHistory(newestFirst: []) }
         text.suggestionGeneration = { [weak self] in
             guard let self else { return 0 }
             var hasher = Hasher()
-            hasher.combine(ObjectIdentifier(self.history))
             hasher.combine(self.history.version)
             hasher.combine(self.directory)
             hasher.combine(FolderHistoryStore.shared.revision)
@@ -522,13 +521,9 @@ final class PaneShell {
 
     private func reloadHistoryIfChanged() {
         guard let path = stateFile?.historyFile else { return }
-        let shared = HistoryStore.shared(forPath: path)
-        if shared !== history {
-            // Commands run before the HISTFILE was known are kept.
-            if history.path == nil { shared.adopt(history.sessionCommands) }
-            history = shared
-        }
-        history.reloadIfChanged()
+        let store = HistoryStore.shared(forPath: path)
+        history.use(store)
+        store.reloadIfChanged()
     }
 
     private func refreshGit() {

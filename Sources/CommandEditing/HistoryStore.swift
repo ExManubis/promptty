@@ -1,9 +1,18 @@
 import Foundation
 
+/// The history file's commands, de-duplicated: what a store shares among panes.
+struct HistoryFileSnapshot: Sendable {
+    var layer = HistoryLayer()
+    /// Newest first, built where the file is read rather than where it is used.
+    var newestFirst: [String] = []
+}
+
 /// Where the last read of a history file stopped, so the next one can read only what was added.
 struct HistoryFileState: Sendable {
     var size = -1
     var date: Date?
+    /// zsh rewrites its history through a temporary file and a rename, which gives it a new number.
+    var fileID: Int?
     /// Bytes consumed: the file up to here ends at a complete entry.
     var offset = 0
     /// The bytes just before `offset`; if they are not there any more the file was rewritten.
@@ -12,33 +21,34 @@ struct HistoryFileState: Sendable {
 
 enum HistoryFileRead: Sendable {
     case unchanged
-    case appended([String], HistoryFileState)
-    case replaced(HistoryLayer, HistoryFileState)
+    case updated(HistoryFileSnapshot, HistoryFileState, incremental: Bool)
 }
 
 /// Reads a history file, all of it or only what was added since the last read. Runs off the main
-/// thread; everything it returns is already parsed and de-duplicated.
+/// thread; what it returns is already parsed and de-duplicated.
 enum HistoryFileReader {
     private static let fingerprintLength = 64
 
-    static func read(path: String, since state: HistoryFileState) -> HistoryFileRead {
+    static func read(path: String, since state: HistoryFileState, snapshot base: HistoryFileSnapshot) -> HistoryFileRead {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
               let size = (attributes[.size] as? NSNumber)?.intValue else { return .unchanged }
         let date = attributes[.modificationDate] as? Date
-        if size == state.size, date == state.date { return .unchanged }
+        let fileID = (attributes[.systemFileNumber] as? NSNumber)?.intValue
+        if size == state.size, date == state.date, fileID == state.fileID { return .unchanged }
         guard let handle = FileHandle(forReadingAtPath: path) else { return .unchanged }
         defer { try? handle.close() }
 
-        var next = HistoryFileState(size: size, date: date)
+        var next = HistoryFileState(size: size, date: date, fileID: fileID)
         var body: Data?
-        var base = 0
+        var base = base
+        var offset = 0
         var lead: [UInt8] = []
-        if state.offset > 0, size >= state.offset, !state.fingerprint.isEmpty {
+        if state.offset > 0, size >= state.offset, fileID == state.fileID, !state.fingerprint.isEmpty {
             let from = state.offset - state.fingerprint.count
             if (try? handle.seek(toOffset: UInt64(from))) != nil, let data = try? handle.readToEnd(),
                data.count >= state.fingerprint.count, Array(data.prefix(state.fingerprint.count)) == state.fingerprint {
                 body = Data(data.dropFirst(state.fingerprint.count))
-                base = state.offset
+                offset = state.offset
                 lead = state.fingerprint
             }
         }
@@ -46,14 +56,17 @@ enum HistoryFileReader {
         if body == nil {
             guard (try? handle.seek(toOffset: 0)) != nil, let data = try? handle.readToEnd() else { return .unchanged }
             body = data
+            base = HistoryFileSnapshot()
         }
         let data = body ?? Data()
         // An entry still being written (no newline yet, or a backslash continuing it) waits for the next read.
         let complete = data.prefix(completeLength(of: data))
-        let entries = ZshHistory.parse(Data(complete))
-        next.offset = base + complete.count
+        var snapshot = base
+        for entry in ZshHistory.parse(Data(complete)) { snapshot.layer.append(entry) }
+        snapshot.newestFirst = snapshot.layer.newestFirst
+        next.offset = offset + complete.count
         next.fingerprint = Array((lead + complete).suffix(fingerprintLength))
-        return incremental ? .appended(entries, next) : .replaced(HistoryLayer(entries), next)
+        return .updated(snapshot, next, incremental: incremental)
     }
 
     /// The length of the prefix that ends at a newline which ends an entry.
@@ -80,8 +93,8 @@ public final class HistoryStore {
     /// The store for a history file (`~` allowed), made on first use.
     public static func shared(forPath path: String) -> HistoryStore {
         let key = URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path
-        registry = registry.filter { $0.value.store != nil }
         if let store = registry[key]?.store { return store }
+        registry = registry.filter { $0.value.store != nil }
         let store = HistoryStore(path: key)
         let entry = Entry()
         entry.store = store
@@ -91,11 +104,11 @@ public final class HistoryStore {
 
     /// Nil for a store that is not backed by a file (a pane that has not learned its HISTFILE yet).
     public let path: String?
-    public let history = CommandHistory()
-    /// Unique commands, newest first.
-    public var newestFirst: [String] { history.newestFirst }
+    private var snapshot = HistoryFileSnapshot()
+    /// The file's commands, unique, newest first.
+    public var newestFirst: [String] { snapshot.newestFirst }
     /// Changes whenever `newestFirst` does.
-    public var version: Int { history.version }
+    public private(set) var version = 0
 
     private var fileState = HistoryFileState()
     private var loading: Task<Void, Never>?
@@ -107,16 +120,29 @@ public final class HistoryStore {
         self.path = path
     }
 
-    public func add(_ command: String) {
-        history.add(command)
+    /// A store with these entries (oldest first) and no file.
+    public convenience init(entries: [String]) {
+        self.init(path: nil)
+        replaceFile(entries)
     }
 
-    /// What panes added to this store, oldest first.
-    public var sessionCommands: [String] { history.sessionCommands }
+    /// Replaces the file's commands (oldest first). Reading the file goes through `reload()`.
+    public func replaceFile(_ entries: [String]) {
+        install(HistoryFileSnapshot(layer: HistoryLayer(entries), newestFirst: HistoryLayer(entries).newestFirst))
+    }
 
-    /// Takes over commands from the store a pane moves away from.
-    public func adopt(_ commands: [String]) {
-        for command in commands { history.add(command) }
+    /// Adds newer commands to the file's.
+    public func appendFile(_ entries: [String]) {
+        guard !entries.isEmpty else { return }
+        var next = snapshot
+        for entry in entries { next.layer.append(entry) }
+        next.newestFirst = next.layer.newestFirst
+        install(next)
+    }
+
+    private func install(_ snapshot: HistoryFileSnapshot) {
+        self.snapshot = snapshot
+        version += 1
     }
 
     /// Reads the file if it changed. Calls while a read is under way wait for it and ask for one
@@ -133,7 +159,8 @@ public final class HistoryStore {
                 guard let self else { return }
                 self.reloadAgain = false
                 let state = self.fileState
-                let outcome = await Task.detached(priority: .utility) { HistoryFileReader.read(path: path, since: state) }.value
+                let base = self.snapshot
+                let outcome = await Task.detached(priority: .utility) { HistoryFileReader.read(path: path, since: state, snapshot: base) }.value
                 self.apply(outcome)
             } while self?.reloadAgain == true
             self?.loading = nil
@@ -149,17 +176,9 @@ public final class HistoryStore {
 
     private func apply(_ outcome: HistoryFileRead) {
         reloadCount += 1
-        switch outcome {
-        case .unchanged:
-            break
-        case .appended(let entries, let state):
-            fileState = state
-            lastReloadWasIncremental = true
-            history.appendFileEntries(entries)
-        case .replaced(let layer, let state):
-            fileState = state
-            lastReloadWasIncremental = false
-            history.replaceFile(layer)
-        }
+        guard case .updated(let snapshot, let state, let incremental) = outcome else { return }
+        fileState = state
+        lastReloadWasIncremental = incremental
+        install(snapshot)
     }
 }

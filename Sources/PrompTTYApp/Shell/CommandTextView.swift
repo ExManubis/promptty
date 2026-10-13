@@ -44,7 +44,7 @@ final class CommandTextView: NSTextView {
     /// The terminal next to the bar: ⌘C copies its selection when the bar has none.
     weak var terminal: TerminalSurfaceView?
     /// Newest first.
-    var history: () -> [String] = { [] }
+    var history: () -> MergedHistory = { MergedHistory(newestFirst: []) }
     /// The commands run in the pane's folder and the folders above it, best first: ghost text
     /// prefers them to the whole history.
     var folderHistory: () -> [String] = { [] }
@@ -59,6 +59,13 @@ final class CommandTextView: NSTextView {
     /// The ghost text after the caret.
     private(set) var suggestion: String?
     private var suggester = IncrementalSuggester()
+    private struct SuggestionKey: Equatable {
+        let text: String
+        let range: NSRange
+        let marked: Bool
+        let generation: Int
+    }
+    private var lastSuggestionKey: SuggestionKey?
     /// Where Tab completion looks: the pane's directory, and the shell's names (a snapshot with
     /// nothing fetched yet).
     var completionDirectory: () -> String? = { nil }
@@ -147,6 +154,7 @@ final class CommandTextView: NSTextView {
         clearText()
         navigator = nil
         suggester = IncrementalSuggester()
+        lastSuggestionKey = nil
         vi.enterInsert()
         modeChanged()
     }
@@ -447,11 +455,18 @@ final class CommandTextView: NSTextView {
     // MARK: Suggestions
 
     private func updateSuggestion() {
+        let text = string
         let range = selectedRange()
-        let atEnd = range.length == 0 && range.location == (string as NSString).length
-        let next = atEnd && !hasMarkedText()
-            ? suggester.suggestion(for: string, local: folderHistory(), history: history(), generation: suggestionGeneration())
-            : nil
+        let atEnd = range.length == 0 && range.location == (text as NSString).length
+        let marked = hasMarkedText()
+        // Typing a key reports a new selection and then the text change; the second finds nothing new.
+        let key = SuggestionKey(text: text, range: range, marked: marked, generation: suggestionGeneration())
+        if key == lastSuggestionKey { return }
+        lastSuggestionKey = key
+        var next: String?
+        if atEnd, !marked, !text.isEmpty, !text.contains("\n") {
+            next = suggester.suggestion(for: text, local: folderHistory(), history: history(), generation: key.generation)
+        }
         if next != suggestion {
             suggestion = next
             needsDisplay = true
