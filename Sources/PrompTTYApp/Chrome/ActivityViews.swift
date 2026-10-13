@@ -199,7 +199,7 @@ struct ProgramStack: View {
 
 /// A soft green light sweeping across an agent's tile while it works; a still green rim when
 /// motion is reduced.
-private struct WorkingShimmer: View {
+struct WorkingShimmer: View {
     let shape: RoundedRectangle
     @State private var phase: CGFloat = -1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

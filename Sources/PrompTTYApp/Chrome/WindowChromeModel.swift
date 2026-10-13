@@ -24,6 +24,8 @@ final class WindowChromeModel {
     /// Panes whose shell exited, with the exit code, until they are closed.
     var exitedPanes: [PaneID: UInt32] = [:]
     var renamingTab: TabID?
+    /// The pinned tab whose icon picker is open.
+    var iconPickerTab: TabID?
     /// The pane a dragged pane would land on, and where.
     var dropTarget: (pane: PaneID, edge: PaneEdge)?
     /// The tab row a dragged pane hovers over.

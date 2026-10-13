@@ -77,11 +77,25 @@ enum DebugHooks {
             coordinator.setPinnedCommand(c.state.tabs[i].id, args.dropFirst().joined(separator: " "))
             return ""
         }
+        // eval pinicon <tab> <symbol> <color> | pinicon <tab> default — Change Icon… without the popover.
+        driver.hooks["pinicon"] = { args in
+            guard let c = coordinator.allControllers.first, let i = args.first.flatMap(Int.init),
+                  c.state.tabs.indices.contains(i), args.count >= 2 else { return "error: pinicon <tab> <symbol> <color>|default" }
+            let icon = args[1] == "default" ? nil : PinIcon(symbol: args[1], color: args.count > 2 ? PinIcon.Color(rawValue: args[2]) ?? .dark : .dark)
+            c.setPinnedIcon(c.state.tabs[i].id, icon)
+            return ""
+        }
+        // eval iconpicker <tab>|off — opens or closes a pinned tab's icon picker.
+        driver.hooks["iconpicker"] = { args in
+            guard let c = coordinator.allControllers.first else { return "error: no window" }
+            c.chrome.iconPickerTab = args.first.flatMap(Int.init).flatMap { c.state.tabs.indices.contains($0) ? c.state.tabs[$0].id : nil }
+            return ""
+        }
         // eval pins — each tab's pin.
         driver.hooks["pins"] = { _ in
             guard let c = coordinator.allControllers.first else { return "error: no window" }
             return c.state.tabs.enumerated().map { i, t in
-                "\(i) \(t.listTitle): " + (t.pin.map { "pinned dir=\(Tab.abbreviate($0.directory)) command=\($0.command ?? "-")" } ?? "-")
+                "\(i) \(t.listTitle): " + (t.pin.map { "pinned dir=\(Tab.abbreviate($0.directory)) command=\($0.command ?? "-") icon=\($0.icon.map { "\($0.symbol)/\($0.color.rawValue)" } ?? "-")" } ?? "-")
             }.joined(separator: "\n")
         }
         // eval tabdrag <tab>|off — a tab drag in progress, for the pin drop tile.

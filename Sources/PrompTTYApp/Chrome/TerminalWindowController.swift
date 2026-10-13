@@ -388,6 +388,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         guard state.tab(id: id) != nil else { return }
         coordinator.pin(id, at: index)
     }
+    func setPinnedIcon(_ id: TabID, _ icon: PinIcon?) {
+        guard state.tab(id: id) != nil else { return }
+        coordinator.setPinnedIcon(id, icon)
+    }
     func unpinTab(_ id: TabID, at index: Int?) {
         guard state.tab(id: id) != nil else { return }
         coordinator.unpin(id, at: index)

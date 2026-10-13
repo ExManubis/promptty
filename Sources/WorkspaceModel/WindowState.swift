@@ -156,6 +156,12 @@ public final class WindowState {
     /// The command a pinned tab runs on relaunch and reset; blank for none.
     public func setPinnedCommand(_ id: TabID, _ command: String?) {
         guard let tab = tab(id: id), let pin = tab.pin else { return }
-        tab.pin = TabPin(directory: pin.directory, command: command)
+        tab.pin = TabPin(directory: pin.directory, command: command, icon: pin.icon)
+    }
+
+    /// A pinned tab's own icon; nil goes back to its programs' logos.
+    public func setPinnedIcon(_ id: TabID, _ icon: PinIcon?) {
+        guard let tab = tab(id: id), tab.pin != nil else { return }
+        tab.pin?.icon = icon
     }
 }

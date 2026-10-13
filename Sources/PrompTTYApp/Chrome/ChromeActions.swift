@@ -34,6 +34,8 @@ protocol ChromeActions: AnyObject {
     /// Back to the pinned folder, running the pinned command.
     func resetPinnedTab(_ id: TabID)
     func editPinnedCommand(_ id: TabID)
+    /// A pinned tab's own icon; nil shows its programs' logos again.
+    func setPinnedIcon(_ id: TabID, _ icon: PinIcon?)
     func toggleSidebar()
     /// The window's traffic lights, which go with the sidebar when it collapses.
     func setTrafficLightsShown(_ shown: Bool)

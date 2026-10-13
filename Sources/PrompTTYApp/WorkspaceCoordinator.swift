@@ -323,6 +323,12 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
+    func setPinnedIcon(_ id: TabID, _ icon: PinIcon?) {
+        guard let state = workspace.window(containing: id) else { return }
+        state.setPinnedIcon(id, icon)
+        modelDidChange()
+    }
+
     func setPinnedCommand(_ id: TabID, _ command: String?) {
         guard let state = workspace.window(containing: id) else { return }
         state.setPinnedCommand(id, command)

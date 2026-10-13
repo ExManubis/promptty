@@ -81,6 +81,58 @@ final class PinnedTabTests: XCTestCase {
         XCTAssertNil(w.tabs[0].pin, "only a pinned tab has a command")
     }
 
+    // MARK: Icons
+
+    func testAPinnedTabCanHaveAnIconAndLoseItAgain() {
+        let w = window(tabCount: 1)
+        let id = w.tabs[0].id
+        w.setPinnedIcon(id, PinIcon(symbol: "server.rack", color: .blue))
+        XCTAssertNil(w.tabs[0].pin, "only a pinned tab has an icon")
+        w.pin(id, TabPin(directory: "/a", command: "make"))
+        w.setPinnedIcon(id, PinIcon(symbol: "server.rack", color: .blue))
+        XCTAssertEqual(w.tabs[0].pin?.icon, PinIcon(symbol: "server.rack", color: .blue))
+        w.setPinnedIcon(id, nil)
+        XCTAssertNil(w.tabs[0].pin?.icon)
+        XCTAssertEqual(w.tabs[0].pin?.command, "make")
+    }
+
+    func testEditingTheCommandKeepsTheIcon() {
+        let w = window(tabCount: 1)
+        let id = w.tabs[0].id
+        w.pin(id, TabPin(directory: "/a", command: "make"))
+        w.setPinnedIcon(id, PinIcon(symbol: "flame", color: .orange))
+        w.setPinnedCommand(id, "make watch")
+        XCTAssertEqual(w.tabs[0].pin, TabPin(directory: "/a", command: "make watch", icon: PinIcon(symbol: "flame", color: .orange)))
+    }
+
+    func testUnpinningForgetsTheIcon() {
+        let w = window(tabCount: 1)
+        let id = w.tabs[0].id
+        w.pin(id, TabPin(directory: "/a", command: nil))
+        w.setPinnedIcon(id, PinIcon(symbol: "flame", color: .red))
+        w.unpin(id)
+        w.pin(id, TabPin(directory: "/a", command: nil))
+        XCTAssertNil(w.tabs[0].pin?.icon)
+    }
+
+    func testTheIconIsSavedAndRestored() throws {
+        let ws = Workspace()
+        let w = ws.addWindow()
+        let tab = w.addTab(title: "a", workingDirectory: "/a")
+        w.pin(tab.id, TabPin(directory: "/a", command: nil))
+        w.setPinnedIcon(tab.id, PinIcon(symbol: "sparkles", color: .purple))
+        let data = try JSONEncoder().encode(ws.snapshot())
+        let restored = Workspace.restore(from: try JSONDecoder().decode(SessionSnapshot.self, from: data), directoryExists: { _ in true })
+        XCTAssertEqual(restored.windows[0].tabs[0].pin?.icon, PinIcon(symbol: "sparkles", color: .purple))
+    }
+
+    /// A color a later version added reads as the default one, not as a broken session file.
+    func testAnUnknownIconColorIsTheDefault() throws {
+        let json = #"{"directory":"/a","icon":{"symbol":"flame","color":"chartreuse"}}"#
+        let pin = try JSONDecoder().decode(TabPin.self, from: Data(json.utf8))
+        XCTAssertEqual(pin.icon, PinIcon(symbol: "flame", color: .dark))
+    }
+
     // MARK: The other tabs never mix in
 
     func testANewTabNeverLandsAmongThePinnedTabs() {

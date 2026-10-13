@@ -106,12 +106,17 @@ struct TabRow: View {
         }
     }
 
-    /// The tile: its programs centered, the activity dot in the corner. Renamed in a popover,
-    /// having no title of its own.
+    /// The tile: its own icon or its programs centered, the activity dot in the corner. Renamed
+    /// in a popover, having no title of its own.
     private var tileContent: some View {
-        ProgramStack(cards: stackCards)
+        tileIcon
             // Larger in the sidebar's tiles (the ones that preview) than in the strip's pills.
             .scaleEffect(style == .tile && previewEdge != nil ? 1.25 : 1)
+            .popover(isPresented: Binding(get: { chrome.iconPickerTab == tab.id && !outOfSight },
+                                          set: { if !$0, chrome.iconPickerTab == tab.id { chrome.iconPickerTab = nil } }),
+                     arrowEdge: .bottom) {
+                PinIconPicker(current: tab.pin?.icon) { actions.setPinnedIcon(tab.id, $0) }
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .topTrailing) {
                 ActivityIndicator(display: display)
@@ -128,6 +133,16 @@ struct TabRow: View {
                     .onSubmit(commitRename)
                     .onExitCommand(perform: cancelRename)
             }
+    }
+
+    /// The icon the user chose, which stays whatever runs (the dot tells that), or the logos.
+    @ViewBuilder
+    private var tileIcon: some View {
+        if let icon = tab.pin?.icon {
+            PinIconTile(icon: icon, display: display)
+        } else {
+            ProgramStack(cards: stackCards)
+        }
     }
 
     private var rowContent: some View {
@@ -183,6 +198,7 @@ struct TabRow: View {
             Button("Reset Pinned Tab") { actions.resetPinnedTab(tab.id) }
                 .help(pin.command.map { "Back to \(Tab.abbreviate(pin.directory)), running \($0)" } ?? "Back to \(Tab.abbreviate(pin.directory))")
             Button("Edit Pinned Command…") { actions.editPinnedCommand(tab.id) }
+            Button("Change Icon…") { chrome.iconPickerTab = tab.id }
         }
         Button("New Tab", action: actions.newTab)
         Divider()
