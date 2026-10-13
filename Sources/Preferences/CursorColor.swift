@@ -32,6 +32,26 @@ public enum CursorColor: Equatable, Sendable {
         "#" + String(format: "%06X", rgb & 0xFFFFFF)
     }
 
+    /// "#RRGGBB", for the hex field in Settings.
+    public static func formatHex(_ rgb: UInt32) -> String { hex(rgb) }
+
+    /// What the user typed in the hex field: `#RRGGBB`, `RRGGBB`, `0xRRGGBB` or CSS's `#RGB`,
+    /// any case, spaces around it ignored. Nil for anything else.
+    public static func parseHex(_ text: String) -> UInt32? {
+        var digits = Substring(text.trimmingCharacters(in: .whitespaces))
+        if digits.hasPrefix("#") {
+            digits = digits.dropFirst()
+        } else if digits.lowercased().hasPrefix("0x") {
+            digits = digits.dropFirst(2)
+        }
+        guard digits.allSatisfy(\.isHexDigit) else { return nil }
+        switch digits.count {
+        case 3: return UInt32(String(digits.flatMap { [$0, $0] }), radix: 16)
+        case 6: return UInt32(digits, radix: 16)
+        default: return nil
+        }
+    }
+
     /// Black or white, whichever contrasts more with `rgb`: the character under a block cursor.
     public static func text(on rgb: UInt32) -> UInt32 {
         func linear(_ c: UInt32) -> Double {

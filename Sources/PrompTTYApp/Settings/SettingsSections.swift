@@ -232,6 +232,11 @@ private struct CursorColorRow: View {
 
     /// The last custom color, kept while Theme or Accent is chosen so switching back restores it.
     @State private var lastCustom: UInt32 = 0xFF9F0A
+    /// The hex field's text while it is edited.
+    @State private var hexDraft = ""
+    @FocusState private var hexFocused: Bool
+
+    private var hexIsValid: Bool { CursorColor.parseHex(hexDraft) != nil }
 
     private var choice: Binding<Choice> {
         Binding {
@@ -272,12 +277,46 @@ private struct CursorColorRow: View {
                 .pickerStyle(.segmented)
                 .fixedSize()
                 if case .custom = color {
+                    TextField("Hex", text: $hexDraft, prompt: Text("#RRGGBB"))
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12, design: .monospaced))
+                        .frame(width: 76)
+                        .focused($hexFocused)
+                        .onSubmit(commitHex)
+                        // An unreadable value is marked while typed, and dropped when left.
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .strokeBorder(Color.red.opacity(hexIsValid || hexDraft.isEmpty ? 0 : 0.8), lineWidth: 1)
+                                .allowsHitTesting(false)
+                        )
+                        .onChange(of: hexFocused) { _, focused in if !focused { commitHex() } }
+                        .accessibilityLabel("Cursor color hex code")
                     ColorPicker("Cursor color", selection: custom, supportsOpacity: false)
                         .labelsHidden()
                 }
             }
         }
-        .onAppear { if case .custom(let rgb) = color { lastCustom = rgb } }
+        .onAppear {
+            if case .custom(let rgb) = color { lastCustom = rgb }
+            syncHex()
+        }
+        // The color well or the segments changed it: the field follows, unless it is being typed in.
+        .onChange(of: color) { _, _ in if !hexFocused { syncHex() } }
+    }
+
+    private func syncHex() {
+        if case .custom(let rgb) = color { hexDraft = CursorColor.formatHex(rgb) }
+    }
+
+    /// ⏎ or leaving the field: a readable hex code becomes the color (shown as `#RRGGBB`); anything
+    /// else goes back to the current color.
+    private func commitHex() {
+        if let rgb = CursorColor.parseHex(hexDraft) {
+            lastCustom = rgb
+            color = .custom(rgb)
+        }
+        syncHex()
     }
 
     private static func swiftUIColor(_ rgb: UInt32) -> Color {

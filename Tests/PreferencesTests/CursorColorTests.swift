@@ -52,3 +52,24 @@ final class CursorColorTests: XCTestCase {
         }
     }
 }
+
+final class HexColorInputTests: XCTestCase {
+    func testAcceptsTheWaysPeopleWriteHexColors() {
+        XCTAssertEqual(CursorColor.parseHex("#FF2D55"), 0xFF2D55)
+        XCTAssertEqual(CursorColor.parseHex("ff2d55"), 0xFF2D55)
+        XCTAssertEqual(CursorColor.parseHex("  #ff2d55 "), 0xFF2D55)
+        XCTAssertEqual(CursorColor.parseHex("#F25"), 0xFF2255, "three digits double up, as in CSS")
+        XCTAssertEqual(CursorColor.parseHex("0xFF2D55"), 0xFF2D55)
+    }
+
+    func testRejectsWhatIsNotAColor() {
+        for text in ["", "#", "#FF2D5", "#FF2D555", "#GG2D55", "red", "#FF 2D55", "-FF2D5"] {
+            XCTAssertNil(CursorColor.parseHex(text), text)
+        }
+    }
+
+    func testFormatsAsUppercaseWithAHash() {
+        XCTAssertEqual(CursorColor.formatHex(0xff2d55), "#FF2D55")
+        XCTAssertEqual(CursorColor.formatHex(0x00007f), "#00007F")
+    }
+}
