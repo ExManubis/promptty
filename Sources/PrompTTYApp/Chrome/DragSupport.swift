@@ -41,27 +41,6 @@ func nearestEdge(of size: CGSize, to point: CGPoint) -> PaneEdge {
     return distances.min { $0.1 < $1.1 }!.0
 }
 
-/// Starts a pane drag. Lives in the pane header so drags in the terminal stay text selection.
-struct PaneDragHandle: View {
-    let pane: Pane
-    @Environment(\.windowChrome) private var chrome
-
-    var body: some View {
-        Image(systemName: "line.3.horizontal")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .frame(width: 22, height: 22)
-            .contentShape(Rectangle())
-            .pointerStyle(.grabIdle)
-            .onDrag {
-                chrome?.draggingPane = pane.id
-                return DragPayload.provider(DragPayload.pane, id: pane.id.rawValue)
-            }
-            .help("Drag to move this pane")
-            .accessibilityLabel("Move pane")
-    }
-}
-
 /// Makes a pane a drop target for other panes: highlights the half it would land on.
 struct PaneDropTarget: ViewModifier {
     let pane: Pane

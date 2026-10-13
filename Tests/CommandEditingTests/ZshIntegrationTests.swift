@@ -97,6 +97,45 @@ final class ZshIntegrationTests: XCTestCase {
         XCTAssertEqual(p.terminationStatus, 0, message)
     }
 
+    /// What the shell prints between a command and the next prompt, in a real interactive zsh.
+    private func gapAfter(_ command: String?) throws -> String {
+        let home = dir.appendingPathComponent("home-gap", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let installed = try ZshIntegration.install(in: dir.appendingPathComponent("zsh"))
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        let ran = command.map { "_promptty_preexec '\($0)'; " } ?? ""
+        p.arguments = ["-i", "-c", "_promptty_init; print -n '<'; \(ran)_promptty_precmd; print -n '>'"]
+        var env = ZshIntegration.environment(integrationDirectory: installed, stateFile: dir.appendingPathComponent("state"), userZDOTDIR: nil)
+        env["HOME"] = home.path
+        env["PATH"] = "/usr/bin:/bin"
+        env["COLUMNS"] = "6"
+        p.environment = env
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = Pipe()
+        try p.run()
+        p.waitUntilExit()
+        let output = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let start = try XCTUnwrap(output.lastIndex(of: "<"))
+        let end = try XCTUnwrap(output.lastIndex(of: ">"))
+        return String(output[output.index(after: start)..<end]).replacingOccurrences(of: "\u{1b}[?25h", with: "")
+    }
+
+    /// Commands are spaced apart: after one runs, a blank row before the next prompt (from a fresh
+    /// line, past output that did not end in one, which keeps zsh's end-of-line mark).
+    func testABlankRowFollowsEachCommand() throws {
+        try XCTSkipUnless(FileManager.default.isExecutableFile(atPath: "/bin/zsh"))
+        let gap = try gapAfter("echo hi")
+        // The row is erased, not overwritten with spaces, so the terminal sees it empty.
+        XCTAssertTrue(gap.hasSuffix("     \r\u{1b}[K\n"), gap.debugDescription)
+        XCTAssertTrue(gap.contains("%"), gap.debugDescription)
+        // Not before the first prompt, nor after an empty line, nor on a cleared screen.
+        XCTAssertEqual(try gapAfter(nil), "")
+        XCTAssertEqual(try gapAfter("clear"), "")
+        XCTAssertEqual(try gapAfter("reset -q"), "")
+    }
+
     /// Runs the integration in a real interactive zsh with an empty home and checks the state file
     /// and the hidden prompt: the closest thing to a pane without a window.
     func testScriptRunsInAnInteractiveShell() throws {

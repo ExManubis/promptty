@@ -2,17 +2,14 @@ import PaneActivity
 import SwiftUI
 import WorkspaceModel
 
-/// One pane: its terminal in a rounded card, dimmed when another pane of a split tab has focus, a header that
-/// appears when the pointer nears the top edge, and the "process exited" panel.
+/// One pane: its terminal in a rounded card, dimmed when another pane of a split tab has focus, and the
+/// "process exited" panel.
 struct PaneCard: View {
     let pane: Pane
     let tab: WorkspaceModel.Tab
     let visible: Bool
     let chrome: WindowChromeModel
     let actions: ChromeActions
-
-    @State private var pointerNearTop = false
-    @State private var pointerOverHeader = false
 
     private var focused: Bool { tab.focusedPaneID == pane.id }
 
@@ -21,7 +18,6 @@ struct PaneCard: View {
         guard tab.hasSplits, focused else { return 0.10 }
         return chrome.panelIsDark ? 0.35 : 0.30
     }
-    private var showHeader: Bool { visible && (pointerNearTop || pointerOverHeader || chrome.forceHeaders) }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -48,12 +44,6 @@ struct PaneCard: View {
                 ExitedOverlay(exitCode: code, restarts: tab.pin != nil && !tab.hasSplits) { actions.requestClosePane(pane.id) }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-
-            if showHeader {
-                PaneHeader(pane: pane, tab: tab, actions: actions)
-                    .onHover { pointerOverHeader = $0 }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
         }
         .background {
             // The card: the terminal theme's color, a hairline edge and a soft shadow, so each
@@ -70,66 +60,15 @@ struct PaneCard: View {
         }
         .environment(\.colorScheme, chrome.panelIsDark ? .dark : .light)
         .modifier(PaneDropTarget(pane: pane, chrome: chrome, actions: actions))
-        .animation(.easeOut(duration: 0.15), value: showHeader)
-        .onContinuousHover(coordinateSpace: .local) { phase in
-            switch phase {
-            case .active(let location): pointerNearTop = location.y < 34
-            case .ended: pointerNearTop = false
-            }
-        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(pane.title.isEmpty ? "Terminal" : pane.title)
     }
 }
 
-/// Flat bar along a pane's top edge, shown on hover: drag handle, the program running and its
-/// title, the folder, the pane's activity, split and close buttons.
-struct PaneHeader: View {
-    let pane: Pane
-    let tab: WorkspaceModel.Tab
-    let actions: ChromeActions
-
-    var body: some View {
-        let activity = actions.activity(for: pane.id)
-        let folder = WorkspaceModel.Tab.abbreviate(pane.workingDirectory)
-        let title = Self.title(pane: pane, program: activity.program, folder: folder)
-        HStack(spacing: 6) {
-            PaneDragHandle(pane: pane)
-            ProgramIcon(program: activity.program, size: 13)
-                // The title names the program already.
-                .accessibilityHidden(true)
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(1)
-            if title != folder {
-                Text(folder)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.head)
-            }
-            Spacer(minLength: 4)
-            HStack(spacing: 2) {
-                HeaderButton(symbol: "rectangle.split.2x1", help: "Split Right") { actions.split(pane.id, direction: .right) }
-                HeaderButton(symbol: "rectangle.split.1x2", help: "Split Down") { actions.split(pane.id, direction: .down) }
-                // A pinned tab cannot be closed: its only pane has no close button.
-                if tab.hasSplits || tab.pin == nil {
-                    HeaderButton(symbol: "xmark", help: tab.hasSplits ? "Close Pane" : "Close Tab") { actions.requestClosePane(pane.id) }
-                }
-            }
-        }
-        .padding(.leading, 2)
-        .padding(.trailing, 6)
-        .frame(height: 28)
-        .background(FlatSurface(cornerRadius: 8))
-        .padding(.horizontal, 8)
-        .padding(.top, 6)
-    }
-
-    /// The program's own title (Claude Code's session, the file nvim edits), else the program's
-    /// name, else the folder.
+/// What a pane is called: the program's own title (Claude Code's session, the file nvim edits),
+/// else the program's name, else the folder.
+@MainActor
+enum PaneTitle {
     static func title(pane: Pane, program: Program?, folder: String) -> String {
         let own = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !own.isEmpty, own != folder, own != pane.workingDirectory { return own }
@@ -137,6 +76,7 @@ struct PaneHeader: View {
     }
 }
 
+/// A small borderless icon button (a block's copy buttons).
 struct HeaderButton: View {
     let symbol: String
     let help: String

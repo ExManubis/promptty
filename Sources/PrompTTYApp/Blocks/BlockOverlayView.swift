@@ -253,9 +253,9 @@ final class BlockOverlayView: NSView {
         let lines = CGMutablePath()
         let marks = CGMutablePath()
         for frame in frames {
-            // Above each command but the first in the scrollback, and only when on screen.
-            if frame.index > 0, frame.minY > 1 {
-                let y = (frame.minY * scale).rounded() / scale - hairline / 2
+            // Between each command and the one before, when on screen.
+            if let mid = BlockLayout.dividerY(before: frame.index, in: snapshot), mid > 1 {
+                let y = (mid * scale).rounded() / scale - hairline / 2
                 lines.addRect(CGRect(x: 0, y: y, width: bounds.width, height: hairline))
             }
             if snapshot.blocks[frame.index].failed {

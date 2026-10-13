@@ -70,17 +70,26 @@ public enum ZshIntegration {
         }
 
         # Every prompt: hide zsh's own prompt (the input bar replaces it) and refresh what the bar
-        # knows about the shell.
+        # knows about the shell. After a command, a blank row first, so commands stand apart: from
+        # a fresh line, as zsh's PROMPT_SP finds one (its end-of-line mark after output that did
+        # not end in a newline, then spaces to the next line), erased so the terminal sees it empty.
         _promptty_precmd() {
             'builtin' 'local' REPLY
             _promptty_prompt
             'builtin' 'emulate' -L zsh -o no_aliases
             PROMPT="$REPLY" RPROMPT=''
+            if (( ${_promptty_gap:-0} )); then
+                _promptty_gap=0
+                'builtin' 'print' -rnP -- "${PROMPT_EOL_MARK-%B%S%#%s%b}"
+                'builtin' 'print' -rn -- "${(l:COLUMNS-1:: :)}"$'\r\e[K\n'
+            fi
             _promptty_write_state
         }
 
+        # A command runs. A blank row will follow it, unless it clears the screen.
         _promptty_preexec() {
             'builtin' 'print' -rn -- $'\e[?25h'
+            [[ "${1%% *}" == (clear|reset) ]] && _promptty_gap=0 || _promptty_gap=1
         }
 
         # zle is about to read a line: the prompt is ready. A theme that set its prompt after our

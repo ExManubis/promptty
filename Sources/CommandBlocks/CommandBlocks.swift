@@ -161,6 +161,16 @@ public enum BlockLayout {
         return snapshot.blocks.lastIndex { $0.row < v.top && $0.endRow >= v.top }
     }
 
+    /// Where the line above block `index` goes: through the middle of the blank row before its
+    /// command when there is one, else along the command's top edge. None above the first.
+    public static func dividerY(before index: Int, in snapshot: BlockSnapshot) -> CGFloat? {
+        guard index > 0, snapshot.blocks.indices.contains(index) else { return nil }
+        let block = snapshot.blocks[index]
+        let gap = block.row - snapshot.blocks[index - 1].endRow - 1
+        let v = snapshot.viewport
+        return v.y(ofRow: block.row) - (gap > 0 ? v.rowHeight / 2 : 0)
+    }
+
     /// The block with a row at `y` points from the view's top edge.
     public static func block(atY y: CGFloat, in snapshot: BlockSnapshot) -> Int? {
         let row = snapshot.viewport.row(atY: y)

@@ -42,8 +42,6 @@ final class WindowChromeModel {
     var resizingSplit = false
     /// Panes just closed whose terminals stay alive while their cards shrink away.
     var closingPanes: [PaneID: ClosingPane] = [:]
-    /// Shows every pane header without hover (debug driver snapshots).
-    var forceHeaders = false
 
     @ObservationIgnored private var tabDragWatch: Task<Void, Never>?
 

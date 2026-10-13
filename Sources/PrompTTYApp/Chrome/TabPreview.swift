@@ -96,7 +96,7 @@ private struct PreviewPane: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
                 ProgramIcon(program: activity.program, size: 9)
-                Text(PaneHeader.title(pane: pane, program: activity.program, folder: WorkspaceModel.Tab.abbreviate(pane.workingDirectory)))
+                Text(PaneTitle.title(pane: pane, program: activity.program, folder: WorkspaceModel.Tab.abbreviate(pane.workingDirectory)))
                     .font(.system(size: 9, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)

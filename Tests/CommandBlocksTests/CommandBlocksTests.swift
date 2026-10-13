@@ -1,3 +1,4 @@
+import CoreGraphics
 import CommandBlocks
 import Testing
 
@@ -109,6 +110,16 @@ private let blocks = [block(0, 30), block(31, 31, exit: 1), block(32, 60), block
         #expect(BlockLayout.sticky(BlockSnapshot(blocks: blocks, viewport: viewport(top: 90, total: 100))) == nil)
         // Between blocks (rows past the last block's end).
         #expect(BlockLayout.sticky(BlockSnapshot(blocks: blocks, viewport: viewport(top: 70))) == nil)
+    }
+
+    @Test func dividersSitInTheGapBetweenBlocks() {
+        // Blank row 2 between the blocks (44–64 points): the line runs through its middle.
+        let spaced = BlockSnapshot(blocks: [block(0, 1), block(3, 4)], viewport: viewport(top: 0))
+        #expect(BlockLayout.dividerY(before: 1, in: spaced) == CGFloat(54))
+        // No gap: on the command's top edge. None above the first block.
+        let tight = BlockSnapshot(blocks: [block(0, 1), block(2, 4)], viewport: viewport(top: 0))
+        #expect(BlockLayout.dividerY(before: 1, in: tight) == CGFloat(44))
+        #expect(BlockLayout.dividerY(before: 0, in: tight) == nil)
     }
 
     @Test func atBottom() {

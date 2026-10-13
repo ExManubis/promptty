@@ -127,11 +127,6 @@ enum DebugHooks {
             for c in coordinator.allControllers { c.chrome.forcedPeek = args.first == "on" }
             return ""
         }
-        // eval headers on|off — show every pane header without hovering.
-        driver.hooks["headers"] = { args in
-            for c in coordinator.allControllers { c.chrome.forceHeaders = args.first == "on" }
-            return ""
-        }
         // eval movepane <srcTab> <srcPane> <dstTab> <dstPane> <left|right|top|bottom> — indices in the key window.
         driver.hooks["movepane"] = { args in
             guard args.count == 5, let w = keyState(coordinator),
