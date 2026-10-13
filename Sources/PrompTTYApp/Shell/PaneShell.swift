@@ -419,13 +419,6 @@ final class PaneShell {
             queuedSubmit = false
             bar = .hidden
         }
-        if state.phase == .idle {
-            // Something other than the shell can take the terminal without a command from the bar
-            // (`fg`, a program started by a hook): watch the foreground process while idle.
-            poll = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.checkForeground() }
-            }
-        }
         onPhaseChange?(state.phase)
     }
 
@@ -452,8 +445,10 @@ final class PaneShell {
         onPhaseChange?(state.phase)
     }
 
-    private func checkForeground() {
-        guard let pid = surface?.foregroundPID else { return }
+    /// Something other than the shell can take the terminal without a command from the bar (`fg`,
+    /// a program started by a hook): the activity tracker's shared timer calls this for idle shells.
+    func checkForeground() {
+        guard state.phase == .idle, let pid = surface?.foregroundPID else { return }
         let before = state.phase
         state.foregroundChanged(to: pid)
         if state.phase != before { phaseChanged() }

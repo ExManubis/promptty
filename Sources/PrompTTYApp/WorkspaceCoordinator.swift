@@ -22,6 +22,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         self.workspace = workspace
         self.preferences = preferences
         activity.panes = { [weak self] in self?.watchedPanes() ?? [] }
+        activity.isSeen = { [weak self] in self?.isSeen($0) ?? false }
         activity.onNotice = { [weak self] pane, notice in self?.post(notice, for: pane) }
         activity.onSeen = { Notifications.remove(for: $0) }
     }
@@ -42,25 +43,39 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     // MARK: Activity
 
-    /// Every pane with a terminal, and whether the user sees it: the app in front, its window key
-    /// and on screen, its tab selected.
+    /// Whether the user looks at a window: the app in front, the window main and on screen. Main,
+    /// not key: a sheet, a picker's popover or the Settings window can have the keys while the
+    /// user looks at this window.
+    private func isSeen(_ window: NSWindow?) -> Bool {
+        NSApp.isActive && window?.isMainWindow == true && window?.occlusionState.contains(.visible) == true
+    }
+
+    /// Whether the user sees one pane: its tab selected in a window they look at.
+    private func isSeen(_ pane: PaneID) -> Bool {
+        guard let (state, tab) = workspace.tab(containing: pane), let controller = controllers[state.id] else { return false }
+        return controller.state.selectedTabID == tab.id && isSeen(controller.window)
+    }
+
+    /// Every pane with a terminal, and whether the user sees it. Built once per tick, so the pids
+    /// are read lazily: only for the panes whose checks are due.
     private func watchedPanes() -> [ActivityTracker.Watched] {
-        let active = NSApp.isActive
         var watched: [ActivityTracker.Watched] = []
         for controller in controllers.values {
             let window = controller.window
-            // Main, not key: a sheet, a picker's popover or the Settings window can have the keys
-            // while the user looks at this window.
-            let windowSeen = active && window?.isMainWindow == true && window?.occlusionState.contains(.visible) == true
+            let windowSeen = isSeen(window)
+            let windowVisible = window?.occlusionState.contains(.visible) == true
             for tab in controller.state.tabs {
-                let tabSeen = windowSeen && controller.state.selectedTabID == tab.id
+                let selected = controller.state.selectedTabID == tab.id
                 for pane in tab.orderedPanes {
                     guard let surface = controller.existingSurface(for: pane.id) else { continue }
+                    let id = pane.id
                     watched.append(ActivityTracker.Watched(
-                        pane: pane.id,
-                        foregroundPID: surface.foregroundPID,
-                        shellPID: controller.shell(for: pane.id)?.state.shellPID,
-                        seen: tabSeen,
+                        pane: id,
+                        foregroundPID: { [weak surface] in surface?.foregroundPID },
+                        shellPID: { [weak controller] in controller?.shell(for: id)?.state.shellPID },
+                        visible: windowVisible && selected,
+                        seen: windowSeen && selected,
+                        checkShell: { [weak controller] in controller?.shell(for: id)?.checkForeground() },
                         screen: { [weak surface] in surface?.activeScreenText() },
                         quietUntil: [surface.lastResize.map { $0.addingTimeInterval(1.5) },
                                      surface.lastKeyPress.map { $0.addingTimeInterval(1) }].compactMap { $0 }.max()

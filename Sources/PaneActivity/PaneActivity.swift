@@ -154,7 +154,8 @@ public struct PaneActivity: Equatable, Sendable {
         return Notice(kind: code == 0 ? .finished : .failed(code), program: ran, duration: duration)
     }
 
-    /// An agent's screen, checked about once a second: whether it changed since the last check.
+    /// An agent's screen, checked every half second where the user looks and every 1.5 s elsewhere:
+    /// whether it changed since the last check.
     /// Returns the notice to post when the agent finished a long turn where the user was not
     /// looking.
     @discardableResult

@@ -16,9 +16,14 @@ final class ActivityTracker {
     /// A pane to watch: its terminal, the shell's pid if known, and whether the user sees it.
     struct Watched {
         let pane: PaneID
-        let foregroundPID: Int?
-        let shellPID: Int?
+        let foregroundPID: () -> Int?
+        let shellPID: () -> Int?
+        /// The user is (or could be) looking: a selected tab of an on-screen window. Polled quickly.
+        let visible: Bool
+        /// Visible, and the app in front with the window main: notices are for what happens elsewhere.
         let seen: Bool
+        /// Lets an idle shell notice a program that took the terminal without the bar (`fg`, a hook).
+        let checkShell: () -> Void
         /// The pane's screen text, read only for agents (to tell working from waiting).
         let screen: () -> String?
         /// Screen changes before this are the terminal's doing (a resize, a key echoed).
@@ -27,6 +32,8 @@ final class ActivityTracker {
 
     /// The panes to watch right now; set by the coordinator.
     @ObservationIgnored var panes: () -> [Watched] = { [] }
+    /// Whether the user sees one pane now; set by the coordinator.
+    @ObservationIgnored var isSeen: (PaneID) -> Bool = { _ in false }
     /// A long command finished, a bell rang or a program asked for the user, unseen.
     @ObservationIgnored var onNotice: (PaneID, Notice) -> Void = { _, _ in }
     /// The user looked at a pane that had something unseen: its notification is out of date.
@@ -37,6 +44,13 @@ final class ActivityTracker {
     /// The last foreground pid read per pane, and what it was: the arguments are read once per pid.
     @ObservationIgnored private var identified: [PaneID: (pid: Int, foreground: PaneActivity.Foreground)] = [:]
     @ObservationIgnored private var timer: Timer?
+    /// When each pane's jobs last ran: the one timer ticks fast, panes the user cannot see run less.
+    @ObservationIgnored private var cadence = PollCadence<Job>()
+    private struct Job: Hashable {
+        enum Kind { case shell, foreground, screen }
+        let pane: PaneID
+        let kind: Kind
+    }
     /// The last screen seen per agent pane, as a hash.
     @ObservationIgnored private var screens: [PaneID: Int] = [:]
     /// The folder each agent works in, read from its process.
@@ -46,34 +60,46 @@ final class ActivityTracker {
     func agentDirectory(for pane: PaneID) -> String? { agentDirectories[pane] }
 
     func start() {
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        // One timer for every pane: 0.25 s is what a program started by `fg` may wait to be
+        // noticed in a pane the user sees; the rest of the panes' jobs run on their own cadence.
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
+        timer.tolerance = 0.1
+        self.timer = timer
     }
 
     func activity(for pane: PaneID) -> PaneActivity {
         activities[pane] ?? PaneActivity()
     }
 
-    /// Polls every pane: its foreground process, and whether the user sees it now.
+    /// Polls the panes that are due: an idle shell's foreground every 0.25 s where the user looks
+    /// (1 s elsewhere), the foreground process every 0.5 s (1 s), an agent's screen every 0.5 s (1.5 s).
     func tick() {
         let now = Date()
         var live = Set<PaneID>()
         for watched in panes() {
             live.insert(watched.pane)
+            if cadence.isDue(Job(pane: watched.pane, kind: .shell), every: watched.visible ? 0.25 : 1, at: now) {
+                watched.checkShell()
+            }
             var activity = states[watched.pane] ?? PaneActivity()
-            if let foreground = foreground(of: watched) {
+            if cadence.isDue(Job(pane: watched.pane, kind: .foreground), every: watched.visible ? 0.5 : 1, at: now),
+               let foreground = foreground(of: watched) {
                 if let notice = activity.observe(foreground, at: now, seen: watched.seen) {
                     onNotice(watched.pane, notice)
                 }
             }
-            if activity.program?.isAgent == true, let text = watched.screen() {
-                let hash = text.hashValue
-                let redraw = watched.quietUntil.map { now < $0 } ?? false
-                let changed = !redraw && (screens[watched.pane].map { $0 != hash } ?? false)
-                screens[watched.pane] = hash
-                if let notice = activity.agentScreen(changed: changed, at: now, seen: watched.seen) {
-                    onNotice(watched.pane, notice)
+            if activity.program?.isAgent == true {
+                if cadence.isDue(Job(pane: watched.pane, kind: .screen), every: watched.visible ? 0.5 : 1.5, at: now),
+                   let text = watched.screen() {
+                    let hash = text.hashValue
+                    let redraw = watched.quietUntil.map { now < $0 } ?? false
+                    let changed = !redraw && (screens[watched.pane].map { $0 != hash } ?? false)
+                    screens[watched.pane] = hash
+                    if let notice = activity.agentScreen(changed: changed, at: now, seen: watched.seen) {
+                        onNotice(watched.pane, notice)
+                    }
                 }
             } else {
                 screens[watched.pane] = nil
@@ -91,6 +117,7 @@ final class ActivityTracker {
             identified[gone] = nil
             screens[gone] = nil
             agentDirectories[gone] = nil
+            for kind in [Job.Kind.shell, .foreground, .screen] { cadence.forget(Job(pane: gone, kind: kind)) }
         }
     }
 
@@ -117,13 +144,9 @@ final class ActivityTracker {
         if activities[pane]?.visible != activity.visible { activities[pane] = activity }
     }
 
-    private func isSeen(_ pane: PaneID) -> Bool {
-        panes().first { $0.pane == pane }?.seen ?? false
-    }
-
     private func foreground(of watched: Watched) -> PaneActivity.Foreground? {
-        guard let pid = watched.foregroundPID, pid > 0 else { return nil }
-        if let shell = watched.shellPID ?? shellPIDs[watched.pane], shell == pid {
+        guard let pid = watched.foregroundPID(), pid > 0 else { return nil }
+        if let shell = watched.shellPID() ?? shellPIDs[watched.pane], shell == pid {
             // Pids are reused: what ran before is forgotten once the shell is back.
             identified[watched.pane] = nil
             agentDirectories[watched.pane] = nil
@@ -133,7 +156,7 @@ final class ActivityTracker {
         let process = ProcessArguments.read(pid: Int32(pid))
         // Without the integration: the first process in front that is not `login` starting the
         // shell is the pane's shell, whichever shell that is.
-        if watched.shellPID == nil, shellPIDs[watched.pane] == nil {
+        if watched.shellPID() == nil, shellPIDs[watched.pane] == nil {
             guard let process, (process.executable as NSString).lastPathComponent != "login" else { return nil }
             shellPIDs[watched.pane] = pid
             return .shell
