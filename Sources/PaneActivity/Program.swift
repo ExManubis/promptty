@@ -96,6 +96,8 @@ public enum ProgramCatalog {
         "kiro": .init(background: 0x9046FF, foreground: white),
         "kimi": .init(background: 0x1783FF, foreground: white),
         "ollama": .init(background: 0x000000, foreground: white),
+        // The foreground stands for the bean's own orange, which it is drawn in.
+        "claudewitz": .init(background: 0x1A1715, foreground: 0xDA7756),
         "node": .init(background: 0x5FA04E, foreground: white),
         "bun": .init(background: 0xFBF0DF, foreground: 0x14151A),
         "deno": .init(background: 0x000000, foreground: white),
@@ -169,6 +171,8 @@ public enum ProgramCatalog {
         entry("kilocode", "Kilo Code", logo: "kilocode", 0xFFDD00, ["kilo", "kilocode"], markers: ["@kilocode/cli/"], scriptable: true, agent: true),
         entry("kiro", "Kiro", logo: "kiro", 0x9046FF, ["kiro-cli"], agent: true),
         entry("kimi", "Kimi", logo: "kimi", 0x1783FF, ["kimi"], markers: ["/kimi-cli/"], scriptable: true, agent: true),
+        // Claude Code behind its own TUI: the `claude` it drives runs in the background.
+        entry("claudewitz", "claudewitz", logo: "claudewitz", 0xDA7756, ["claudewitz"], agent: true, fullColor: true),
         entry("ollama", "Ollama", logo: "ollama", 0x000000, ["ollama"]),
         // Languages and runtimes
         entry("node", "Node.js", logo: "nodedotjs", 0x5FA04E, ["node", "nodejs"], interpreter: true),
