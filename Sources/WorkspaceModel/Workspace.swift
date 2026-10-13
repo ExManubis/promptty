@@ -6,7 +6,7 @@ import Observation
 public final class Workspace {
     public var tabLayout: TabLayout
     public private(set) var windows: [WindowState] = []
-    /// The projects agents are grouped under in the sidebar's Agents section, in order.
+    /// The sidebar's projects, in order. Every window shows them all.
     public private(set) var projects: [Project] = [] {
         didSet { syncProjectOrder() }
     }
@@ -60,11 +60,12 @@ public final class Workspace {
         projects.remove(at: i)
     }
 
-    /// Moves a project to `index` among the projects.
+    /// Moves a project to `index` among the projects; its tabs follow in every window.
     public func moveProject(id: ProjectID, to index: Int) {
         guard let from = projects.firstIndex(where: { $0.id == id }) else { return }
         let to = min(max(index, 0), projects.count - 1)
         guard to != from else { return }
+        // One assignment: in between, the project's tabs would count as in none.
         var reordered = projects
         reordered.insert(reordered.remove(at: from), at: to)
         projects = reordered
@@ -72,7 +73,11 @@ public final class Workspace {
 
     private func syncProjectOrder() {
         let order = projects.map(\.id)
-        for w in windows { w.projectOrder = order }
+        for w in windows {
+            w.projectOrder = order
+            // A tab that left a project (removeProject) while the order stayed the same.
+            w.regroup()
+        }
     }
 
     public func tab(containing pane: PaneID) -> (WindowState, Tab)? {
