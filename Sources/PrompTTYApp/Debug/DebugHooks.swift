@@ -524,6 +524,23 @@ enum DebugHooks {
             if let frameView = window.contentView?.superview { walk(frameView, depth: 0) }
             return lines.joined(separator: "\n")
         }
+        // eval claudehooks status|install|remove — what Settings › Agents does, on the debug
+        // folder's home/.claude/settings.json (AppPaths.claudeSettings), never the real one.
+        driver.hooks["claudehooks"] = { args in
+            guard ClaudeHooks.settingsFile.path.hasPrefix(DebugDriver.shared.directory?.path ?? "/nonexistent") else {
+                return "error: not a debug folder's settings"
+            }
+            do {
+                switch args.first {
+                case "install": _ = try ClaudeHooks.install()
+                case "remove": _ = try ClaudeHooks.remove()
+                default: break
+                }
+            } catch {
+                return "error: \(error)"
+            }
+            return "status=\(ClaudeHooks.status().map { "\($0)" } ?? "nil") file=\(ClaudeHooks.settingsFile.path)"
+        }
         driver.hooks["banner"] = { args in
             coordinator.showTransientBanner(args.joined(separator: " "))
             return ""
