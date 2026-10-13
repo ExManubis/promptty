@@ -3,45 +3,15 @@ import CommandEditing
 import Observation
 import SwiftUI
 
-/// The bar's completion sources: what the shell reported, the file system, and git. One value
-/// serves one completion list, so git's branches are read once per list, not per keystroke.
-struct ShellCompletionSources: CompletionSources {
-    let commands: Set<String>
-    let exports: Set<String>
-    let git: String
-    private let branches = BranchCache()
-
-    func commandNames() -> Set<String> { commands }
-    func exportNames() -> Set<String> { exports }
-
-    func entries(inDirectory path: String) -> [(name: String, isDirectory: Bool)] {
+/// The file system side of completion: read off the main thread, once per completion list.
+enum DirectoryListing {
+    nonisolated static func entries(inDirectory path: String) -> [(name: String, isDirectory: Bool)] {
         let url = URL(fileURLWithPath: path, isDirectory: true)
         let items = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
         return items.map { item in
             let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             return (name: item.lastPathComponent, isDirectory: isDirectory == true)
         }
-    }
-
-    func gitBranches(in directory: String) -> [String] {
-        branches.value(for: directory) {
-            let out = PaneShell.run(git, ["-C", directory, "for-each-ref", "--format=%(refname:short)", "refs/heads"], timeout: 1) ?? ""
-            return out.split(separator: "\n").map(String.init)
-        }
-    }
-}
-
-private final class BranchCache: @unchecked Sendable {
-    private let lock = NSLock()
-    private var cache: [String: [String]] = [:]
-
-    func value(for directory: String, load: () -> [String]) -> [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        if let cached = cache[directory] { return cached }
-        let loaded = load()
-        cache[directory] = loaded
-        return loaded
     }
 }
 

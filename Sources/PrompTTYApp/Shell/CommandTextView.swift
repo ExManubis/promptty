@@ -56,11 +56,21 @@ final class CommandTextView: NSTextView {
     private var replacingFromHistory = false
     /// The ghost text after the caret.
     private(set) var suggestion: String?
-    /// Where Tab completion looks: the shell's names and the pane's directory.
-    var completionContext: () -> (sources: CompletionSources, directory: String)? = { nil }
+    /// Where Tab completion looks: the pane's directory, and the shell's names (a snapshot with
+    /// nothing fetched yet).
+    var completionDirectory: () -> String? = { nil }
+    var completionNames: () -> CompletionSnapshot? = { nil }
+    /// Read off the main thread by the pane: a folder on a stalled share or a slow `git` must not
+    /// freeze the bar.
+    var listEntries: (String) async -> [(name: String, isDirectory: Bool)] = { _ in [] }
+    var loadBranches: (String) async -> [String] = { _ in [] }
     private let popup = CompletionPopup()
-    /// The sources for the open completion list, so filtering does not ask git again per key.
-    private var popupSources: (sources: CompletionSources, directory: String)?
+    /// What the open completion list filters: fetched once when it opens (and again only when the
+    /// word moves to another folder), so a keystroke does no disk or git work.
+    private var popupSnapshot: (snapshot: CompletionSnapshot, directory: String)?
+    /// Bumped whenever the text, the list or the question changes: a fetch that finishes under an
+    /// older number is stale and dropped.
+    private var completionRequest = 0
     /// Each bar keeps its own undo history; the window's is shared by every pane.
     private let ownUndoManager = UndoManager()
     /// Set while the app itself inserts text (completions, suggestions), which normal mode must
@@ -90,7 +100,10 @@ final class CommandTextView: NSTextView {
         // macOS's inline predictions (grey text and their panel) would compete with the bar's own
         // history suggestions.
         inlinePredictionType = .no
-        popup.onClose = { [weak self] in self?.popupSources = nil }
+        popup.onClose = { [weak self] in
+            self?.popupSnapshot = nil
+            self?.completionRequest += 1
+        }
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
@@ -264,9 +277,9 @@ final class CommandTextView: NSTextView {
     // MARK: Completion
 
     private func currentCompletion() -> Completion? {
-        guard let context = popupSources ?? completionContext(), selectedRange().length == 0 else { return nil }
+        guard let context = popupSnapshot, selectedRange().length == 0 else { return nil }
         return CompletionEngine.complete(text: string, cursor: selectedRange().location, directory: context.directory,
-                                         home: NSHomeDirectory(), sources: context.sources)
+                                         home: NSHomeDirectory(), sources: context.snapshot)
     }
 
     /// Tab: one match is inserted; several insert what they share and open the list.
@@ -296,7 +309,7 @@ final class CommandTextView: NSTextView {
     /// at the drop point, or at the caret.
     func insertDroppedFiles(_ urls: [URL], at index: Int? = nil) {
         // Without the pane's folder, paths stay absolute (the app's own folder means nothing here).
-        let directory = completionContext()?.directory ?? ""
+        let directory = completionDirectory() ?? ""
         let words = urls.map { ShellQuoting.pathArgument($0.path, directory: directory, home: NSHomeDirectory()) }
         // A composition in progress is committed first, as a click elsewhere would.
         if hasMarkedText() { unmarkText() }
@@ -336,13 +349,51 @@ final class CommandTextView: NSTextView {
     }
 
     private func complete() {
-        popupSources = completionContext()
+        guard selectedRange().length == 0, let directory = completionDirectory(), let names = completionNames() else {
+            NSSound.beep()
+            return
+        }
+        popupSnapshot = (names, directory)
+        completionRequest += 1
+        whenFetched(thenDo: { $0.finishComplete() })
+    }
+
+    /// Fetches what the text needs that the snapshot lacks, then runs `action`, unless the user
+    /// typed, moved the caret, or closed the list meanwhile (the next keystroke asks again).
+    private func whenFetched(thenDo action: @escaping (CommandTextView) -> Void) {
+        guard let context = popupSnapshot else { return }
+        let caret = selectedRange().location
+        guard let need = CompletionEngine.need(text: string, cursor: caret, directory: context.directory, home: NSHomeDirectory()),
+              !context.snapshot.has(need) else {
+            action(self)
+            return
+        }
+        let request = completionRequest
+        let text = string
+        Task { [weak self] in
+            guard let self else { return }
+            switch need {
+            case .directory(let path):
+                let entries = await listEntries(path)
+                popupSnapshot?.snapshot.listings[path] = entries
+            case .gitBranches(let directory):
+                let branches = await loadBranches(directory)
+                popupSnapshot?.snapshot.branches[directory] = branches
+            }
+            guard request == completionRequest, string == text, selectedRange() == NSRange(location: caret, length: 0) else { return }
+            action(self)
+        }
+    }
+
+    /// Tab, once the data is in: the rest of `complete`.
+    private func finishComplete() {
         guard let completion = currentCompletion(), completion.candidates.count <= 500 else {
             NSSound.beep()
             return
         }
         let range = NSRange(location: completion.replacement.lowerBound, length: completion.replacement.count)
         if let single = completion.singleInsertion {
+            popupSnapshot = nil
             insertProgrammatically(single, replacing: range)
             return
         }
@@ -356,7 +407,12 @@ final class CommandTextView: NSTextView {
     }
 
     private func refilterCompletions() {
-        guard let completion = currentCompletion(), completion.candidates.count <= 500 else {
+        completionRequest += 1
+        whenFetched(thenDo: { $0.applyRefilter() })
+    }
+
+    private func applyRefilter() {
+        guard popup.isVisible, let completion = currentCompletion(), completion.candidates.count <= 500 else {
             popup.close()
             return
         }

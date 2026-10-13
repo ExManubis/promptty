@@ -185,6 +185,8 @@ final class PaneShell {
         guard let pid = surface?.foregroundPID, state.promptReady(foregroundPID: pid) else { return true }
         reloadStateFileIfChanged()
         reloadHistoryIfChanged()
+        branchCache = [:]
+        branchEpoch += 1
         refreshGit()
         phaseChanged()
         if startupCommand != nil {
@@ -223,15 +225,14 @@ final class PaneShell {
         text.history = { [weak self] in self?.history.newestFirst ?? [] }
         text.folderHistory = { [weak self] in self.map { FolderHistoryStore.shared.ranked(for: $0.directory) } ?? [] }
         text.isKnownCommand = { [weak self] in self?.isKnownCommand($0) ?? true }
-        text.completionContext = { [weak self] in
-            guard let self else { return nil }
-            let sources = ShellCompletionSources(
-                commands: self.knownCommands.union(self.stateFile?.commandNames ?? []),
-                exports: self.stateFile?.exports ?? [],
-                git: Self.executable("git", in: self.stateFile?.path ?? []) ?? "/usr/bin/git"
-            )
-            return (sources, self.directory)
+        text.completionDirectory = { [weak self] in self?.directory }
+        text.completionNames = { [weak self] in
+            self.map { CompletionSnapshot(commands: $0.completionCommandNames, exports: $0.stateFile?.exports ?? []) }
         }
+        text.listEntries = { path in
+            await Task.detached(priority: .userInitiated) { DirectoryListing.entries(inDirectory: path) }.value
+        }
+        text.loadBranches = { [weak self] directory in await self?.localBranches(in: directory) ?? [] }
         text.onShellControl = { [weak self] in self?.surface?.sendControl($0) }
         text.onTextChange = { [weak self] in self?.editorTextChanged() }
         return view
@@ -259,6 +260,36 @@ final class PaneShell {
         return knownCommands.isEmpty || knownCommands.contains(name)
     }
 
+    /// `knownCommands` and the shell's own names together, merged once (thousands of names) and
+    /// again only when either changes.
+    @ObservationIgnored private var mergedCommandNames: Set<String>?
+
+    private var completionCommandNames: Set<String> {
+        if let merged = mergedCommandNames { return merged }
+        let merged = knownCommands.union(stateFile?.commandNames ?? [])
+        mergedCommandNames = merged
+        return merged
+    }
+
+    /// The local branches by directory, kept across completion lists and dropped at every prompt:
+    /// a checkout or a new branch happens between prompts.
+    @ObservationIgnored private var branchCache: [String: [String]] = [:]
+    @ObservationIgnored private var branchEpoch = 0
+
+    /// The local branches of the repository at `directory`; empty when it is none. Never blocks the
+    /// main thread.
+    func localBranches(in directory: String) async -> [String] {
+        if let cached = branchCache[directory] { return cached }
+        let epoch = branchEpoch
+        let git = Self.executable("git", in: stateFile?.path ?? []) ?? "/usr/bin/git"
+        let branches = await Task.detached(priority: .userInitiated) {
+            let out = Self.run(git, ["-C", directory, "for-each-ref", "--format=%(refname:short)", "refs/heads"], timeout: 1) ?? ""
+            return out.split(separator: "\n").map(String.init)
+        }.value
+        if epoch == branchEpoch { branchCache[directory] = branches }
+        return branches
+    }
+
     private func listCommands() {
         guard let stateFile else { return }
         let names = stateFile.commandNames
@@ -274,6 +305,7 @@ final class PaneShell {
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.knownCommands = all
+                self.mergedCommandNames = nil
                 self.editor.textView.recolor()
             }
         }
@@ -467,6 +499,7 @@ final class PaneShell {
         guard parsed != stateFile else { return }
         let namesChanged = parsed.path != stateFile?.path || parsed.commandNames != stateFile?.commandNames
         stateFile = parsed
+        if namesChanged { mergedCommandNames = nil }
         if namesChanged { listCommands() }
     }
 
