@@ -39,10 +39,10 @@ protocol ChromeActions: AnyObject {
     // Projects
     /// The workspace's projects, in sidebar order (observable).
     var projects: [Project] { get }
-    /// Asks for a folder and makes a project of it; `tab` (if any) moves into it.
+    /// Asks for a name and makes a project; `tab` (if any, in any window) moves into it.
     func newProject(adding tab: TabID?)
-    /// A new tab in the project's folder, in the project; nil: a tab in no project (the "+ New
-    /// Tab" row), where ⌘T would join the selected tab's project.
+    /// A new tab in the project (in the folder of one of its tabs); nil: a tab in no project (the
+    /// "+ New Tab" row), where ⌘T would join the selected tab's project.
     func newTab(inProject project: ProjectID?)
     /// Puts a tab in a project (nil: in none), at `index` (a drop) or after the project's tabs.
     /// A pinned tab is unpinned when it has an index (dropped among a project's rows). Without an
@@ -51,7 +51,6 @@ protocol ChromeActions: AnyObject {
     /// Asks for a tab's name in a sheet; the tab may be in any window (an agent's).
     func requestRenameTab(_ id: TabID)
     func renameProject(_ id: ProjectID)
-    func changeProjectFolder(_ id: ProjectID)
     func setProjectIcon(_ id: ProjectID, _ icon: PinIcon?)
     func setProjectFolded(_ id: ProjectID, _ folded: Bool)
     /// Moves a project up (-1) or down (+1) among the projects.

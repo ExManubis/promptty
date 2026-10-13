@@ -15,11 +15,9 @@ struct GroupHeader: View {
     }
 
     let title: String
-    /// The tooltip: the folder.
+    /// The tooltip.
     let help: String
     var symbol: Symbol = .none
-    /// The project's folder is gone.
-    var missing = false
     let count: Int
     /// What "count" counts, for VoiceOver: "agent", "tab".
     let noun: String
@@ -48,12 +46,6 @@ struct GroupHeader: View {
                     .font(.system(size: 11.5, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if missing {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.orange)
-                        .help("Folder not found: \(help)")
-                }
                 if folded {
                     Text("\(count)")
                         .font(.system(size: 10, weight: .medium))
@@ -139,8 +131,7 @@ struct ProjectHeader: View {
     @State private var dropTargeted = false
 
     var body: some View {
-        GroupHeader(title: project.name, help: WorkspaceModel.Tab.abbreviate(project.directory), symbol: GroupHeader.Symbol(project),
-                    missing: !WorkspaceCoordinator.isFolder(project.directory),
+        GroupHeader(title: project.name, help: project.name, symbol: GroupHeader.Symbol(project),
                     count: count, noun: noun, display: display, folded: project.folded,
                     selected: selected, dropTarget: dropTargeted,
                     onAdd: inTabList ? { actions.newTab(inProject: project.id) } : nil) {
@@ -173,7 +164,6 @@ struct ProjectMenu: View {
         Button("Rename…") { actions.renameProject(project.id) }
         // The picker opens from the project's header in the tab list.
         Button("Change Icon…") { chrome.iconPickerProject = project.id }
-        Button("Change Folder…") { actions.changeProjectFolder(project.id) }
         Divider()
         let index = actions.projects.firstIndex { $0.id == project.id }
         Button("Move Up") { actions.moveProject(project.id, by: -1) }

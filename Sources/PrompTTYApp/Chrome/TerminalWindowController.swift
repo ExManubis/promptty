@@ -444,17 +444,24 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     // MARK: Projects
 
-    /// A folder sheet, opened at the tab's repository (or folder): Create Project takes the folder
-    /// shown when nothing in it is selected.
+    /// A sheet for the new project's name, suggesting the tab's repository's.
     func newProject(adding tab: TabID?) {
-        let suggested = coordinator.suggestedProjectFolder(for: tab)
-        chooseFolder(title: "New Project", message: "Choose the project's folder. Its new tabs open there.",
-                     prompt: "Create Project", startingAt: suggested) { [weak self] directory in
-            self?.coordinator.addProject(directory: directory, adding: tab)
+        guard let window, window.attachedSheet == nil else { return }
+        let alert = NSAlert()
+        alert.messageText = "New Project"
+        alert.informativeText = tab == nil ? "Group tabs and their agents under a name." : "The tab moves into it; drag more tabs or agents onto it later."
+        let field = NSTextField(string: coordinator.suggestedProjectName(for: tab))
+        field.placeholderString = Project.untitled
+        field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Create Project")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { [weak self] response in
+            if response == .alertFirstButtonReturn { self?.coordinator.addProject(name: field.stringValue, adding: tab) }
+            self?.focusSelectedPane()
         }
     }
-
-    var projects: [Project] { coordinator.workspace.projects }
 
     func newTab(inProject project: ProjectID?) {
         if let project {
@@ -493,9 +500,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         guard let window, window.attachedSheet == nil, let project = coordinator.workspace.project(id: id) else { return }
         let alert = NSAlert()
         alert.messageText = "Rename Project"
-        alert.informativeText = Tab.abbreviate(project.directory)
         let field = NSTextField(string: project.name)
-        field.placeholderString = Project.defaultName(for: project.directory)
+        field.placeholderString = project.name
         field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
         alert.accessoryView = field
         alert.addButton(withTitle: "Rename")
@@ -504,14 +510,6 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         alert.beginSheetModal(for: window) { [weak self] response in
             if response == .alertFirstButtonReturn { self?.coordinator.renameProject(id, to: field.stringValue) }
             self?.focusSelectedPane()
-        }
-    }
-
-    func changeProjectFolder(_ id: ProjectID) {
-        guard let project = coordinator.workspace.project(id: id) else { return }
-        chooseFolder(title: "Change Folder", message: "New tabs in \(project.name) open in this folder.",
-                     prompt: "Choose", startingAt: project.directory) { [weak self] directory in
-            self?.coordinator.setProjectFolder(id, directory)
         }
     }
 
@@ -528,26 +526,6 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
                      informativeText: count == 0 ? "The project has no tabs." : "\(tabs), in no project.",
                      confirmTitle: "Remove") { [weak self] in
             self?.coordinator.removeProject(id)
-            self?.focusSelectedPane()
-        }
-    }
-
-    /// A folder sheet on this window, opened in `directory` (or the closest folder that exists).
-    private func chooseFolder(title: String, message: String, prompt: String, startingAt directory: String, then choose: @escaping (String) -> Void) {
-        guard let window, window.attachedSheet == nil else { return }
-        let panel = NSOpenPanel()
-        panel.title = title
-        panel.message = message
-        panel.prompt = prompt
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        var start = directory
-        while !WorkspaceCoordinator.isFolder(start), start != "/", !start.isEmpty { start = (start as NSString).deletingLastPathComponent }
-        panel.directoryURL = URL(fileURLWithPath: start.isEmpty ? NSHomeDirectory() : start, isDirectory: true)
-        panel.beginSheetModal(for: window) { [weak self] response in
-            if response == .OK, let url = panel.url { choose(url.path) }
             self?.focusSelectedPane()
         }
     }

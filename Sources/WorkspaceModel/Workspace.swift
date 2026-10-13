@@ -44,9 +44,9 @@ public final class Workspace {
 
     /// Adds a project after the others, or at `index`.
     @discardableResult
-    public func addProject(name: String, directory: String, icon: PinIcon? = nil, id: ProjectID = ProjectID(), folded: Bool = false, at index: Int? = nil) -> Project {
+    public func addProject(name: String, icon: PinIcon? = nil, id: ProjectID = ProjectID(), folded: Bool = false, at index: Int? = nil) -> Project {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let project = Project(id: id, name: trimmed.isEmpty ? Project.defaultName(for: directory) : trimmed, directory: directory, icon: icon, folded: folded)
+        let project = Project(id: id, name: trimmed.isEmpty ? Project.untitled : trimmed, icon: icon, folded: folded)
         projects.insert(project, at: min(max(index ?? projects.count, 0), projects.count))
         return project
     }

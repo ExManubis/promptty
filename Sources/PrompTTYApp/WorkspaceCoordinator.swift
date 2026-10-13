@@ -351,23 +351,18 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     // MARK: Projects
 
-    /// Whether `path` is a folder: a project's can be gone (moved, an unmounted volume).
-    static func isFolder(_ path: String) -> Bool {
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
-    }
-
-    /// The folder a new project from `tab` suggests: its repository's root, or its folder.
-    func suggestedProjectFolder(for tab: TabID?) -> String {
+    /// The name a new project from `tab` suggests: its repository's (or folder's).
+    func suggestedProjectName(for tab: TabID?) -> String {
         guard let tab, let state = workspace.window(containing: tab), let directory = state.tab(id: tab)?.workingDirectory else {
-            return NSHomeDirectory()
+            return Project.untitled
         }
-        return Repository.find(for: directory, in: DiskFiles()).root
+        let name = (Repository.find(for: directory, in: DiskFiles()).root as NSString).lastPathComponent
+        return name.isEmpty || name == "/" ? Project.untitled : name
     }
 
-    /// Makes a project of `directory`, named after it, and moves `tab` into it.
-    func addProject(directory: String, adding tab: TabID?) {
-        let project = workspace.addProject(name: "", directory: directory)
+    /// Makes a project and moves `tab` (in any window) into it.
+    func addProject(name: String, adding tab: TabID?) {
+        let project = workspace.addProject(name: name)
         if let tab, let state = workspace.window(containing: tab) {
             state.setProject(tab, project.id)
             controllers[state.id]?.reload()
@@ -375,12 +370,15 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
-    /// A tab in the project's folder (home when the folder is gone).
+    /// A tab in the project, in the folder of the project's selected tab (or its last one in the
+    /// window); a project without tabs here opens it where ⌘T would.
     func newTab(in state: WindowState, project id: ProjectID) {
         guard let project = workspace.project(id: id) else { return }
         if project.folded { project.folded = false }
-        let dir = Self.isFolder(project.directory) ? project.directory : NSHomeDirectory()
-        state.addTab(title: "", workingDirectory: dir, project: id)
+        let inProject = state.tabs.filter { state.project(of: $0) == id }
+        let source = inProject.first { $0.id == state.selectedTabID } ?? inProject.last
+        let usual = preferences.settings.newTabDirectory == .currentPane ? state.selectedTab?.workingDirectory : nil
+        state.addTab(title: "", workingDirectory: source?.workingDirectory ?? usual ?? NSHomeDirectory(), project: id)
         controllers[state.id]?.reload()
         modelDidChange()
     }
@@ -393,18 +391,11 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
+    /// A blank name keeps the old one.
     func renameProject(_ id: ProjectID, to name: String) {
-        guard let project = workspace.project(id: id) else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        project.name = trimmed.isEmpty ? Project.defaultName(for: project.directory) : trimmed
-        modelDidChange()
-    }
-
-    func setProjectFolder(_ id: ProjectID, _ directory: String) {
-        guard let project = workspace.project(id: id) else { return }
-        // A name that was the old folder's follows the folder.
-        if project.name == Project.defaultName(for: project.directory) { project.name = Project.defaultName(for: directory) }
-        project.directory = directory
+        guard let project = workspace.project(id: id), !trimmed.isEmpty else { return }
+        project.name = trimmed
         modelDidChange()
     }
 

@@ -74,7 +74,7 @@ enum DebugHooks {
             let projects = coordinator.workspace.projects
             var lines: [String] = []
             for (pi, p) in projects.enumerated() {
-                lines.append("project \(pi): \(p.name) \(p.directory)" + (p.folded ? " folded" : ""))
+                lines.append("project \(pi): \(p.name)" + (p.folded ? " folded" : ""))
             }
             for (wi, controller) in coordinator.allControllers.enumerated() {
                 for (ti, t) in controller.state.tabs.enumerated() {
@@ -86,12 +86,12 @@ enum DebugHooks {
             }
             return lines.joined(separator: "\n")
         }
-        // eval projectadd <folder> [tab] — New Project…, moving the tab into it.
+        // eval projectadd <name> [tab] — New Project…, moving the tab into it.
         driver.hooks["projectadd"] = { args in
-            guard let c = coordinator.allControllers.first, let folder = args.first else { return "error: projectadd <folder> [tab]" }
+            guard let c = coordinator.allControllers.first, let name = args.first else { return "error: projectadd <name> [tab]" }
             var tab: TabID?
             if let i = args.dropFirst().first.flatMap(Int.init), c.state.tabs.indices.contains(i) { tab = c.state.tabs[i].id }
-            coordinator.addProject(directory: folder, adding: tab)
+            coordinator.addProject(name: name, adding: tab)
             return ""
         }
         // eval projecttab <tab> <project|none> — Move to Project.

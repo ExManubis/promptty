@@ -14,14 +14,14 @@ public struct TabSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+/// A `directory` written by early builds, when projects had folders, is ignored.
 public struct ProjectSnapshot: Codable, Equatable, Sendable {
     public var id: ProjectID
     public var name: String
-    public var directory: String
     public var icon: PinIcon?
     public var folded: Bool
-    public init(id: ProjectID, name: String, directory: String, icon: PinIcon? = nil, folded: Bool = false) {
-        self.id = id; self.name = name; self.directory = directory; self.icon = icon; self.folded = folded
+    public init(id: ProjectID, name: String, icon: PinIcon? = nil, folded: Bool = false) {
+        self.id = id; self.name = name; self.icon = icon; self.folded = folded
     }
 }
 
@@ -63,7 +63,7 @@ extension Workspace {
         SessionSnapshot(
             version: SessionSnapshot.currentVersion,
             tabLayout: tabLayout,
-            projects: projects.map { ProjectSnapshot(id: $0.id, name: $0.name, directory: $0.directory, icon: $0.icon, folded: $0.folded) },
+            projects: projects.map { ProjectSnapshot(id: $0.id, name: $0.name, icon: $0.icon, folded: $0.folded) },
             windows: windows.map { w in
                 WindowSnapshot(
                     frame: w.frame,
@@ -76,8 +76,7 @@ extension Workspace {
 
     /// Rebuilds a workspace. Working directories that are no longer directories fall back to
     /// `fallbackDirectory`. A pinned tab opens in its pinned folder and runs its command there.
-    /// Projects come back as they were, even when their folder is gone; a tab naming a project the
-    /// file does not have is in none. Windows without tabs are skipped; if none remain, the result
+    /// Projects come back as they were; a tab naming a project the file does not have is in none. Windows without tabs are skipped; if none remain, the result
     /// is one window with one tab so the app never launches without a terminal.
     public static func restore(
         from snapshot: SessionSnapshot,
@@ -89,7 +88,7 @@ extension Workspace {
     ) -> Workspace {
         let ws = Workspace(tabLayout: snapshot.tabLayout)
         for p in snapshot.projects where ws.project(id: p.id) == nil {
-            ws.addProject(name: p.name, directory: p.directory, icon: p.icon, id: p.id, folded: p.folded)
+            ws.addProject(name: p.name, icon: p.icon, id: p.id, folded: p.folded)
         }
         for windowSnap in snapshot.windows where !windowSnap.tabs.isEmpty {
             let w = ws.addWindow(frame: windowSnap.frame)

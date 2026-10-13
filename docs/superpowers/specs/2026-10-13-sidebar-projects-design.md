@@ -4,8 +4,8 @@ Date: 2026-10-13 · Status: approved with the proposals below; implemented (see 
 
 ## Goal
 
-Projects the user defines in the sidebar: a named group of tabs tied to a folder, like a folder
-in Dia's or Arc's sidebar. The tab list shows tabs under their project, and the Agents section
+Projects the user defines in the sidebar: a named group of tabs, like a folder in Dia's or Arc's
+sidebar (revised: a project has no folder on disk; see "As built"). The tab list shows tabs under their project, and the Agents section
 groups agents by the same projects, so the two halves of the sidebar agree.
 
 Today agents are grouped automatically by `Project.find` (`Sources/PaneActivity/Project.swift`):
@@ -16,8 +16,9 @@ at all.
 
 ## Decisions
 
-- **A project is a named group of tabs with a folder.** New tabs in it open in its folder. It is
-  a user object; nothing creates one automatically.
+- **A project is a named group of tabs.** ~~With a folder, where its new tabs open~~ (revised:
+  no folder; it only organizes tabs and their agents). It is a user object; nothing creates one
+  automatically.
 - **An agent belongs to the project of the tab it runs in**, not to the folder it works in. The
   user placed the tab; an agent that `cd`s elsewhere does not jump groups.
 - **Agents in tabs outside any project keep today's grouping** by git repository, after the
@@ -169,12 +170,16 @@ With projects defined, headers always show, so a project's name is visible even 
 
 Where the implementation differs from the design above:
 
+- **Projects have no folder** (revised after the first build: they are only a way to organize
+  tabs and their agents). `Project` is an ID, a name, an icon and a fold state; there is no
+  Change Folder… and no missing-folder warning. New Project… asks for a name, suggesting the
+  selected tab's repository's. A header's "+" opens a tab in the folder of the project's selected
+  tab in that window (or its last one), else where ⌘T would. Session files written while projects
+  had folders still decode; the `directory` key is ignored. Everything below that mentions a
+  project's folder is superseded by this.
 - **The session version stays 1.** Projects only add fields (`SessionSnapshot.projects`,
   `TabSnapshot.project`) that older builds ignore, so a session written now still opens in an
   older build, without its projects. Bumping the version would make older builds refuse the file.
-- **New Project… asks only for the folder** (an open panel starting at the selected tab's
-  repository); the project is named after the folder and can be renamed from its menu. Changing
-  the folder of a project still named after its old folder renames it to the new one.
 - **Projects are reordered by dragging their headers** in the tab list (`DragPayload.project`,
   registered in `project.yml` and `Info.plist`): dropped on another project's header, the dragged
   project takes its place, as a tab dropped on a tab does. Move Up / Move Down in the header's
