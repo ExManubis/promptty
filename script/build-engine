@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Builds libghostty into Engine/: libghostty-spm's pinned Ghostty source, its own patches, and
-# PrompTTY's patches in Engine/patches/ on top. Needs Homebrew zig@0.15 and Xcode's Metal
-# toolchain (see libghostty-spm's CLAUDE.md); a cold build takes several minutes, sometimes
-# much longer while libtool finishes the archive.
+# Builds libghostty into Engine/: libghostty-spm's pinned Ghostty source with the package's own
+# patches and then PrompTTY's (Engine/patches/) applied for the build. Needs Homebrew zig@0.15
+# and Xcode's Metal toolchain (see libghostty-spm's CLAUDE.md).
+#
+# Only the library is built, not Ghostty.app: the app's link step fails outside Ghostty's own CI
+# and leaves libghostty-spm's build script waiting half an hour for an orphaned archive step.
+# Without it a build takes a minute or so (a few the first time), and the symbol check below
+# fails the build if a future Ghostty ever stops putting the embedding API in the library.
 #
 #   script/build-engine           build if Engine/GhosttyKit.xcframework is missing
 #   script/build-engine --force   rebuild (after changing a patch)
@@ -12,28 +16,66 @@ cd "$(dirname "$0")/.."
 REPO=https://github.com/sethdeckard/libghostty-spm
 TAG=v0.2.0
 WORK=.build/engine/libghostty-spm
-ZIG=/opt/homebrew/opt/zig@0.15/bin
+GHOSTTY=$WORK/vendor/ghostty
+ZIG=/opt/homebrew/opt/zig@0.15/bin/zig
 OUT=Engine/GhosttyKit.xcframework
+RESOURCES=Engine/Sources/GhosttyKitResources/Resources
+REQUIRED_SYMBOLS=(ghostty_surface_new ghostty_surface_read_text_format ghostty_surface_blocks ghostty_surface_block_text)
+
+fail() { echo "build-engine: $1" >&2; exit 1; }
 
 [ "${1:-}" = "--force" ] || [ ! -d "$OUT" ] || { echo "Engine already built ($OUT); --force rebuilds"; exit 0; }
-[ -x "$ZIG/zig" ] || { echo "build-engine: needs Homebrew zig@0.15: brew install zig@0.15" >&2; exit 1; }
+[ -x "$ZIG" ] || fail "needs Homebrew zig@0.15: brew install zig@0.15"
 
 if [ ! -d "$WORK/.git" ]; then
   mkdir -p "$(dirname "$WORK")"
   git clone --quiet --branch "$TAG" --recurse-submodules "$REPO" "$WORK"
 fi
-# The package's patch series plus ours, applied by its build in lexical order and reverted after.
+[ -z "$(git -C "$GHOSTTY" status --porcelain)" ] \
+  || fail "$GHOSTTY has local changes (an interrupted build?): git -C $GHOSTTY checkout -- . && git -C $GHOSTTY clean -fd"
+git -C "$WORK" submodule update --init --quiet vendor/ghostty
+# Earlier versions of this script copied PrompTTY's patches in among the package's own.
 git -C "$WORK" checkout --quiet -- patches
 git -C "$WORK" clean -fdq -- patches
-cp Engine/patches/*.patch "$WORK/patches/"
 
-(cd "$WORK" && PATH="$ZIG:$PATH" ./scripts/build-xcframework.sh)
+# Applied in order (theirs, then ours) and reverted on exit, however the build ends; files the
+# patches add are untracked, so they are listed after each apply and removed with the rest.
+added=""
+restore() {
+  git -C "$GHOSTTY" checkout --quiet -- .
+  while IFS= read -r file; do [ -z "$file" ] || rm -f "$GHOSTTY/$file"; done <<< "$added"
+}
+trap restore EXIT
+for patch in "$WORK"/patches/*.patch Engine/patches/*.patch; do
+  [ -e "$patch" ] || continue
+  git -C "$GHOSTTY" apply "$PWD/$patch" \
+    || fail "$(basename "$patch") does not apply to the pinned Ghostty; regenerate it (see $WORK/patches/README.md)"
+  added=$(git -C "$GHOSTTY" status --porcelain --untracked-files=all | sed -n 's/^?? //p')
+  echo "applied $(basename "$patch")"
+done
 
-LIB=$(find "$WORK/dist/GhosttyKit.xcframework" -name "*.a" | head -1)
-nm -g "$LIB" 2>/dev/null | grep -q "_ghostty_surface_new" \
-  || { echo "build-engine: the built library lacks the surface C API; see libghostty-spm's CLAUDE.md, 'Build reality'" >&2; exit 1; }
+rm -rf "$GHOSTTY/zig-out" "$GHOSTTY/macos/GhosttyKit.xcframework"
+(
+  cd "$GHOSTTY"
+  SDKROOT=$(xcrun --sdk macosx --show-sdk-path) "$ZIG" build \
+    -Doptimize=ReleaseFast -Dstrip=false \
+    -Demit-macos-app=false -Demit-xcframework=true -Dxcframework-target=native
+)
 
-rm -rf "$OUT" Engine/Sources/GhosttyKitResources/Resources
-ditto "$WORK/dist/GhosttyKit.xcframework" "$OUT"
-ditto "$WORK/Sources/GhosttyKitResources/Resources" Engine/Sources/GhosttyKitResources/Resources
+LIB=$(find "$GHOSTTY/macos/GhosttyKit.xcframework" -name "libghostty*.a" | head -1)
+[ -n "$LIB" ] || fail "the build made no library"
+symbols=$(nm -g "$LIB" 2>/dev/null)
+for symbol in "${REQUIRED_SYMBOLS[@]}"; do
+  grep -q " T _$symbol\$" <<< "$symbols" || fail "the library lacks $symbol; see libghostty-spm's CLAUDE.md, 'Build reality'"
+done
+
+SHARE=$GHOSTTY/zig-out/share
+[ -f "$SHARE/terminfo/78/xterm-ghostty" ] || fail "the build made no terminfo"
+rm -rf "$OUT" "$RESOURCES"
+ditto "$GHOSTTY/macos/GhosttyKit.xcframework" "$OUT"
+mkdir -p "$RESOURCES/ghostty"
+ditto "$SHARE/terminfo" "$RESOURCES/terminfo"
+ditto "$SHARE/ghostty/shell-integration" "$RESOURCES/ghostty/shell-integration"
+ditto "$SHARE/ghostty/themes" "$RESOURCES/ghostty/themes"
+cp "$WORK/licenses/GPL-3.0.txt" "$RESOURCES/ghostty/shell-integration/GPL-3.0.txt"
 echo "Engine built: $OUT"
