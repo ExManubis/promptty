@@ -161,6 +161,8 @@ final class PaneShell {
     /// How many polls that program may keep the terminal before it gets the keys.
     @ObservationIgnored private var handOverPolls = 4
     @ObservationIgnored private var gitGeneration = 0
+    @ObservationIgnored private var stateFileGeneration = 0
+    @ObservationIgnored private var commandsGeneration = 0
 
     /// Run from the bar at the first prompt (a pinned tab's command).
     @ObservationIgnored private var startupCommand: String?
@@ -179,13 +181,17 @@ final class PaneShell {
     /// signal, which is not a real directory and must not reach the pane's model.
     func directoryReported(_ path: String) -> Bool {
         guard integrated, let dir = ZshIntegration.readyDirectory(fromReportedPath: path) else {
-            moveTo(path)
+            // A command that changes directory is followed by a prompt, which reads the status
+            // once the command is done: not once here and again there.
+            moveTo(path, refreshingGit: !integrated || state.phase == .idle)
             return false
         }
-        moveTo(dir)
-        guard let pid = surface?.foregroundPID, state.promptReady(foregroundPID: pid) else { return true }
+        let moved = moveTo(dir, refreshingGit: false)
+        guard let pid = surface?.foregroundPID, state.promptReady(foregroundPID: pid) else {
+            if moved { refreshGit() }
+            return true
+        }
         reloadStateFileIfChanged()
-        reloadHistoryIfChanged()
         branchCache = [:]
         branchEpoch += 1
         refreshGit()
@@ -204,10 +210,13 @@ final class PaneShell {
         return true
     }
 
-    private func moveTo(_ dir: String) {
-        guard dir != directory else { return }
+    /// Returns whether the directory changed.
+    @discardableResult
+    private func moveTo(_ dir: String, refreshingGit: Bool = true) -> Bool {
+        guard dir != directory else { return false }
         directory = dir
-        refreshGit()
+        if refreshingGit { refreshGit() }
+        return true
     }
 
     func commandFinished(code: Int16, durationNs: UInt64) {
@@ -295,7 +304,7 @@ final class PaneShell {
         let path = stateFile?.path ?? []
         let lookup = Task.detached(priority: .userInitiated) { () -> [String]? in
             let git = Self.executable("git", in: path) ?? "/usr/bin/git"
-            return Self.run(git, ["-C", directory, "for-each-ref", "--format=%(refname:short)", "refs/heads"], timeout: 1)
+            return await ProcessRunner.run(git, ["-C", directory, "for-each-ref", "--format=%(refname:short)", "refs/heads"], timeout: 1)
                 .map { $0.split(separator: "\n").map(String.init) }
         }
         branchLookups[directory] = lookup
@@ -310,16 +319,13 @@ final class PaneShell {
         guard let stateFile else { return }
         let names = stateFile.commandNames
         let path = stateFile.path
+        commandsGeneration += 1
+        let generation = commandsGeneration
         Task.detached(priority: .utility) {
-            var all = names
-            let fm = FileManager.default
-            for dir in path {
-                for entry in (try? fm.contentsOfDirectory(atPath: dir)) ?? [] where fm.isExecutableFile(atPath: (dir as NSString).appendingPathComponent(entry)) {
-                    all.insert(entry)
-                }
-            }
+            // One scan per distinct PATH for all panes.
+            let all = await PathCommandCache.shared.commands(on: path).union(names)
             await MainActor.run { [weak self] in
-                guard let self else { return }
+                guard let self, generation == self.commandsGeneration else { return }
                 self.knownCommands = all
                 self.mergedCommandNames = nil
                 self.editor.textView.recolor()
@@ -400,9 +406,10 @@ final class PaneShell {
     /// The repository's branches for the branch picker; nil when git cannot list them.
     func listBranches() async -> BranchListing? {
         let dir = directory
-        let git = Self.executable("git", in: stateFile?.path ?? []) ?? "/usr/bin/git"
+        let path = stateFile?.path ?? []
         return await Task.detached(priority: .userInitiated) {
-            Self.run(git, ["-C", dir, "for-each-ref", "--sort=-committerdate", "--format=%(refname)%09%(worktreepath)", "refs/heads", "refs/remotes"], timeout: 2)
+            let git = Self.executable("git", in: path) ?? "/usr/bin/git"
+            return await ProcessRunner.run(git, ["-C", dir, "for-each-ref", "--sort=-committerdate", "--format=%(refname)%09%(worktreepath)", "refs/heads", "refs/remotes"], timeout: 2)
                 .map(BranchListing.init(forEachRef:))
         }.value
     }
@@ -507,16 +514,34 @@ final class PaneShell {
     /// The integration rewrites the state file at every prompt (PATH and aliases change: direnv,
     /// nvm, a new alias); reread it when it changed.
     private func reloadStateFileIfChanged() {
+        stateFileGeneration += 1
+        let generation = stateFileGeneration
         let url = ShellIntegration.stateFile(for: pane)
-        let date = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
-        guard let date, date != stateFileDate, let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        let lastDate = stateFileDate
+        Task.detached(priority: .userInitiated) {
+            let date = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+            var read: (date: Date, file: ShellStateFile)?
+            if let date, date != lastDate, let text = try? String(contentsOf: url, encoding: .utf8) {
+                read = (date, ShellStateFile.parse(text))
+            }
+            await MainActor.run { [weak self] in
+                // A later prompt has asked again: its answer is the newer one.
+                guard let self, generation == self.stateFileGeneration else { return }
+                if let read, self.applyStateFile(read.file, date: read.date) { self.listCommands() }
+                // The history file is the one the state file names.
+                self.reloadHistoryIfChanged()
+            }
+        }
+    }
+
+    /// Returns whether the command names changed.
+    private func applyStateFile(_ parsed: ShellStateFile, date: Date) -> Bool {
         stateFileDate = date
-        let parsed = ShellStateFile.parse(text)
-        guard parsed != stateFile else { return }
+        guard parsed != stateFile else { return false }
         let namesChanged = parsed.path != stateFile?.path || parsed.commandNames != stateFile?.commandNames
         stateFile = parsed
         if namesChanged { mergedCommandNames = nil }
-        if namesChanged { listCommands() }
+        return namesChanged
     }
 
     private func reloadHistoryIfChanged() {
@@ -530,9 +555,10 @@ final class PaneShell {
         gitGeneration += 1
         let generation = gitGeneration
         let dir = directory
-        let git = Self.executable("git", in: stateFile?.path ?? []) ?? "/usr/bin/git"
+        let path = stateFile?.path ?? []
         Task.detached(priority: .utility) {
-            let status = Self.run(git, ["-C", dir, "--no-optional-locks", "status", "--porcelain=v2", "--branch"], timeout: 1)
+            let git = Self.executable("git", in: path) ?? "/usr/bin/git"
+            let status = await ProcessRunner.run(git, ["-C", dir, "--no-optional-locks", "status", "--porcelain=v2", "--branch", "--ignore-submodules=dirty"], timeout: 1)
                 .flatMap { GitStatus.parse(porcelainV2: $0) }
             await MainActor.run { [weak self] in
                 guard let self, generation == self.gitGeneration else { return }
@@ -543,48 +569,5 @@ final class PaneShell {
 
     nonisolated static func executable(_ name: String, in path: [String]) -> String? {
         path.map { ($0 as NSString).appendingPathComponent(name) }.first { FileManager.default.isExecutableFile(atPath: $0) }
-    }
-
-    /// Runs a program and returns its standard output, or nil on failure or after `timeout` seconds.
-    nonisolated static func run(_ executable: String, _ arguments: [String], timeout: TimeInterval) -> String? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: executable)
-        p.arguments = arguments
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
-        p.standardInput = FileHandle.nullDevice
-        // Read as output arrives: a full pipe would otherwise stall the program until the timeout.
-        let collected = OutputBuffer()
-        out.fileHandleForReading.readabilityHandler = { collected.append($0.availableData) }
-        let done = DispatchSemaphore(value: 0)
-        p.terminationHandler = { _ in done.signal() }
-        do { try p.run() } catch { return nil }
-        guard done.wait(timeout: .now() + timeout) == .success else {
-            p.terminate()
-            out.fileHandleForReading.readabilityHandler = nil
-            return nil
-        }
-        out.fileHandleForReading.readabilityHandler = nil
-        collected.append(out.fileHandleForReading.readDataToEndOfFile())
-        guard p.terminationStatus == 0 else { return nil }
-        return String(decoding: collected.data, as: UTF8.self)
-    }
-}
-
-private final class OutputBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage = Data()
-
-    func append(_ data: Data) {
-        lock.lock()
-        storage.append(data)
-        lock.unlock()
-    }
-
-    var data: Data {
-        lock.lock()
-        defer { lock.unlock() }
-        return storage
     }
 }
