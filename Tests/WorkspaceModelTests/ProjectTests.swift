@@ -262,4 +262,20 @@ final class ProjectTests: XCTestCase {
         let restored = Workspace.restore(from: snap, directoryExists: { _ in true })
         XCTAssertEqual(titles(restored.windows[0]), ["w", "x"])
     }
+
+    func testRestoringAnInterleavedSessionKeepsEachGroupsOrder() {
+        let web = ProjectID()
+        func tab(_ title: String, _ project: ProjectID?) -> TabSnapshot {
+            TabSnapshot(title: title, customTitle: nil, workingDirectory: "/tmp", project: project)
+        }
+        let snap = SessionSnapshot(
+            version: SessionSnapshot.currentVersion, tabLayout: .sidebar,
+            projects: [ProjectSnapshot(id: web, name: "web")],
+            windows: [WindowSnapshot(frame: nil, tabs: [tab("x0", nil), tab("w0", web), tab("x1", nil), tab("w1", web)],
+                                     selectedIndex: 2)]
+        )
+        let restored = Workspace.restore(from: snap, directoryExists: { _ in true })
+        XCTAssertEqual(titles(restored.windows[0]), ["w0", "w1", "x0", "x1"])
+        XCTAssertEqual(restored.windows[0].selectedTab?.title, "x1")
+    }
 }

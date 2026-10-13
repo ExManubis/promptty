@@ -97,6 +97,9 @@ extension Workspace {
                 let wanted = t.pin?.directory ?? t.workingDirectory
                 let exists = directoryExists(wanted)
                 let project = t.project.flatMap { ws.project(id: $0) }?.id
+                // Nothing selected: each tab goes last in its group, so the saved order holds
+                // within each group (a session from a build with a flat list is regrouped).
+                w.selectedTabID = nil
                 let tab = w.addTab(title: t.title, workingDirectory: exists ? wanted : fallbackDirectory, customTitle: t.customTitle, project: project)
                 if let pin = t.pin {
                     w.pin(tab.id, pin)
