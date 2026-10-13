@@ -31,8 +31,8 @@ struct TabRow: View {
     private var renaming: Bool { chrome.renamingTab == tab.id }
     private var paneDropTarget: Bool { chrome.dropTargetTab == tab.id }
 
-    /// The dot at the row's end: the tab's most urgent pane. The cards behind the front one tell
-    /// which pane it is by their color.
+    /// The tab's most urgent pane, for VoiceOver and the working shimmer (the Agents section shows
+    /// activity; tabs show no dot).
     private var display: PaneActivity.Display {
         stackCards.map(\.display).max() ?? .idle
     }
@@ -106,8 +106,8 @@ struct TabRow: View {
         }
     }
 
-    /// The tile: its own icon or its programs centered, the activity dot in the corner. Renamed
-    /// in a popover, having no title of its own.
+    /// The tile: its own icon or its programs centered. Renamed in a popover, having no title of
+    /// its own.
     private var tileContent: some View {
         tileIcon
             // Larger in the sidebar's tiles (the ones that preview) than in the strip's pills.
@@ -118,11 +118,6 @@ struct TabRow: View {
                 PinIconPicker(current: tab.pin?.icon) { actions.setPinnedIcon(tab.id, $0) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(alignment: .topTrailing) {
-                ActivityIndicator(display: display)
-                    .padding(4)
-                    .allowsHitTesting(false)
-            }
             .popover(isPresented: Binding(get: { renaming && !outOfSight }, set: { if !$0, renaming { commitRename() } }), arrowEdge: .bottom) {
                 TextField("Tab name", text: $draft)
                     .textFieldStyle(.roundedBorder)
@@ -135,7 +130,7 @@ struct TabRow: View {
             }
     }
 
-    /// The icon the user chose, which stays whatever runs (the dot tells that), or the logos.
+    /// The icon the user chose, which stays whatever runs, or the logos.
     @ViewBuilder
     private var tileIcon: some View {
         if let icon = tab.pin?.icon {
@@ -167,23 +162,18 @@ struct TabRow: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: 2)
-            ZStack {
-                // The tab's activity, where the close button appears under the pointer.
-                ActivityIndicator(display: display)
-                    .opacity(hovering && !renaming ? 0 : 1)
-                    .allowsHitTesting(false)
-                Button { actions.requestCloseTab(tab.id) } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
-                        .frame(width: 16, height: 16)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .opacity(hovering && !renaming ? 1 : 0)
-                .help("Close Tab")
-                .accessibilityLabel("Close \(tab.listTitle)")
+            // The close button, under the pointer. Activity is the Agents section's to show.
+            Button { actions.requestCloseTab(tab.id) } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .opacity(hovering && !renaming ? 1 : 0)
+            .help("Close Tab")
+            .accessibilityLabel("Close \(tab.listTitle)")
         }
         .padding(.leading, 8)
         .padding(.trailing, 6)

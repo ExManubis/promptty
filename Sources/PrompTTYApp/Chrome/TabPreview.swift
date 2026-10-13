@@ -101,8 +101,6 @@ private struct PreviewPane: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 2)
-                ActivityIndicator(display: activity.display)
-                    .scaleEffect(0.8)
             }
             .foregroundStyle(Color(nsColor: EditorStyle.colors.text).opacity(0.85))
             // The bottom of the screen, where the latest output is; lines cut at the edge, as a

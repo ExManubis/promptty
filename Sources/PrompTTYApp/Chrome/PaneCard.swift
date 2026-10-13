@@ -110,7 +110,6 @@ struct PaneHeader: View {
                     .lineLimit(1)
                     .truncationMode(.head)
             }
-            ActivityIndicator(display: activity.display)
             Spacer(minLength: 4)
             HStack(spacing: 2) {
                 HeaderButton(symbol: "rectangle.split.2x1", help: "Split Right") { actions.split(pane.id, direction: .right) }
