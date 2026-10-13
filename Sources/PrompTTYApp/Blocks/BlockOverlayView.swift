@@ -122,8 +122,8 @@ final class BlockOverlayView: NSView {
         }
     }
 
-    /// Reads the blocks on screen, or all of them when `all` or while one is selected (to move
-    /// from it, copy it, or tell that it is gone), and draws them.
+    /// Reads the blocks on screen, or all of them when `all` (to move between them or copy one) or
+    /// when the selected one is not on screen (to tell whether it is gone), and draws them.
     func refresh(all: Bool = false) {
         lastRefresh = CACurrentMediaTime()
         #if DEBUG
@@ -131,14 +131,15 @@ final class BlockOverlayView: NSView {
         let started = lastRefresh
         defer { Self.readTime += CACurrentMediaTime() - started; Self.reads += 1 }
         #endif
-        let range: BlockRange = all || selection != nil ? .all : .viewport
-        guard window != nil, let snap = surface?.blockSnapshot(range) else {
+        guard window != nil, var snap = surface?.blockSnapshot(all ? .all : .viewport) else {
             snapshot = nil
             render()
             return
         }
+        if !all, let selection, selection.index(in: snap) == nil, let full = surface?.blockSnapshot(.all) { snap = full }
         snapshot = snap
         if let selection, selection.index(in: snap) == nil { self.selection = nil }
+        if !snap.hasBlocks { headerCommand = nil }
         render()
     }
 
@@ -146,6 +147,10 @@ final class BlockOverlayView: NSView {
     /// to another command.
     func commandStarted() {
         selection = nil
+        // Counted from the newest too; and after a clear, rows and counts start over, so the
+        // header's command read for one block would name another.
+        hovered = nil
+        headerCommand = nil
         setNeedsRefresh()
     }
 
@@ -258,13 +263,15 @@ final class BlockOverlayView: NSView {
         var scale: CGFloat?
         var text: NSColor
         var failure: NSColor
+        var accent: NSColor
         var font: NSFont
     }
 
     private func render() {
         let state = RenderState(
             snapshot: snapshot, size: bounds.size, hovered: hovered, selection: selection, scale: window?.backingScaleFactor,
-            text: EditorStyle.colors.text, failure: EditorStyle.colors.unknownCommand, font: EditorStyle.font
+            text: EditorStyle.colors.text, failure: EditorStyle.colors.unknownCommand,
+            accent: Self.accent.usingColorSpace(.sRGB) ?? Self.accent, font: EditorStyle.font
         )
         guard state != rendered else { return }
         rendered = state
