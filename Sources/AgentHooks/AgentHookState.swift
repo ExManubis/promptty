@@ -10,7 +10,8 @@ public struct AgentHookState: Equatable, Sendable {
         case working
         /// A permission prompt waits for the user.
         case permission
-        /// The agent waits for the user to write (a question, or a turn long over).
+        /// The agent waits for the user to write or choose (a question, a plan to approve, or a turn
+        /// long over).
         case waitingForInput
         /// The agent finished its turn: the user's turn.
         case turnEnded
@@ -39,6 +40,12 @@ public struct AgentHookState: Equatable, Sendable {
     public static let interruptQuiet: TimeInterval = 5
     public static let screenQuiet: TimeInterval = 3
 
+    /// Claude Code's tools that wait for the user's answer, and what to tell them.
+    public static let asksTheUser = [
+        "AskUserQuestion": "Claude has a question for you",
+        "ExitPlanMode": "Claude has a plan for you to review",
+    ]
+
     public init() {}
 
     public mutating func apply(_ event: HookEvent, _ payload: HookPayload, at now: Date) {
@@ -58,8 +65,16 @@ public struct AgentHookState: Equatable, Sendable {
         case .userPromptSubmit:
             enter(.working, at: now)
         case .preToolUse:
-            enter(.working, at: now)
-            tool = payload.toolName
+            // A question or a plan to approve: the tool itself waits for the user, and no
+            // Notification says so.
+            if let toolName = payload.toolName, let question = Self.asksTheUser[toolName] {
+                enter(.waitingForInput, at: now)
+                tool = toolName
+                message = question
+            } else {
+                enter(.working, at: now)
+                tool = payload.toolName
+            }
         case .postToolUse:
             enter(.working, at: now)
         case .notification:
@@ -71,6 +86,8 @@ public struct AgentHookState: Equatable, Sendable {
                 tool = asking
                 message = payload.message
             case .input:
+                // A question already waits: it stays what it asks.
+                guard phase != .waitingForInput || tool == nil else { break }
                 enter(.waitingForInput, at: now)
                 message = payload.message
             case .none:

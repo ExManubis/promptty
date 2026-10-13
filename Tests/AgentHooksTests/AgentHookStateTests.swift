@@ -68,6 +68,28 @@ final class AgentHookStateTests: XCTestCase {
         XCTAssertEqual(s.phase, .permission)
     }
 
+    /// AskUserQuestion and ExitPlanMode wait for the user's answer, and no Notification says so.
+    func testAQuestionOrAPlanWaitsForTheUser() {
+        for (tool, message) in [("AskUserQuestion", "Claude has a question for you"), ("ExitPlanMode", "Claude has a plan for you to review")] {
+            var s = state([(.userPromptSubmit, HookPayload()), (.preToolUse, HookPayload(toolName: tool))])
+            XCTAssertEqual(s.phase, .waitingForInput, tool)
+            XCTAssertEqual(s.tool, tool)
+            XCTAssertEqual(s.message, message)
+            XCTAssertEqual(s.since, at(1))
+            // An idle reminder while it waits changes nothing.
+            s.apply(.notification, HookPayload(message: "Claude is waiting for your input"), at: at(60))
+            XCTAssertEqual(s.message, message)
+            XCTAssertEqual(s.since, at(1))
+            // A still screen does not end it: it is no work.
+            XCTAssertFalse(s.screenStill(since: at(1), at: at(600)))
+            // Answered: work again.
+            s.apply(.postToolUse, HookPayload(toolName: tool), at: at(70))
+            XCTAssertEqual(s.phase, .working, tool)
+            XCTAssertNil(s.tool)
+            XCTAssertNil(s.message)
+        }
+    }
+
     func testANotificationThatAsksNothingChangesNothing() {
         var s = state([(.userPromptSubmit, HookPayload())])
         s.apply(.notification, HookPayload(message: "Signed in", notificationType: "auth_success"), at: at(9))

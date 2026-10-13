@@ -74,7 +74,7 @@ public struct PaneActivity: Equatable, Sendable {
     private var lastReport: AgentReport?
     /// The agent waits for the user to allow a tool; it stands until the agent reports otherwise.
     private var awaitingPermission = false
-    /// What is unseen is a permission prompt, which goes once it is answered.
+    /// What is unseen is a permission prompt or a question in a turn, which goes once it is answered.
     private var unseenPermission = false
     /// The tool the agent runs (or asks to run), as it reports it.
     private var tool: String?
@@ -266,10 +266,13 @@ public struct PaneActivity: Equatable, Sendable {
             isWorking = false
             awaitingPermission = false
             tool = nil
-            workStarted = nil
+            // A question in the middle of a turn (AskUserQuestion) is part of the turn, like a
+            // permission prompt; after a turn there is no work to count.
+            if !busy { workStarted = nil }
             if busy || agentSince == nil { agentSince = since }
             guard !seen, unseen != .attention else { return nil }
             unseen = .attention
+            unseenPermission = busy
             return Notice(kind: .attention(message), program: program, duration: nil)
         case .turnEnded:
             return endTurn(at: since, seen: seen, busy: busy)

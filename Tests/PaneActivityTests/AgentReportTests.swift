@@ -114,6 +114,20 @@ final class AgentReportTests: XCTestCase {
         XCTAssertEqual(b.agentSince, at(3))
     }
 
+    /// A question in a turn (AskUserQuestion) notifies, goes once answered, and the turn's time
+    /// counts from its start.
+    func testAQuestionInATurnIsPartOfTheTurn() {
+        var a = agent()
+        a.agentReported(.working(tool: nil), since: at(1), at: at(1), seen: false)
+        let notice = a.agentReported(.waitingForInput("Claude has a question for you"), since: at(5), at: at(5), seen: false)
+        XCTAssertEqual(notice?.kind, .attention("Claude has a question for you"))
+        XCTAssertEqual(a.display, .attention)
+        a.agentReported(.working(tool: nil), since: at(20), at: at(20), seen: false)
+        XCTAssertEqual(a.display, .working)
+        XCTAssertEqual(a.agentSince, at(1))
+        XCTAssertEqual(a.agentReported(.turnEnded, since: at(61), at: at(61), seen: false)?.duration, 60)
+    }
+
     func testReadyIsQuietWaiting() {
         var a = agent()
         XCTAssertNil(a.agentReported(.ready, since: at(1), at: at(1), seen: false))
