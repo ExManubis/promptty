@@ -38,6 +38,8 @@ final class BlockOverlayView: NSView {
     private var poll: Timer?
     /// The command the header names, read from the terminal once.
     private var headerCommand: (block: BlockSelection, row: Int, text: String)?
+    /// Puts a command in the pane's input bar; false when the pane is not at a prompt.
+    var onRerun: ((String) -> Bool)?
 
     init(surface: TerminalSurfaceView) {
         self.surface = surface
@@ -66,9 +68,12 @@ final class BlockOverlayView: NSView {
         buttons.safeAreaRegions = []
         buttons.rootView = BlockButtons(actions: .init(
             copyOutput: { [weak self] in self?.copyHovered(.output) },
-            copyCommand: { [weak self] in self?.copyHovered(.command) }
+            copyCommand: { [weak self] in self?.copyHovered(.command) },
+            copyMarkdown: { [weak self] in self?.copyHovered(.markdown) },
+            rerun: { [weak self] in self?.rerunHovered() }
         ))
         surface.overlay = self
+        surface.contextMenu = { [weak self] event in self?.contextMenu(for: event) }
         surface.onLayoutChange = { [weak self] in self?.setNeedsRefresh() }
         surface.onPointerMoved = { [weak self] event in self?.pointerMoved(event) }
     }
@@ -183,6 +188,25 @@ final class BlockOverlayView: NSView {
         select(next)
     }
 
+    /// The previous or next block that failed; a beep when there is none.
+    func selectPreviousFailed() {
+        refresh(all: true)
+        guard let snapshot, let previous = BlockNavigation.previousFailed(from: selection, in: snapshot) else {
+            NSSound.beep()
+            return
+        }
+        select(previous)
+    }
+
+    func selectNextFailed() {
+        refresh(all: true)
+        guard let snapshot, let next = BlockNavigation.nextFailed(from: selection, in: snapshot) else {
+            NSSound.beep()
+            return
+        }
+        select(next)
+    }
+
     private func select(_ new: BlockSelection?) {
         selection = new
         if let snapshot, let index = new?.index(in: snapshot),
@@ -198,21 +222,59 @@ final class BlockOverlayView: NSView {
     /// Copies part of the selected block, else of the newest one. False when there is nothing to
     /// copy (no blocks, or a command that printed nothing).
     @discardableResult
-    func copy(_ part: BlockPart) -> Bool {
+    func copy(_ part: CopyPart) -> Bool {
         refresh(all: true)
         guard let snapshot, let index = selection?.index(in: snapshot) ?? snapshot.blocks.indices.last else { return false }
         return copy(part, of: index)
     }
 
-    private func copyHovered(_ part: BlockPart) {
+    /// Puts the selected block's command (else the newest's) in the input bar, for the user to
+    /// run with Return. A beep when the pane is not at a prompt, or the block has no command.
+    @discardableResult
+    func rerun() -> Bool {
+        refresh(all: true)
+        guard let snapshot, let index = selection?.index(in: snapshot) ?? snapshot.blocks.indices.last else { return false }
+        return rerun(index)
+    }
+
+    private func copyHovered(_ part: CopyPart) {
         guard let index = buttonsIndex else { return }
         copy(part, of: index)
     }
 
+    private func rerunHovered() {
+        guard let index = buttonsIndex else { return }
+        rerun(index)
+    }
+
     @discardableResult
-    private func copy(_ part: BlockPart, of index: Int) -> Bool {
+    private func rerun(_ index: Int) -> Bool {
         guard let snapshot, let block = snapshot.blocks[safe: index],
-              let text = surface?.blockText(row: block.row, part: part), !text.isEmpty else {
+              let command = surface?.blockText(row: block.row, part: .command), !command.isEmpty,
+              onRerun?(command) == true else {
+            NSSound.beep()
+            return false
+        }
+        flashBlock(index)
+        return true
+    }
+
+    @discardableResult
+    private func copy(_ part: CopyPart, of index: Int) -> Bool {
+        guard let snapshot, let block = snapshot.blocks[safe: index], let surface else {
+            NSSound.beep()
+            return false
+        }
+        let text: String?
+        switch part {
+        case .output: text = surface.blockText(row: block.row, part: .output)
+        case .command: text = surface.blockText(row: block.row, part: .command)
+        case .markdown:
+            text = surface.blockText(row: block.row, part: .command).map {
+                BlockMarkdown.format(command: $0, output: surface.blockText(row: block.row, part: .output) ?? "")
+            }
+        }
+        guard let text, !text.isEmpty else {
             NSSound.beep()
             return false
         }
@@ -234,6 +296,32 @@ final class BlockOverlayView: NSView {
         fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
         flash.add(fade, forKey: "flash")
     }
+
+    // MARK: Context menu
+
+    /// Right-click on a block: it gets selected, and the menu acts on it. Nothing outside blocks.
+    private func contextMenu(for event: NSEvent) -> NSMenu? {
+        guard window != nil else { return nil }
+        refresh(all: true)
+        guard let snapshot else { return nil }
+        let point = convert(event.locationInWindow, from: nil)
+        guard let index = BlockLayout.block(atY: point.y, in: snapshot) else { return nil }
+        selection = BlockSelection(index: index, in: snapshot)
+        render()
+        let menu = NSMenu()
+        for (title, action) in [("Copy Command", #selector(menuCopyCommand)), ("Copy Output", #selector(menuCopyOutput)),
+                                ("Copy as Markdown", #selector(menuCopyMarkdown)), ("Rerun", #selector(menuRerun))] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func menuCopyCommand() { copy(.command) }
+    @objc private func menuCopyOutput() { copy(.output) }
+    @objc private func menuCopyMarkdown() { copy(.markdown) }
+    @objc private func menuRerun() { rerun() }
 
     // MARK: Pointer
 
@@ -370,7 +458,7 @@ final class BlockOverlayView: NSView {
             return
         }
         buttonsIndex = index
-        let size = CGSize(width: 58, height: 24)
+        let size = CGSize(width: 6 + 24 * 4, height: 24)
         let top = header.isHidden ? 4 : header.frame.maxY + 4
         // At the block's top right, kept on screen while the block is.
         let y = min(max(frame.minY + 3, top), max(top, frame.maxY - size.height - 3))
@@ -447,6 +535,11 @@ extension BlockOverlayView {
     }
 }
 #endif
+
+/// What copying a block takes.
+enum CopyPart {
+    case command, output, markdown
+}
 
 private extension Array {
     subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }

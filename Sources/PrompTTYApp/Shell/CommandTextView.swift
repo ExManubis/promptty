@@ -288,6 +288,19 @@ final class CommandTextView: NSTextView {
         setSelectedRange(NSRange(location: end, length: 0))
     }
 
+    /// Replaces what is typed with `command`, the caret at its end, as one undoable edit.
+    func setCommand(_ command: String) {
+        let all = NSRange(location: 0, length: (string as NSString).length)
+        breakUndoCoalescing()
+        if shouldChangeText(in: all, replacementString: command) {
+            textStorage?.replaceCharacters(in: all, with: command)
+            didChangeText()
+        }
+        var end = (command as NSString).length
+        if vi.mode == .normal, end > 0 { end -= 1 }
+        setSelectedRange(NSRange(location: end, length: 0))
+    }
+
     // MARK: Completion
 
     private func currentCompletion() -> Completion? {

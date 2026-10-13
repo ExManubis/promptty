@@ -140,8 +140,23 @@ extension TerminalSurfaceView {
 
     public override func mouseDown(with event: NSEvent) { sendMouseButton(GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, event) }
     public override func mouseUp(with event: NSEvent) { sendMouseButton(GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, event) }
-    public override func rightMouseDown(with event: NSEvent) { sendMouseButton(GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, event) }
-    public override func rightMouseUp(with event: NSEvent) { sendMouseButton(GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, event) }
+    public override func rightMouseDown(with event: NSEvent) {
+        // A menu from the host, unless the program running here takes the mouse for itself.
+        if let surface, !ghostty_surface_mouse_captured(surface), let menu = contextMenu?(event) {
+            window?.makeFirstResponder(self)
+            showingContextMenu = true
+            NSMenu.popUpContextMenu(menu, with: event, for: self)
+            return
+        }
+        sendMouseButton(GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, event)
+    }
+    public override func rightMouseUp(with event: NSEvent) {
+        if showingContextMenu {
+            showingContextMenu = false
+            return
+        }
+        sendMouseButton(GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, event)
+    }
     public override func otherMouseDown(with event: NSEvent) {
         // Middle-click pastes the selection; at a prompt that belongs in the input bar.
         if event.buttonNumber == 2, let target = keyRedirect?(), let window {

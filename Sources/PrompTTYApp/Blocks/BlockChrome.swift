@@ -53,11 +53,13 @@ struct StickyHeader: View {
     }
 }
 
-/// On the block under the pointer: copy its output, copy its command.
+/// On the block under the pointer: copy its output, its command, or both as Markdown; rerun it.
 struct BlockButtons: View {
     struct Actions {
         var copyOutput: () -> Void = {}
         var copyCommand: () -> Void = {}
+        var copyMarkdown: () -> Void = {}
+        var rerun: () -> Void = {}
     }
 
     let actions: Actions
@@ -66,6 +68,8 @@ struct BlockButtons: View {
         HStack(spacing: 0) {
             HeaderButton(symbol: "doc.on.doc", help: "Copy Output", action: actions.copyOutput)
             HeaderButton(symbol: "chevron.forward.square", help: "Copy Command", action: actions.copyCommand)
+            HeaderButton(symbol: "text.badge.checkmark", help: "Copy as Markdown", action: actions.copyMarkdown)
+            HeaderButton(symbol: "arrow.clockwise", help: "Rerun in the input bar", action: actions.rerun)
         }
         .padding(.horizontal, 3)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

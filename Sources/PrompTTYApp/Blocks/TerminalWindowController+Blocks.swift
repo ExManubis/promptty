@@ -2,8 +2,8 @@ import AppKit
 import GhosttyBridge
 import Preferences
 
-/// Command blocks in the focused pane: ⌘↑ and ⌘↓ select the previous and next command, the copy
-/// commands copy the selected one (else the newest), and while one is selected ⌘C copies its
+/// Command blocks in the focused pane: ⌘↑ and ⌘↓ select the previous and next command (⌃⌘↑ and
+/// ⌃⌘↓ the failed ones), Rerun puts it in the input bar, the copy commands copy the selected one (else the newest), and while one is selected ⌘C copies its
 /// output and Esc lets it go.
 extension TerminalWindowController {
     var focusedBlocks: BlockOverlayView? {
@@ -14,6 +14,10 @@ extension TerminalWindowController {
     @objc func selectNextCommand(_ sender: Any?) { focusedBlocks?.selectNext() }
     @objc func copyCommandOutput(_ sender: Any?) { focusedBlocks?.copy(.output) }
     @objc func copyCommandLine(_ sender: Any?) { focusedBlocks?.copy(.command) }
+    @objc func copyCommandMarkdown(_ sender: Any?) { focusedBlocks?.copy(.markdown) }
+    @objc func selectPreviousFailedCommand(_ sender: Any?) { focusedBlocks?.selectPreviousFailed() }
+    @objc func selectNextFailedCommand(_ sender: Any?) { focusedBlocks?.selectNextFailed() }
+    @objc func rerunCommand(_ sender: Any?) { focusedBlocks?.rerun() }
 
     /// ⌘C (the Copy shortcut) and Esc while a block is selected, before the bar or the terminal
     /// sees them. Text selected in either is copied as usual.

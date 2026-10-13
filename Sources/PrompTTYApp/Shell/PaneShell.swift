@@ -365,6 +365,16 @@ final class PaneShell {
         phaseChanged()
     }
 
+    /// Puts `command` in the bar in place of its text, for the user to run with Return: only at a
+    /// prompt with the bar active. False otherwise (a program runs, or the bar is hidden).
+    func rerun(_ command: String) -> Bool {
+        guard state.phase == .idle, bar == .active else { return false }
+        let text = editor.textView
+        text.setCommand(command)
+        text.window?.makeFirstResponder(text)
+        return true
+    }
+
     /// After a picker closes from its own keys or a click on a row: the keys go back to the bar.
     /// (Closed by a click elsewhere, the keys stay where that click put them.)
     func returnKeysToBar() {

@@ -121,6 +121,35 @@ public enum BlockNavigation {
         return BlockSelection(index: index, in: snapshot)
     }
 
+    /// The failed block above: from the selection, or with nothing selected from the last block
+    /// that starts on or above the screen. Nil when there is none.
+    public static func previousFailed(from selection: BlockSelection?, in snapshot: BlockSnapshot) -> BlockSelection? {
+        let blocks = snapshot.blocks
+        let before: Int
+        if let current = selection?.index(in: snapshot) {
+            before = current
+        } else {
+            let screenEnd = snapshot.viewport.top + snapshot.viewport.rows
+            before = (blocks.lastIndex(where: { $0.row < screenEnd }) ?? -1) + 1
+        }
+        guard let index = blocks[..<max(0, before)].lastIndex(where: \.failed) else { return nil }
+        return BlockSelection(index: index, in: snapshot)
+    }
+
+    /// The failed block below: from the selection, or with nothing selected from the first block
+    /// that starts on or below the top of the screen. Nil when there is none.
+    public static func nextFailed(from selection: BlockSelection?, in snapshot: BlockSnapshot) -> BlockSelection? {
+        let blocks = snapshot.blocks
+        let from: Int
+        if let current = selection?.index(in: snapshot) {
+            from = current + 1
+        } else {
+            from = blocks.firstIndex(where: { $0.row >= snapshot.viewport.top }) ?? blocks.count
+        }
+        guard from < blocks.count, let index = blocks[from...].firstIndex(where: \.failed) else { return nil }
+        return BlockSelection(index: index, in: snapshot)
+    }
+
     /// The top row that brings `block` into view, or nil when it already is. Coming from below,
     /// or too tall to fit, a block is shown from its command at the top (where no other command's
     /// header covers it); coming from above, to its last row with a row of what follows.
@@ -186,5 +215,26 @@ public enum BlockLayout {
     public static func block(atY y: CGFloat, in snapshot: BlockSnapshot) -> Int? {
         let row = snapshot.viewport.row(atY: y)
         return snapshot.blocks.firstIndex { $0.row <= row && row <= $0.endRow }
+    }
+}
+
+/// A block as Markdown, to paste into an issue or a chat.
+public enum BlockMarkdown {
+    /// The command after a `$` and its output, in a fenced `console` block. A command that spans
+    /// lines continues with `>`; the fence is longer than any run of backticks in the text.
+    public static func format(command: String, output: String) -> String {
+        var lines = command.split(separator: "\n", omittingEmptySubsequences: false).enumerated().map { i, line in
+            (i == 0 ? "$ " : "> ") + line
+        }
+        var body = output
+        while body.hasSuffix("\n") { body.removeLast() }
+        if !body.isEmpty { lines.append(body) }
+        var longest = 0, run = 0
+        for ch in lines.joined(separator: "\n") {
+            run = ch == "`" ? run + 1 : 0
+            longest = max(longest, run)
+        }
+        let fence = String(repeating: "`", count: max(3, longest + 1))
+        return "\(fence)console\n\(lines.joined(separator: "\n"))\n\(fence)"
     }
 }

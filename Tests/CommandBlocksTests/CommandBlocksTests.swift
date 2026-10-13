@@ -146,3 +146,82 @@ private let blocks = [block(0, 30), block(31, 31, exit: 1), block(32, 60), block
         #expect(!viewport(top: 89).atBottom)
     }
 }
+
+@Suite struct FailedNavigationTests {
+    // Blocks 1 and 4 failed; the last one is still running.
+    private let list = [block(0, 10), block(11, 20, exit: 1), block(21, 30), block(31, 40, exit: 2), block(41, 50), block(51, 55, exit: nil)]
+
+    @Test func previousFailedSkipsTheOnesThatSucceeded() {
+        let snap = BlockSnapshot(blocks: list, viewport: viewport(top: 90))
+        let from = BlockSelection(fromEnd: 0)
+        let first = BlockNavigation.previousFailed(from: from, in: snap)
+        #expect(first?.index(in: snap) == 3)
+        #expect(BlockNavigation.previousFailed(from: first, in: snap)?.index(in: snap) == 1)
+    }
+
+    @Test func previousFailedWithNoOlderOneIsNil() {
+        let snap = BlockSnapshot(blocks: list, viewport: viewport(top: 90))
+        #expect(BlockNavigation.previousFailed(from: BlockSelection(index: 1, in: snap), in: snap) == nil)
+    }
+
+    @Test func previousFailedFromNothingStartsAtTheScreen() {
+        // Rows 25–34 on screen: block 3 starts there, so it is the last that starts on screen.
+        let snap = BlockSnapshot(blocks: list, viewport: viewport(top: 25))
+        #expect(BlockNavigation.previousFailed(from: nil, in: snap)?.index(in: snap) == 3)
+        // Rows 12–21: blocks up to 2 start on screen; the failed one is block 1.
+        let up = BlockSnapshot(blocks: list, viewport: viewport(top: 12))
+        #expect(BlockNavigation.previousFailed(from: nil, in: up)?.index(in: up) == 1)
+    }
+
+    @Test func nextFailedSkipsTheOnesThatSucceeded() {
+        let snap = BlockSnapshot(blocks: list, viewport: viewport(top: 0))
+        let first = BlockNavigation.nextFailed(from: BlockSelection(index: 0, in: snap), in: snap)
+        #expect(first?.index(in: snap) == 1)
+        #expect(BlockNavigation.nextFailed(from: first, in: snap)?.index(in: snap) == 3)
+        #expect(BlockNavigation.nextFailed(from: BlockSelection(index: 3, in: snap), in: snap) == nil)
+    }
+
+    @Test func nextFailedFromNothingStartsAtTheScreen() {
+        let snap = BlockSnapshot(blocks: list, viewport: viewport(top: 25))
+        #expect(BlockNavigation.nextFailed(from: nil, in: snap)?.index(in: snap) == 3)
+        let bottom = BlockSnapshot(blocks: list, viewport: viewport(top: 90))
+        #expect(BlockNavigation.nextFailed(from: nil, in: bottom) == nil)
+    }
+
+    @Test func noFailuresNoSelection() {
+        let snap = BlockSnapshot(blocks: [block(0, 3), block(4, 6, exit: nil)], viewport: viewport(top: 0))
+        #expect(BlockNavigation.previousFailed(from: nil, in: snap) == nil)
+        #expect(BlockNavigation.nextFailed(from: nil, in: snap) == nil)
+    }
+
+    @Test func worksWithASnapshotOfOnlyTheNewestBlocks() {
+        // Counted from the end, with older blocks left out and newer ones not listed.
+        let snap = BlockSnapshot(blocks: Array(list[1...3]), viewport: viewport(top: 0), newer: 2)
+        let from = BlockSelection(fromEnd: 2)   // block 3 of the list
+        #expect(BlockNavigation.previousFailed(from: from, in: snap)?.fromEnd == 4)
+    }
+}
+
+@Suite struct MarkdownTests {
+    @Test func commandAndOutputInAConsoleFence() {
+        #expect(BlockMarkdown.format(command: "ls -l", output: "a\nb") == "```console\n$ ls -l\na\nb\n```")
+    }
+
+    @Test func noOutputIsJustTheCommand() {
+        #expect(BlockMarkdown.format(command: "true", output: "") == "```console\n$ true\n```")
+        #expect(BlockMarkdown.format(command: "true", output: "\n\n") == "```console\n$ true\n```")
+    }
+
+    @Test func trailingNewlinesAreDropped() {
+        #expect(BlockMarkdown.format(command: "echo hi", output: "hi\n") == "```console\n$ echo hi\nhi\n```")
+    }
+
+    @Test func aFenceInTheOutputGetsALongerOne() {
+        let md = BlockMarkdown.format(command: "cat x.md", output: "```swift\nlet a = 1\n```")
+        #expect(md == "````console\n$ cat x.md\n```swift\nlet a = 1\n```\n````")
+    }
+
+    @Test func aMultiLineCommandContinuesWithAnArrow() {
+        #expect(BlockMarkdown.format(command: "echo a \\\n  b", output: "a b") == "```console\n$ echo a \\\n>   b\na b\n```")
+    }
+}

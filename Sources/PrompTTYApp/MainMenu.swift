@@ -35,6 +35,10 @@ enum MainMenu {
         static let selectNextCommand = #selector(TerminalWindowController.selectNextCommand(_:))
         static let copyCommandOutput = #selector(TerminalWindowController.copyCommandOutput(_:))
         static let copyCommandLine = #selector(TerminalWindowController.copyCommandLine(_:))
+        static let selectPreviousFailed = #selector(TerminalWindowController.selectPreviousFailedCommand(_:))
+        static let selectNextFailed = #selector(TerminalWindowController.selectNextFailedCommand(_:))
+        static let copyCommandMarkdown = #selector(TerminalWindowController.copyCommandMarkdown(_:))
+        static let rerunCommand = #selector(TerminalWindowController.rerunCommand(_:))
     }
 
     static func build(shortcuts: ShortcutMap) -> NSMenu {
@@ -92,7 +96,11 @@ enum MainMenu {
         edit.addItem(item("Select Previous Command", Action.selectPreviousCommand, .selectPreviousCommand))
         edit.addItem(item("Select Next Command", Action.selectNextCommand, .selectNextCommand))
         edit.addItem(item("Copy Output", Action.copyCommandOutput, .copyOutput))
+        edit.addItem(item("Select Previous Failed Command", Action.selectPreviousFailed, .selectPreviousFailed))
+        edit.addItem(item("Select Next Failed Command", Action.selectNextFailed, .selectNextFailed))
         edit.addItem(item("Copy Command", Action.copyCommandLine, .copyCommand))
+        edit.addItem(item("Copy Command as Markdown", Action.copyCommandMarkdown))
+        edit.addItem(item("Rerun Command", Action.rerunCommand, .rerunCommand))
         menu.addItem(submenu: edit, title: "Edit")
 
         let view = NSMenu(title: "View")

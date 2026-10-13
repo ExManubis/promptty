@@ -41,6 +41,9 @@ public final class TerminalSurfaceView: NSView {
     /// Drawn over the terminal by whatever hosts it, and moved with it. The terminal is a
     /// layer-hosting view (libghostty owns its layer), so it cannot have subviews of its own.
     public var overlay: NSView?
+    /// A menu for a right-click, or nil to leave the click to the terminal.
+    public var contextMenu: ((NSEvent) -> NSMenu?)?
+    var showingContextMenu = false
     /// The pointer moved over the terminal (the event), or left it (nil).
     public var onPointerMoved: ((NSEvent?) -> Void)?
     /// The screen scrolled, the scrollback grew, or the cells changed size: whatever is drawn over

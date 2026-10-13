@@ -69,7 +69,9 @@ and Option acts as Alt by default. libghostty itself binds nothing (`keybind = c
 | Copy, paste, select all, clear | ⌘C, ⌘V, ⌘A, ⌘K |
 | Bigger / smaller / actual size | ⌘= / ⌘- / ⌘0 |
 | Select previous / next command | ⌘↑ / ⌘↓ |
+| Select previous / next failed command | ⌃⌘↑ / ⌃⌘↓ |
 | Copy the selected command's output / the command | ⌥⌘C / ⇧⌘C |
+| Rerun the selected command (puts it in the input bar; Return runs it) | ⇧⌘R |
 
 All of these can be changed in Settings › Keyboard.
 
@@ -96,8 +98,11 @@ goes to the terminal.
 PrompTTY loads its zsh integration through `ZDOTDIR` and then your own files. Other shells get a
 plain terminal.
 
-Each command and its output form a block: ⌘↑/⌘↓ select one, ⌥⌘C copies its output and ⇧⌘C its
-command.
+Each command and its output form a block: ⌘↑/⌘↓ select one (⌃⌘↑/⌃⌘↓ jump between the ones that
+failed), ⌥⌘C copies its output and ⇧⌘C its command. The buttons on the block under the pointer, and
+its right-click menu, also copy the block as Markdown (the command and output in a `console`
+fence) and rerun it: the command goes into the input bar, not run until you press Return, and only
+while the pane is at a prompt.
 
 ## Tabs, projects and agents
 

@@ -196,6 +196,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             }
             return true
         }
+        (view.overlay as? BlockOverlayView)?.onRerun = { [weak self] command in
+            self?.shells[pane]?.rerun(command) ?? false
+        }
         guard let shell = shells[pane] else { return }
         // At a prompt the bar takes the keys, even after a click into the terminal's output
         // (which still selects text there).
@@ -669,7 +672,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         case #selector(previousTab(_:)), #selector(nextTab(_:)):
             return state.tabs.count > 1
         case #selector(selectPreviousCommand(_:)), #selector(selectNextCommand(_:)),
-             #selector(copyCommandOutput(_:)), #selector(copyCommandLine(_:)):
+             #selector(copyCommandOutput(_:)), #selector(copyCommandLine(_:)),
+             #selector(selectPreviousFailedCommand(_:)), #selector(selectNextFailedCommand(_:)),
+             #selector(copyCommandMarkdown(_:)), #selector(rerunCommand(_:)):
             return focusedBlocks?.hasBlocks ?? false
         case #selector(togglePinTab(_:)):
             item.title = state.selectedTab?.pin == nil ? "Pin Tab" : "Unpin Tab"
