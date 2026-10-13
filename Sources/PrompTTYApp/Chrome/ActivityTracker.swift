@@ -44,10 +44,11 @@ final class ActivityTracker {
     /// The last foreground pid read per pane, and what it was: the arguments are read once per pid.
     @ObservationIgnored private var identified: [PaneID: (pid: Int, foreground: PaneActivity.Foreground)] = [:]
     @ObservationIgnored private var timer: Timer?
+    @ObservationIgnored private var timerInterval: TimeInterval = 0.25
     /// When each pane's jobs last ran: the one timer ticks fast, panes the user cannot see run less.
     @ObservationIgnored private var cadence = PollCadence<Job>()
     private struct Job: Hashable {
-        enum Kind { case shell, foreground, screen }
+        enum Kind: CaseIterable { case shell, foreground, screen }
         let pane: PaneID
         let kind: Kind
     }
@@ -60,13 +61,24 @@ final class ActivityTracker {
     func agentDirectory(for pane: PaneID) -> String? { agentDirectories[pane] }
 
     func start() {
-        // One timer for every pane: 0.25 s is what a program started by `fg` may wait to be
-        // noticed in a pane the user sees; the rest of the panes' jobs run on their own cadence.
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        schedule(every: 0.25)
+        // A window coming back on screen is noticed at once, not at the slow timer's next tick.
+        NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
-        timer.tolerance = 0.1
+    }
+
+    /// One timer for every pane: 0.25 s is what a program started by `fg` may wait to be noticed
+    /// in a pane the user sees; the rest of the panes' jobs run on their own cadence. With no
+    /// window on screen the timer itself slows to 1 s.
+    private func schedule(every interval: TimeInterval) {
+        timer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        timer.tolerance = interval * 0.4
         self.timer = timer
+        timerInterval = interval
     }
 
     func activity(for pane: PaneID) -> PaneActivity {
@@ -74,11 +86,15 @@ final class ActivityTracker {
     }
 
     /// Polls the panes that are due: an idle shell's foreground every 0.25 s where the user looks
-    /// (1 s elsewhere), the foreground process every 0.5 s (1 s), an agent's screen every 0.5 s (1.5 s).
+    /// (1 s elsewhere; a command's end in an unseen pane is thus noticed after about 2 s, as it
+    /// takes two observations of the shell), the foreground process every 0.5 s (1 s), an agent's screen every 0.5 s (1.5 s).
     func tick() {
         let now = Date()
         var live = Set<PaneID>()
-        for watched in panes() {
+        let watchedPanes = panes()
+        let wanted = watchedPanes.contains { $0.visible } ? 0.25 : 1
+        if timer != nil, wanted != timerInterval { schedule(every: wanted) }
+        for watched in watchedPanes {
             live.insert(watched.pane)
             if cadence.isDue(Job(pane: watched.pane, kind: .shell), every: watched.visible ? 0.25 : 1, at: now) {
                 watched.checkShell()
@@ -117,7 +133,7 @@ final class ActivityTracker {
             identified[gone] = nil
             screens[gone] = nil
             agentDirectories[gone] = nil
-            for kind in [Job.Kind.shell, .foreground, .screen] { cadence.forget(Job(pane: gone, kind: kind)) }
+            for kind in Job.Kind.allCases { cadence.forget(Job(pane: gone, kind: kind)) }
         }
     }
 
