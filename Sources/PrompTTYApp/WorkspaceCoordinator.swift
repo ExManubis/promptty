@@ -102,7 +102,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
                     guard let program = state.program, program.isAgent else { return nil }
                     let own = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
                     let title = own.isEmpty || own == pane.workingDirectory ? program.name : own
-                    return AgentEntry(pane: pane.id, program: program, title: title, activity: state,
+                    return AgentEntry(pane: pane.id, tab: tab.id, program: program, title: title, activity: state,
                                       repository: repository(for: activity.agentDirectory(for: pane.id) ?? pane.workingDirectory),
                                       projectID: window.project(of: tab))
                 }

@@ -102,7 +102,9 @@ PrompTTY recognizes coding agents (Claude Code, Codex, Amp, Cline and others) ru
 While any run, the top of the sidebar lists every agent in every window, with whether it is
 working, waiting or wants your turn, and since when; click one to bring its pane forward. Agents are
 grouped under the projects of their tabs, in sidebar order, then (for tabs in no project) by git
-repository. Folding a project folds it in both places. The agent in the window's focused pane is
+repository. Folding a project folds it in both places. Project headers there have the same menu and
+drag the same way; drag an agent onto a project's header to move its tab into the project, or
+right-click it to show it, rename its tab or move it to a project. The agent in the window's focused pane is
 highlighted like its tab.
 
 ## Splits

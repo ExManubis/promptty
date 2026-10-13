@@ -178,8 +178,12 @@ Where the implementation differs from the design above:
 - **Projects are reordered by dragging their headers** in the tab list (`DragPayload.project`,
   registered in `project.yml` and `Info.plist`): dropped on another project's header, the dragged
   project takes its place, as a tab dropped on a tab does. Move Up / Move Down in the header's
-  menu do the same from the keyboard. The Agents section's headers follow that order but do not
-  drag. The header folds on a tap rather than being a Button, which would swallow the drag.
+  menu do the same from the keyboard. The Agents section's project headers drag and have the same
+  menu (one `ProjectHeader` view serves both sections).
+- **Agent rows drag and have a menu.** An agent drags as its tab (`DragPayload.tab`): onto a
+  project's header (either section, any window) it moves the tab into the project; onto a tab row
+  of its own window it moves there as a tab would. Its menu: Show, Rename Tab… (a sheet, since
+  the tab may be in another window), Move to Project ▸. The header folds on a tap rather than being a Button, which would swallow the drag.
 - **A folded project header in the tab list shows no activity dot**, matching the rule that only
   the Agents section shows activity. It shows the selected style when it holds the selected tab.
 - **A removed project's tabs join the tabs in no project first**, in their order, rather than last.

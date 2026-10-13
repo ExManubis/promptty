@@ -5,9 +5,12 @@ import WorkspaceModel
 /// The top of the sidebar while agents run: every agent in every window, what it is doing and
 /// since when. A click brings its pane forward. Agents are grouped under the sidebar projects of
 /// their tabs, then, for tabs in no project, by repository. The agent in this window's focused
-/// pane is shown selected, like its tab; folded away, its group's header is.
+/// pane is shown selected, like its tab; folded away, its group's header is. An agent drags (as
+/// its tab) onto a project's header to move there, and has a menu; project headers drag and have
+/// the project's menu, as in the tab list.
 struct AgentsSection: View {
     let actions: ChromeActions
+    let chrome: WindowChromeModel
     /// The focused pane of this window's selected tab.
     let focusedPane: PaneID?
     /// The workspace's projects, in sidebar order.
@@ -74,12 +77,8 @@ struct AgentsSection: View {
         switch group.key {
         case .project(let id):
             if let project = byKey[id] {
-                GroupHeader(title: project.name, help: WorkspaceModel.Tab.abbreviate(project.directory), symbol: GroupHeader.Symbol(project),
-                            missing: !WorkspaceCoordinator.isFolder(project.directory),
-                            count: group.items.count, noun: "agent", display: group.display, folded: folded,
-                            selected: folded && holdsFocus) {
-                    withAnimation(.easeOut(duration: 0.15)) { actions.setProjectFolded(project.id, !folded) }
-                }
+                ProjectHeader(project: project, count: group.items.count, noun: "agent", display: group.display,
+                              selected: folded && holdsFocus, chrome: chrome, actions: actions)
             }
         case .repository(let root):
             GroupHeader(title: (root as NSString).lastPathComponent, help: WorkspaceModel.Tab.abbreviate(root),
@@ -94,7 +93,7 @@ struct AgentsSection: View {
 
     private func rows(_ agents: [AgentEntry]) -> some View {
         ForEach(agents) { agent in
-            AgentRow(agent: agent, selected: agent.pane == focusedPane) { actions.reveal(agent.pane) }
+            AgentRow(agent: agent, selected: agent.pane == focusedPane, chrome: chrome, actions: actions)
         }
     }
 }
@@ -103,44 +102,72 @@ private struct AgentRow: View {
     let agent: AgentEntry
     /// The agent in this window's focused pane.
     let selected: Bool
-    let open: () -> Void
+    let chrome: WindowChromeModel
+    let actions: ChromeActions
     @State private var hovering = false
 
+    private func open() { actions.reveal(agent.pane) }
+
     var body: some View {
-        Button(action: open) {
-            HStack(spacing: 8) {
-                ProgramStack(cards: [ProgramStack.Card(id: agent.pane, program: agent.program, display: agent.activity.display)])
-                    .frame(minWidth: 18, alignment: .leading)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(agent.title)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    // Durations tick while the row is shown; the branch tells parallel agents apart.
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text([agent.repository.notableBranch, Self.state(of: agent.activity, now: context.date)].compactMap { $0 }.joined(separator: " · "))
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(agent.activity.display == .attention ? Color.orange : Color.secondary)
-                            .monospacedDigit()
-                    }
+        // A tap, not a Button: a Button would swallow the drag.
+        HStack(spacing: 8) {
+            ProgramStack(cards: [ProgramStack.Card(id: agent.pane, program: agent.program, display: agent.activity.display)])
+                .frame(minWidth: 18, alignment: .leading)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(agent.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                // Durations tick while the row is shown; the branch tells parallel agents apart.
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text([agent.repository.notableBranch, Self.state(of: agent.activity, now: context.date)].compactMap { $0 }.joined(separator: " · "))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(agent.activity.display == .attention ? Color.orange : Color.secondary)
+                        .monospacedDigit()
                 }
-                Spacer(minLength: 2)
-                ActivityIndicator(display: agent.activity.display)
             }
-            .padding(.leading, 8)
-            .padding(.trailing, 6)
-            .frame(height: 38)
-            .background {
-                RowBackground(selected: selected, hovering: hovering)
-            }
-            .contentShape(Rectangle())
+            Spacer(minLength: 2)
+            ActivityIndicator(display: agent.activity.display)
         }
-        .buttonStyle(.plain)
+        .padding(.leading, 8)
+        .padding(.trailing, 6)
+        .frame(height: 38)
+        .background {
+            RowBackground(selected: selected, hovering: hovering)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { open() }
         .onHover { hovering = $0 }
         .help("Show \(agent.program.name)")
+        // Dragged, an agent is its tab: onto a project's header it moves the tab there.
+        .onDrag {
+            chrome.beginTabDrag(agent.tab)
+            return DragPayload.provider(DragPayload.tab, id: agent.tab.rawValue)
+        }
+        .contextMenu { menu }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { open() }
         .accessibilityHint("Shows this agent's pane")
+    }
+
+    @ViewBuilder
+    private var menu: some View {
+        Button("Show \(agent.program.name)") { open() }
+        Button("Rename Tab…") { actions.requestRenameTab(agent.tab) }
+        let projects = actions.projects
+        Menu("Move to Project") {
+            ForEach(projects, id: \.id) { project in
+                Button(project.name) { actions.placeTab(agent.tab, inProject: project.id, at: nil) }
+                    .disabled(agent.projectID == project.id)
+            }
+            if !projects.isEmpty { Divider() }
+            Button("New Project…") { actions.newProject(adding: agent.tab) }
+            if projects.contains(where: { $0.id == agent.projectID }) {
+                Divider()
+                Button("Remove from Project") { actions.placeTab(agent.tab, inProject: nil, at: nil) }
+            }
+        }
     }
 
     /// "Working · 1 min 20 s", "Waiting · 5 min", "Your turn · 2 min".

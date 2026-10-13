@@ -45,8 +45,11 @@ protocol ChromeActions: AnyObject {
     /// Tab" row), where ⌘T would join the selected tab's project.
     func newTab(inProject project: ProjectID?)
     /// Puts a tab in a project (nil: in none), at `index` (a drop) or after the project's tabs.
-    /// A pinned tab is unpinned when it has an index (dropped among a project's rows).
+    /// A pinned tab is unpinned when it has an index (dropped among a project's rows). Without an
+    /// index the tab may be in any window (an agent's tab, dropped on a project's header).
     func placeTab(_ id: TabID, inProject project: ProjectID?, at index: Int?)
+    /// Asks for a tab's name in a sheet; the tab may be in any window (an agent's).
+    func requestRenameTab(_ id: TabID)
     func renameProject(_ id: ProjectID)
     func changeProjectFolder(_ id: ProjectID)
     func setProjectIcon(_ id: ProjectID, _ icon: PinIcon?)
@@ -71,6 +74,8 @@ protocol ChromeActions: AnyObject {
 /// An agent pane, for the sidebar's Agents section.
 struct AgentEntry: Identifiable {
     let pane: PaneID
+    /// The tab the agent's pane is in, in whichever window.
+    let tab: TabID
     let program: Program
     let title: String
     let activity: PaneActivity
