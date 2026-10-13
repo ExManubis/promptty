@@ -378,12 +378,10 @@ final class PaneShell {
         return true
     }
 
-    /// After a picker closes from its own keys or a click on a row: the keys go back to the bar.
-    /// (Closed by a click elsewhere, the keys stay where that click put them.)
     /// ⌃R in the bar: merges the history once and opens the search over it.
     func openHistorySearch(seed: String) {
         guard bar == .active, historyPicker == nil else { return }
-        historyPicker = HistoryPickerModel(newestFirst: history.newestFirst,
+        historyPicker = HistoryPickerModel(history: history.merged,
                                            folder: FolderHistoryStore.shared.ranked(for: directory), seed: seed)
     }
 
@@ -394,12 +392,15 @@ final class PaneShell {
         returnKeysToBar()
     }
 
-    func closeHistorySearch() {
+    /// Esc, or a click outside (which leaves the keys where that click put them).
+    func closeHistorySearch(returningKeys: Bool = false) {
         guard historyPicker != nil else { return }
         historyPicker = nil
-        returnKeysToBar()
+        if returningKeys { returnKeysToBar() }
     }
 
+    /// After a picker closes from its own keys or a click on a row: the keys go back to the bar.
+    /// (Closed by a click elsewhere, the keys stay where that click put them.)
     func returnKeysToBar() {
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {

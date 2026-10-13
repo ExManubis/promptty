@@ -4,7 +4,7 @@ import Foundation
 /// results. Built once when the picker opens (lowercasing 50k commands is not for each key);
 /// `search` is then cheap, and narrows the last key's matches when the query only grew (a longer
 /// query is matched by a subset of what the shorter one was).
-public struct HistorySearch {
+public struct HistorySearch: Sendable {
     public static let limit = 200
     /// What running a command in this folder (or one above it) adds to its score: above any
     /// fuzzy match, below a contiguous one.
@@ -33,26 +33,57 @@ public struct HistorySearch {
 
     public mutating func search(_ query: String) -> [String] {
         let needle = Array(query.lowercased().utf8)
+        guard !needle.isEmpty else {
+            last = nil
+            return openingList()
+        }
         let candidates: [Int]
-        if let last, !last.query.isEmpty, needle.starts(with: last.query) {
+        if let last, needle.starts(with: last.query) {
             candidates = last.matches
         } else {
             candidates = Array(commands.indices)
         }
-        var scored: [(index: Int, score: Int)] = []
         var matches: [Int] = []
+        // The best `limit` so far, best first: most candidates lose to the last one at once, so
+        // nothing is sorted whole.
+        var best: [(index: Int, score: Int)] = []
         for index in candidates {
-            guard let score = Self.score(needle, in: lowered[index]) else { continue }
+            guard let base = Self.score(needle, in: lowered[index]) else { continue }
             matches.append(index)
-            scored.append((index, score + (folderRank[index] == nil ? 0 : Self.folderBonus)))
+            let entry = (index: index, score: base + (folderRank[index] == nil ? 0 : Self.folderBonus))
+            if best.count == Self.limit, !precedes(entry, best[best.count - 1]) { continue }
+            var low = 0
+            var high = best.count
+            while low < high {
+                let mid = (low + high) / 2
+                if precedes(best[mid], entry) { low = mid + 1 } else { high = mid }
+            }
+            best.insert(entry, at: low)
+            if best.count > Self.limit { best.removeLast() }
         }
         last = (needle, matches)
-        // Best score first; equal scores keep the order given (newest first, folder's own first).
-        scored.sort { a, b in
-            if a.score != b.score { return a.score > b.score }
-            return Self.order(a.index, b.index, folderRank)
+        return best.map { commands[$0.index] }
+    }
+
+    /// No query: the commands run in the folder, best first, then the newest, without scoring any.
+    private func openingList() -> [String] {
+        var result: [String] = []
+        let inFolder = commands.indices.filter { folderRank[$0] != nil }
+            .sorted { folderRank[$0]! < folderRank[$1]! }
+        for index in inFolder.prefix(Self.limit) { result.append(commands[index]) }
+        var index = 0
+        while result.count < Self.limit, index < commands.count {
+            if folderRank[index] == nil { result.append(commands[index]) }
+            index += 1
         }
-        return scored.prefix(Self.limit).map { commands[$0.index] }
+        return result
+    }
+
+    /// Best score first; equal scores by `order`. This must stay a total order (the binary
+    /// insertion above relies on it): `order` ends in the distinct indexes.
+    private func precedes(_ a: (index: Int, score: Int), _ b: (index: Int, score: Int)) -> Bool {
+        if a.score != b.score { return a.score > b.score }
+        return Self.order(a.index, b.index, folderRank)
     }
 
     /// With no query (or equal scores) the commands run in the folder come first, in their order,

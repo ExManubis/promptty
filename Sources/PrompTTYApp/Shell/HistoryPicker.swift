@@ -12,19 +12,30 @@ final class HistoryPickerModel {
     }
     private(set) var results: [String] = []
     private(set) var selection: Int?
-    @ObservationIgnored private var search: HistorySearch
+    /// Nil while the history is merged and indexed off the main thread.
+    @ObservationIgnored private var search: HistorySearch?
 
-    /// `newestFirst`: the merged history. `folder`: the commands run here, best first. `seed`: what
-    /// the bar holds, which starts the query.
-    init(newestFirst: [String], folder: [String], seed: String) {
-        search = HistorySearch(newestFirst: newestFirst, folder: folder)
+    /// `history`: the shared history, merged here off the main thread. `folder`: the commands run
+    /// here, best first. `seed`: what the bar holds, which starts the query.
+    init(history: MergedHistory, folder: [String], seed: String) {
         query = seed
+        Task { [weak self] in
+            let built = await Task.detached(priority: .userInitiated) {
+                HistorySearch(newestFirst: Array(history), folder: folder)
+            }.value
+            self?.ready(built)
+        }
+    }
+
+    private func ready(_ built: HistorySearch) {
+        search = built
         refresh()
     }
 
-    var choice: String? { selection.flatMap { results.indices.contains($0) ? results[$0] : nil } }
-    var isEmpty: Bool { search.isEmpty }
+    var isLoading: Bool { search == nil }
+    var isEmpty: Bool { search?.isEmpty ?? true }
 
+    var choice: String? { selection.flatMap { results.indices.contains($0) ? results[$0] : nil } }
     func moveSelection(by delta: Int) {
         guard !results.isEmpty else { return }
         selection = min(max((selection ?? 0) + delta, 0), results.count - 1)
@@ -37,7 +48,8 @@ final class HistoryPickerModel {
     }
 
     private func refresh() {
-        results = search.search(query)
+        guard search != nil else { return }
+        results = search!.search(query)
         selection = results.isEmpty ? nil : 0
     }
 }
@@ -56,7 +68,7 @@ struct HistoryPickerView: View {
             title: "History",
             placeholder: "Search history",
             query: Binding(get: { model.query }, set: { model.query = $0 }),
-            note: model.results.isEmpty ? (model.isEmpty ? "No history yet" : "No matching commands") : nil,
+            note: model.results.isEmpty ? (model.isLoading ? "Loading…" : model.isEmpty ? "No history yet" : "No matching commands") : nil,
             rowCount: model.results.count,
             selectedID: model.choice.map { AnyHashable($0) },
             listID: 0,
@@ -67,7 +79,7 @@ struct HistoryPickerView: View {
             ForEach(Array(model.results.enumerated()), id: \.element) { index, command in
                 PickerRow(
                     icon: "clock",
-                    title: command,
+                    title: Self.oneLine(command),
                     selected: model.selection == index,
                     accessibilityHint: "Puts this command in the input bar",
                     open: { choose(command) }
@@ -75,6 +87,11 @@ struct HistoryPickerView: View {
                 .id(command)
             }
         }
+    }
+
+    /// A multi-line command on one row, its line breaks marked.
+    private static func oneLine(_ command: String) -> String {
+        command.contains("\n") ? command.replacingOccurrences(of: "\n", with: " ↵ ") : command
     }
 
     private func handle(_ command: PickerField.Command) -> Bool {

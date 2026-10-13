@@ -26,7 +26,7 @@ struct InputBarView: View {
                                               set: { if !$0 { shell.closeHistorySearch() } }), arrowEdge: .top) {
                     if let picker = shell.historyPicker {
                         HistoryPickerView(model: picker, choose: { shell.chooseHistoryCommand($0) },
-                                          cancel: { shell.closeHistorySearch() })
+                                          cancel: { shell.closeHistorySearch(returningKeys: true) })
                     }
                 }
             Spacer(minLength: 12)
