@@ -81,6 +81,67 @@ final class ProgramCatalogTests: XCTestCase {
         XCTAssertNil(ProgramCatalog.all.first { $0.id == "zsh" }?.tile)
     }
 
+    func testMoreCodingAgentsAreAgents() {
+        let agents: [(String, [String], String)] = [
+            ("/Users/me/.local/bin/cursor-agent", [], "cursor"),
+            ("node", ["/Users/me/.local/share/cursor-agent/versions/2025.10.1/index.js"], "cursor"),
+            ("/opt/homebrew/bin/opencode", [], "opencode"),
+            ("node", ["/opt/homebrew/lib/node_modules/opencode-ai/bin/opencode"], "opencode"),
+            ("node", ["/opt/homebrew/lib/node_modules/@sourcegraph/amp/dist/main.js"], "amp"),
+            ("/opt/homebrew/bin/goose", ["session"], "goose"),
+            ("node", ["/usr/local/lib/node_modules/cline/dist/cli.mjs"], "cline"),
+            ("node", ["/opt/homebrew/lib/node_modules/@qwen-code/qwen-code/cli.js"], "qwen"),
+            ("node", ["/opt/homebrew/bin/qwen"], "qwen"),
+            ("/Users/me/.kilo/bin/kilo", [], "kilocode"),
+            ("node", ["/opt/homebrew/lib/node_modules/@kilocode/cli/bin/kilo"], "kilocode"),
+            ("/Users/me/.local/bin/kiro-cli", ["chat"], "kiro"),
+            ("/Users/me/.local/share/uv/tools/kimi-cli/bin/python", ["/Users/me/.local/bin/kimi"], "kimi"),
+        ]
+        for (executable, arguments, expected) in agents {
+            let program = ProgramCatalog.identify(executable: executable, arguments: [executable] + arguments)
+            XCTAssertEqual(program?.id, expected, executable + " " + arguments.joined(separator: " "))
+            XCTAssertEqual(program?.isAgent, true, expected)
+        }
+    }
+
+    func testDeveloperToolsAndPlatformCLIs() {
+        XCTAssertEqual(id("/Users/me/.local/bin/uv", "run", "app.py"), "uv")
+        XCTAssertEqual(id("/Users/me/.local/bin/uvx", "ruff"), "uv")
+        XCTAssertEqual(id("/opt/homebrew/bin/ruff", "check"), "ruff")
+        XCTAssertEqual(id("/Users/me/src/app/.venv/bin/python", "/Users/me/src/app/.venv/bin/pytest", "-x"), "pytest")
+        XCTAssertEqual(id("python3", "-m", "pytest"), "pytest")
+        XCTAssertEqual(id("python3", "/opt/homebrew/bin/jupyter-lab"), "jupyter")
+        XCTAssertEqual(id("node", "/Users/me/src/web/node_modules/vite/bin/vite.js"), "vite")
+        XCTAssertEqual(id("node", "/Users/me/src/web/node_modules/vitest/vitest.mjs", "run"), "vitest")
+        XCTAssertEqual(id("node", "/Users/me/src/web/node_modules/jest/bin/jest.js"), "jest")
+        XCTAssertEqual(id("node", "/Users/me/src/web/node_modules/next/dist/bin/next", "dev"), "next")
+        XCTAssertEqual(id("/Users/me/src/web/node_modules/turbo-darwin-arm64/bin/turbo", "dev"), "turbo")
+        XCTAssertEqual(id("/opt/homebrew/bin/gh", "pr", "view"), "github")
+        XCTAssertEqual(id("/opt/homebrew/bin/glab", "mr", "list"), "gitlab")
+        XCTAssertEqual(id("node", "/opt/homebrew/lib/node_modules/vercel/dist/vc.js", "dev"), "vercel")
+        XCTAssertEqual(id("node", "/opt/homebrew/lib/node_modules/netlify-cli/bin/run.js", "dev"), "netlify")
+        XCTAssertEqual(id("/opt/homebrew/bin/flyctl", "deploy"), "fly")
+        XCTAssertEqual(id("/Users/me/.fly/bin/fly", "logs"), "fly")
+        XCTAssertEqual(id("node", "/Users/me/src/worker/node_modules/wrangler/bin/wrangler.js", "dev"), "cloudflare")
+        XCTAssertEqual(id("/opt/homebrew/bin/supabase", "start"), "supabase")
+        XCTAssertEqual(id("node", "/opt/homebrew/lib/node_modules/firebase-tools/lib/bin/firebase.js", "deploy"), "firebase")
+        XCTAssertEqual(id("/opt/homebrew/bin/stripe", "listen"), "stripe")
+        XCTAssertEqual(id("/opt/homebrew/bin/ngrok", "http", "3000"), "ngrok")
+        XCTAssertEqual(id("/Applications/Tailscale.app/Contents/MacOS/tailscale", "status"), "tailscale")
+        XCTAssertEqual(id("/opt/homebrew/bin/btop"), "btop")
+        // A project's own `vite.config.js` or `next.js` script is just Node.
+        XCTAssertEqual(id("node", "vite.config.js"), "node")
+        XCTAssertEqual(id("node", "next.js"), "node")
+    }
+
+    /// btop's logo keeps its own red stripes, on the dark tile.
+    func testBtopShowsItsOwnColors() {
+        let btop = ProgramCatalog.all.first { $0.id == "btop" }
+        XCTAssertEqual(btop?.logo, "btop")
+        XCTAssertEqual(btop?.fullColorLogo, true)
+        XCTAssertEqual(ProgramCatalog.all.filter(\.fullColorLogo).map(\.id), ["btop"])
+    }
+
     func testEveryLogoHasAColor() {
         for program in ProgramCatalog.all where program.logo != nil {
             XCTAssertNotNil(program.color, program.id)

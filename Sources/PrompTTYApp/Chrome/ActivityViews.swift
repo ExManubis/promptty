@@ -14,7 +14,15 @@ struct ProgramIcon: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        if let program, let logo = program.logo {
+        if let program, let logo = program.logo, program.fullColorLogo {
+            // In its own colors, whatever the tile.
+            Image("logo-\(logo)")
+                .renderingMode(.original)
+                .resizable()
+                .scaledToFit()
+                .frame(width: size, height: size)
+                .accessibilityLabel(program.name)
+        } else if let program, let logo = program.logo {
             Image("logo-\(logo)")
                 .renderingMode(.template)
                 .resizable()

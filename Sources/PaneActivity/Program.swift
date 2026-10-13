@@ -14,6 +14,8 @@ public struct Program: Equatable, Hashable, Sendable {
     public let isAgent: Bool
     /// The tab tile in the brand's colors; nil for the default dark tile.
     public let tile: Tile?
+    /// The logo is drawn in its own colors (btop's red stripes), not tinted with one.
+    public let fullColorLogo: Bool
 
     /// A tile's colors, 0xRRGGBB.
     public struct Tile: Equatable, Hashable, Sendable {
@@ -40,7 +42,8 @@ public struct Program: Equatable, Hashable, Sendable {
         }
     }
 
-    public init(id: String, name: String, logo: String? = nil, color: UInt32? = nil, isShell: Bool = false, isAgent: Bool = false, tile: Tile? = nil) {
+    public init(id: String, name: String, logo: String? = nil, color: UInt32? = nil, isShell: Bool = false, isAgent: Bool = false,
+                tile: Tile? = nil, fullColorLogo: Bool = false) {
         self.id = id
         self.name = name
         self.logo = logo
@@ -48,6 +51,7 @@ public struct Program: Equatable, Hashable, Sendable {
         self.isShell = isShell
         self.isAgent = isAgent
         self.tile = tile
+        self.fullColorLogo = fullColorLogo
     }
 }
 
@@ -67,8 +71,9 @@ public enum ProgramCatalog {
 
     private static func entry(_ id: String, _ name: String, logo: String?, _ color: UInt32?, _ executables: [String],
                               interpreter: Bool = false, markers: [String] = [], scriptable: Bool = false,
-                              shell: Bool = false, agent: Bool = false) -> Entry {
-        Entry(program: Program(id: id, name: name, logo: logo, color: color, isShell: shell, isAgent: agent, tile: tiles[id]),
+                              shell: Bool = false, agent: Bool = false, fullColor: Bool = false) -> Entry {
+        Entry(program: Program(id: id, name: name, logo: logo, color: color, isShell: shell, isAgent: agent, tile: tiles[id],
+                               fullColorLogo: fullColor),
               executables: executables, interpreter: interpreter, scriptMarkers: markers, scriptable: scriptable)
     }
 
@@ -81,6 +86,15 @@ public enum ProgramCatalog {
         "codex": .init(background: 0x000000, foreground: white),
         "gemini": .init(background: 0x8E75B2, foreground: white),
         "copilot": .init(background: 0x000000, foreground: white),
+        "cursor": .init(background: 0x000000, foreground: white),
+        "opencode": .init(background: 0x000000, foreground: white),
+        "amp": .init(background: 0xF34E3F, foreground: white),
+        "goose": .init(background: 0x000000, foreground: white),
+        "cline": .init(background: 0x18181B, foreground: white),
+        "qwen": .init(background: 0x6950EF, foreground: white),
+        "kilocode": .init(background: 0xFFDD00, foreground: 0x000000),
+        "kiro": .init(background: 0x9046FF, foreground: white),
+        "kimi": .init(background: 0x1783FF, foreground: white),
         "ollama": .init(background: 0x000000, foreground: white),
         "node": .init(background: 0x5FA04E, foreground: white),
         "bun": .init(background: 0xFBF0DF, foreground: 0x14151A),
@@ -115,6 +129,29 @@ public enum ProgramCatalog {
         "npm": .init(background: 0xCB3837, foreground: white),
         "pnpm": .init(background: 0xF69220, foreground: 0x2B2B2B),
         "yarn": .init(background: 0x2C8EBB, foreground: white),
+        // Astral's tools in their colors on Astral's dark purple.
+        "uv": .init(background: 0x261230, foreground: 0xDE5FE9),
+        "ruff": .init(background: 0x261230, foreground: 0xD7FF64),
+        "pytest": .init(background: 0x0A9EDC, foreground: white),
+        "jupyter": .init(background: 0xF37626, foreground: white),
+        "vite": .init(background: 0x9135FF, foreground: white),
+        "vitest": .init(background: 0x1B1B1F, foreground: 0x00FF74),
+        "jest": .init(background: 0xC21325, foreground: white),
+        "turbo": .init(background: 0xFF1E56, foreground: white),
+        "next": .init(background: 0x000000, foreground: white),
+        "github": .init(background: 0x181717, foreground: white),
+        "gitlab": .init(background: 0xFC6D26, foreground: white),
+        "vercel": .init(background: 0x000000, foreground: white),
+        "netlify": .init(background: 0x0E1E25, foreground: 0x00C7B7),
+        "fly": .init(background: 0x24175B, foreground: white),
+        "cloudflare": .init(background: 0xF38020, foreground: white),
+        "supabase": .init(background: 0x1C1C1C, foreground: 0x3FCF8E),
+        "firebase": .init(background: 0xDD2C00, foreground: white),
+        "stripe": .init(background: 0x635BFF, foreground: white),
+        "ngrok": .init(background: 0x1F1E37, foreground: white),
+        "tailscale": .init(background: 0x242424, foreground: white),
+        // The foreground stands for the logo's own red, which it is drawn in.
+        "btop": .init(background: 0x1A1A1A, foreground: 0xFF0000),
     ]
 
     private static let entries: [Entry] = [
@@ -123,6 +160,15 @@ public enum ProgramCatalog {
         entry("codex", "Codex", logo: "codex", 0x000000, ["codex"], markers: ["@openai/codex/"], scriptable: true, agent: true),
         entry("gemini", "Gemini CLI", logo: "googlegemini", 0x8E75B2, ["gemini"], markers: ["@google/gemini-cli/"], scriptable: true, agent: true),
         entry("copilot", "Copilot", logo: "githubcopilot", 0x000000, ["copilot"], markers: ["@github/copilot/"], scriptable: true, agent: true),
+        entry("cursor", "Cursor", logo: "cursor", 0x000000, ["cursor-agent"], markers: ["/cursor-agent/"], scriptable: true, agent: true),
+        entry("opencode", "OpenCode", logo: "opencode", 0x000000, ["opencode"], markers: ["/opencode-ai/"], scriptable: true, agent: true),
+        entry("amp", "Amp", logo: "amp", 0xF34E3F, ["amp"], markers: ["@sourcegraph/amp/"], scriptable: true, agent: true),
+        entry("goose", "Goose", logo: "goose", 0x000000, ["goose"], agent: true),
+        entry("cline", "Cline", logo: "cline", 0x18181B, ["cline"], markers: ["/node_modules/cline/"], scriptable: true, agent: true),
+        entry("qwen", "Qwen Code", logo: "qwen", 0x6950EF, ["qwen"], markers: ["@qwen-code/"], scriptable: true, agent: true),
+        entry("kilocode", "Kilo Code", logo: "kilocode", 0xFFDD00, ["kilo", "kilocode"], markers: ["@kilocode/cli/"], scriptable: true, agent: true),
+        entry("kiro", "Kiro", logo: "kiro", 0x9046FF, ["kiro-cli"], agent: true),
+        entry("kimi", "Kimi", logo: "kimi", 0x1783FF, ["kimi"], markers: ["/kimi-cli/"], scriptable: true, agent: true),
         entry("ollama", "Ollama", logo: "ollama", 0x000000, ["ollama"]),
         // Languages and runtimes
         entry("node", "Node.js", logo: "nodedotjs", 0x5FA04E, ["node", "nodejs"], interpreter: true),
@@ -160,6 +206,32 @@ public enum ProgramCatalog {
         entry("npm", "npm", logo: "npm", 0xCB3837, ["npm", "npx"], markers: ["/npm/bin/npm-cli"], scriptable: true),
         entry("pnpm", "pnpm", logo: "pnpm", 0xF69220, ["pnpm"], scriptable: true),
         entry("yarn", "Yarn", logo: "yarn", 0x2C8EBB, ["yarn"], scriptable: true),
+        // Python tools.
+        entry("uv", "uv", logo: "uv", 0xDE5FE9, ["uv", "uvx"]),
+        entry("ruff", "Ruff", logo: "ruff", 0xD7FF64, ["ruff"], scriptable: true),
+        entry("pytest", "pytest", logo: "pytest", 0x0A9EDC, ["pytest", "py.test"], scriptable: true),
+        entry("jupyter", "Jupyter", logo: "jupyter", 0xF37626, ["jupyter", "jupyter-lab", "jupyter-notebook"], scriptable: true),
+        // JavaScript tools, run from a project's node_modules: known by their package's path only,
+        // so a project's own `vite.config.js` or `next.js` stays Node. Vitest before Vite, whose
+        // `.bin/vite` is the start of `.bin/vitest`.
+        entry("vitest", "Vitest", logo: "vitest", 0x00FF74, [], markers: ["/vitest/vitest.mjs", "/.bin/vitest"]),
+        entry("vite", "Vite", logo: "vite", 0x9135FF, [], markers: ["/vite/bin/", "/.bin/vite"]),
+        entry("jest", "Jest", logo: "jest", 0xC21325, [], markers: ["/jest/bin/", "/jest-cli/bin/", "/.bin/jest"]),
+        entry("next", "Next.js", logo: "nextdotjs", 0x000000, [], markers: ["/next/dist/bin/", "/.bin/next"]),
+        entry("turbo", "Turborepo", logo: "turborepo", 0xFF1E56, ["turbo"], scriptable: true),
+        // Platforms' CLIs.
+        entry("github", "GitHub CLI", logo: "github", 0x181717, ["gh"]),
+        entry("gitlab", "GitLab CLI", logo: "gitlab", 0xFC6D26, ["glab"]),
+        entry("vercel", "Vercel", logo: "vercel", 0x000000, ["vercel", "vc"], markers: ["/node_modules/vercel/"], scriptable: true),
+        entry("netlify", "Netlify", logo: "netlify", 0x00C7B7, ["netlify", "ntl"], markers: ["/netlify-cli/"], scriptable: true),
+        entry("fly", "Fly.io", logo: "flydotio", 0x24175B, ["flyctl", "fly"]),
+        entry("cloudflare", "Wrangler", logo: "cloudflare", 0xF38020, ["wrangler"], markers: ["/wrangler/bin/"], scriptable: true),
+        entry("supabase", "Supabase", logo: "supabase", 0x3FCF8E, ["supabase"], scriptable: true),
+        entry("firebase", "Firebase", logo: "firebase", 0xDD2C00, ["firebase"], markers: ["/firebase-tools/"], scriptable: true),
+        entry("stripe", "Stripe", logo: "stripe", 0x635BFF, ["stripe"]),
+        entry("ngrok", "ngrok", logo: "ngrok", 0x1F1E37, ["ngrok"]),
+        entry("tailscale", "Tailscale", logo: "tailscale", 0x242424, ["tailscale"]),
+        entry("btop", "btop", logo: "btop", 0xFF0000, ["btop"], fullColor: true),
         entry("ssh", "SSH", logo: nil, nil, ["ssh", "mosh"]),
         // Shells: the plain terminal symbol, like a pane at its prompt.
         entry("zsh", "zsh", logo: nil, nil, ["zsh"], shell: true),

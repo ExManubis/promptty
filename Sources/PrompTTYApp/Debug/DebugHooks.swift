@@ -2,11 +2,14 @@
 import AppKit
 import SwiftUI
 import GhosttyBridge
+import PaneActivity
 import WorkspaceModel
 
 /// Named hooks for `eval` in the debug driver: things a test needs that no menu item offers.
 @MainActor
 enum DebugHooks {
+    private static var logoWindow: NSWindow?
+
     static func install(on driver: DebugDriver, coordinator: WorkspaceCoordinator) {
         // eval activity — each pane's activity in the key window (tab.pane: display program) and
         // the notices posted since the last call.
@@ -23,6 +26,17 @@ enum DebugHooks {
             lines += coordinator.postedNotices.map { "notice: \($0)" }
             coordinator.postedNotices = []
             return lines.joined(separator: "\n")
+        }
+        // eval logos — a window with every known program's tile and logo, for checking new logos.
+        driver.hooks["logos"] = { _ in
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 720), styleMask: [.titled], backing: .buffered, defer: false)
+            window.title = "Logos"
+            window.isReleasedWhenClosed = false
+            window.contentView = NSHostingView(rootView: LogoGallery())
+            window.center()
+            window.orderFront(nil)
+            logoWindow = window
+            return "\(ProgramCatalog.all.count) programs"
         }
         // eval reveal <tab> — what clicking a notification about that tab's first pane does.
         driver.hooks["reveal"] = { args in
@@ -338,6 +352,29 @@ enum DebugHooks {
         case "bottom": return .bottom
         default: return nil
         }
+    }
+}
+/// Every program's tile as the tab rows show it, and its logo as the pane header does.
+private struct LogoGallery: View {
+    var body: some View {
+        let programs = ProgramCatalog.all.filter { $0.logo != nil }
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(84), spacing: 8), count: 10), spacing: 10) {
+            ForEach(programs, id: \.id) { program in
+                VStack(spacing: 5) {
+                    ProgramStack(cards: [.init(id: program.id, program: program, display: .idle)])
+                        .scaleEffect(2)
+                        .frame(height: 38)
+                    ProgramIcon(program: program, size: 16)
+                    Text(program.name)
+                        .font(.system(size: 9))
+                        .lineLimit(1)
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 960, height: 720, alignment: .top)
+        .background(Color(white: 0.16))
+        .environment(\.colorScheme, .dark)
     }
 }
 #endif
