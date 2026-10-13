@@ -129,8 +129,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    func applicationDidBecomeActive(_ notification: Notification) { runtime?.setFocus(true) }
-    func applicationDidResignActive(_ notification: Notification) { runtime?.setFocus(false) }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        runtime?.setFocus(true)
+        coordinator?.appActivationChanged()
+    }
+    func applicationDidResignActive(_ notification: Notification) {
+        runtime?.setFocus(false)
+        coordinator?.appActivationChanged()
+    }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 

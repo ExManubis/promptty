@@ -228,7 +228,16 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             lastTintStrength = settings.tintStrength
             configDidReload()
         }
-        for c in controllers.values { c.focusSelectedPane() }
+        for c in controllers.values {
+            c.focusSelectedPane()
+            c.updateRefreshRate()
+        }
+    }
+
+    /// The app came to the front or left it: windows ask for the full refresh rate only while
+    /// it is in front.
+    func appActivationChanged() {
+        for c in controllers.values { c.updateRefreshRate() }
     }
 
     // MARK: Windows and tabs

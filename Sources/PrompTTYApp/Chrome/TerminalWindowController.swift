@@ -601,14 +601,58 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     func windowDidResize(_ notification: Notification) { persistFrame() }
     func windowDidMove(_ notification: Notification) { persistFrame() }
-    func windowDidBecomeKey(_ notification: Notification) { focusSelectedPane() }
+    func windowDidBecomeKey(_ notification: Notification) {
+        focusSelectedPane()
+        updateRefreshRate()
+    }
+    func windowDidResignKey(_ notification: Notification) { updateRefreshRate() }
+    func windowDidChangeOcclusionState(_ notification: Notification) { updateRefreshRate() }
 
     func windowWillClose(_ notification: Notification) {
+        // The display link retains this controller; it must go before the window does.
+        refreshLink?.invalidate()
+        refreshLink = nil
         coordinator.windowWillClose(state.id)
         // The SwiftUI root holds this controller as its ChromeActions; dropping the hosting view
         // breaks controller → window → hosting view → controller, and stops a closed window's
         // view graph from observing the shared workspace and settings.
         window?.contentView = nil
+    }
+
+    // MARK: Refresh rate
+
+    /// Asks for the display's full refresh rate (Settings › Appearance › Display). A ProMotion
+    /// display otherwise lowers its rate when little changes, down to 24 Hz, and the frame for
+    /// the next keystroke can wait up to a refresh of that length. Runs only while this window
+    /// is in front, visible, of the active app.
+    private var refreshLink: CADisplayLink?
+    /// Display link callbacks, for the debug driver: the rate the system granted.
+    private(set) var refreshTicks = 0
+    #if DEBUG
+    /// Debug driver: runs the display link without the app in front (a driven app never is).
+    var forceFullRefreshRate = false
+    #endif
+
+    func updateRefreshRate() {
+        var wanted = coordinator.preferences.settings.fullRefreshRate && NSApp.isActive
+            && window?.isKeyWindow == true && window?.occlusionState.contains(.visible) == true
+        #if DEBUG
+        wanted = wanted || forceFullRefreshRate
+        #endif
+        if wanted, refreshLink == nil, let view = window?.contentView {
+            let link = view.displayLink(target: self, selector: #selector(refreshTick(_:)))
+            let rate = Float(window?.screen?.maximumFramesPerSecond ?? 120)
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: rate, maximum: rate, preferred: rate)
+            link.add(to: .main, forMode: .common)
+            refreshLink = link
+        } else if !wanted, let link = refreshLink {
+            link.invalidate()
+            refreshLink = nil
+        }
+    }
+
+    @objc private func refreshTick(_ link: CADisplayLink) {
+        refreshTicks &+= 1
     }
 
     private func persistFrame() {

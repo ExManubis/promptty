@@ -22,7 +22,15 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(s.confirmCloseRunning)
         XCTAssertEqual(s.optionAsAlt, .both)
         XCTAssertTrue(s.vimNavigation)
+        XCTAssertFalse(s.fullRefreshRate, "ProMotion keeps lowering the refresh rate unless asked: battery")
         XCTAssertTrue(s.shortcuts.isEmpty)
+    }
+
+    func testFullRefreshRateIsSavedAndOffForOlderFiles() throws {
+        var s = Settings()
+        s.fullRefreshRate = true
+        XCTAssertTrue(try JSONDecoder().decode(Settings.self, from: JSONEncoder().encode(s)).fullRefreshRate)
+        XCTAssertFalse(try JSONDecoder().decode(Settings.self, from: Data(#"{"version":2}"#.utf8)).fullRefreshRate)
     }
 
     func testVimNavigationCanBeTurnedOffAndStaysOnForOlderFiles() throws {

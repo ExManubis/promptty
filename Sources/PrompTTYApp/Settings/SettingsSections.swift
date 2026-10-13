@@ -56,6 +56,16 @@ struct AppearanceSection: View {
             }
 
             Section {
+                Toggle("Keep ProMotion displays at 120 Hz", isOn: $model.settings.fullRefreshRate)
+            } header: {
+                Text("Display")
+            } footer: {
+                Text("While a PrompTTY window is in front, the display stays at its full refresh rate instead of slowing down when little changes, so typing shows up sooner. Uses more battery.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 LabeledContent("Frame color") {
                     HStack(spacing: 8) {
                         Text("Neutral").font(.system(size: 11)).foregroundStyle(.secondary)

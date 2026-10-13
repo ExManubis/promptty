@@ -11,6 +11,7 @@ import WorkspaceModel
 @MainActor
 enum DebugHooks {
     private static var logoWindow: NSWindow?
+    private static var lastTicks: (count: Int, time: CFTimeInterval) = (0, CACurrentMediaTime())
 
     static func install(on driver: DebugDriver, coordinator: WorkspaceCoordinator) {
         // eval activity — each pane's activity in the key window (tab.pane: display program) and
@@ -305,6 +306,24 @@ enum DebugHooks {
             return ""
         }
         // eval resizes — terminal resizes since the last call (each layout change should cost one per pane).
+        // eval hz — the refresh rate granted to the key window's display link over the last second
+        // (0 when the full-rate setting is off or the window is not in front).
+        driver.hooks["hz"] = { args in
+            guard let c = coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true }) ?? coordinator.allControllers.first else { return "error: no window" }
+            if let arg = args.first {
+                c.forceFullRefreshRate = arg == "force"
+                c.updateRefreshRate()
+            }
+            // Ticks since the last call: run `eval hz`, `wait 1`, `eval hz` for a rate.
+            let now = CACurrentMediaTime()
+            let ticks = c.refreshTicks - DebugHooks.lastTicks.count
+            let elapsed = now - DebugHooks.lastTicks.time
+            DebugHooks.lastTicks = (c.refreshTicks, now)
+            let before = c.refreshTicks - ticks
+            let start = now - elapsed
+            let state = "setting=\(coordinator.preferences.settings.fullRefreshRate) active=\(NSApp.isActive) key=\(c.window?.isKeyWindow == true) visible=\(c.window?.occlusionState.contains(.visible) == true)"
+            return String(format: "hz=%.0f ", Double(c.refreshTicks - before) / (CACurrentMediaTime() - start)) + state
+        }
         // eval layers — the focused terminal's layer tree (class, frame, contents type).
         driver.hooks["layers"] = { _ in
             guard let view = driver.focusedSurface(), let layer = view.layer else { return "error: no terminal" }
@@ -399,6 +418,7 @@ enum DebugHooks {
             case "tintStrength": coordinator.preferences.update { $0.tintStrength = Double(args[1]) ?? 0.5 }
             case "follow": coordinator.preferences.update { $0.followSystemAppearance = args[1] == "on" }
             case "vim": coordinator.preferences.update { $0.vimNavigation = args[1] == "on" }
+            case "fullrate": coordinator.preferences.update { $0.fullRefreshRate = args[1] == "on" }
             case "cursor":
                 let value: CursorColor = switch args[1] {
                 case "accent": .accent

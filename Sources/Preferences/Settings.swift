@@ -38,6 +38,9 @@ public struct Settings: Equatable, Sendable {
     public var cursorStyle = CursorStyle.block
     public var cursorBlink = true
     public var cursorColor = CursorColor.theme
+    /// Keeps a ProMotion display at its full refresh rate while a PrompTTY window is in front,
+    /// so a keystroke's frame shows within one 120 Hz refresh. Off by default: battery.
+    public var fullRefreshRate = false
     /// 0…1: how strongly the window backdrop follows the theme background. 0 is the system's
     /// neutral window color (the Dia-style default).
     public var tintStrength: Double = 0
@@ -79,7 +82,7 @@ public struct Settings: Equatable, Sendable {
 extension Settings: Codable {
     enum CodingKeys: String, CodingKey {
         case version, fontFamily, fontSize, followSystemAppearance, lightTheme, darkTheme, theme
-        case cursorStyle, cursorBlink, cursorColor, tintStrength, tabLayout, sidebarWidth, tabListHidden
+        case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, tabLayout, sidebarWidth, tabListHidden
         case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, shortcuts
     }
 
@@ -99,6 +102,7 @@ extension Settings: Codable {
         s.cursorStyle = value(.cursorStyle, s.cursorStyle)
         s.cursorBlink = value(.cursorBlink, s.cursorBlink)
         s.cursorColor = value(.cursorColor, String?.none).flatMap(CursorColor.init(stringValue:)) ?? s.cursorColor
+        s.fullRefreshRate = value(.fullRefreshRate, s.fullRefreshRate)
         s.tintStrength = value(.tintStrength, s.tintStrength)
         s.tabLayout = value(.tabLayout, s.tabLayout)
         s.sidebarWidth = value(.sidebarWidth, s.sidebarWidth)
@@ -133,6 +137,7 @@ extension Settings: Codable {
         try c.encode(cursorStyle, forKey: .cursorStyle)
         try c.encode(cursorBlink, forKey: .cursorBlink)
         try c.encode(cursorColor.stringValue, forKey: .cursorColor)
+        try c.encode(fullRefreshRate, forKey: .fullRefreshRate)
         try c.encode(tintStrength, forKey: .tintStrength)
         try c.encode(tabLayout, forKey: .tabLayout)
         try c.encode(sidebarWidth, forKey: .sidebarWidth)
