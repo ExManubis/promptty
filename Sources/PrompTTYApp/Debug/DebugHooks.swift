@@ -84,11 +84,15 @@ enum DebugHooks {
             func tab(_ s: String?) -> WorkspaceModel.Tab? { s.flatMap(Int.init).flatMap { c.state.tabs.indices.contains($0) ? c.state.tabs[$0] : nil } }
             switch args.first {
             case "list":
-                var lines = projects.enumerated().map { "project \($0): \($1.name) \($1.directory)\($1.folded ? " folded" : "")" }
+                var lines: [String] = []
+                for (pi, p) in projects.enumerated() {
+                    lines.append("project \(pi): \(p.name) \(p.directory)" + (p.folded ? " folded" : ""))
+                }
                 for (wi, controller) in coordinator.allControllers.enumerated() {
                     for (ti, t) in controller.state.tabs.enumerated() {
-                        let p = projects.firstIndex { $0.id == controller.state.project(of: t) }.map(String.init) ?? "-"
-                        lines.append("window \(wi) tab \(ti): \(t.listTitle.debugDescription) project=\(p)\(t.pin != nil ? " pinned" : "")")
+                        let projectID = controller.state.project(of: t)
+                        let p = projects.firstIndex(where: { $0.id == projectID }).map { "\($0)" } ?? "-"
+                        lines.append("window \(wi) tab \(ti): \(t.listTitle.debugDescription) project=\(p)" + (t.pin != nil ? " pinned" : ""))
                     }
                 }
                 return lines.joined(separator: "\n")
