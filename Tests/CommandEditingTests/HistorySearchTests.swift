@@ -59,7 +59,8 @@ final class HistorySearchTests: XCTestCase {
         XCTAssertEqual(incremental.search("r"), wide.search("r"))
     }
 
-    /// A generous bound, for a regression to a full sort of everything per key, not a benchmark.
+    /// A generous bound (about 10× the usual debug timings, so a slow CI machine passes), for a
+    /// regression to a full sort of everything per key, not a benchmark.
     func testKeystrokesOn50kHistoryAreFast() {
         let history = (0..<50_000).map { "command \($0) --option\($0 % 97) path/to/file\($0 % 1013).txt" }
         let folder = (0..<300).map { history[$0 * 150] }
@@ -75,7 +76,7 @@ final class HistorySearchTests: XCTestCase {
         let backspace = time("c")
         let back = time("")
         for (name, ms) in [("empty", empty), ("one char", one), ("narrowed", narrowed), ("backspace", backspace), ("cleared", back)] {
-            XCTAssertLessThan(ms, 50, "\(name) took \(ms) ms")
+            XCTAssertLessThan(ms, 150, "\(name) took \(ms) ms")
         }
         print("HistorySearch 50k ms: empty \(empty), 1 char \(one), narrowed \(narrowed), backspace \(backspace), cleared \(back)")
     }
