@@ -646,6 +646,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     @objc func equalizePanes(_ sender: Any?) { state.selectedTab?.equalize() }
 
+    /// The focused pane fills the tab, the others hidden but running; again, or any focus move,
+    /// split or close, brings them back.
+    @objc func zoomPane(_ sender: Any?) { state.selectedTab?.toggleZoom() }
+
     @objc func clearTerminal(_ sender: Any?) {
         focusedSurface?.performBindingAction("clear_screen")
         (focusedSurface?.overlay as? BlockOverlayView)?.commandStarted()
@@ -656,6 +660,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         case #selector(focusPaneLeft(_:)), #selector(focusPaneUp(_:)), #selector(focusPaneRight(_:)),
              #selector(focusPaneDown(_:)), #selector(equalizePanes(_:)):
             return state.selectedTab?.hasSplits ?? false
+        case #selector(zoomPane(_:)):
+            let tab = state.selectedTab
+            item.title = tab?.zoomedPaneID == nil ? "Zoom Pane" : "Unzoom Pane"
+            return tab?.hasSplits ?? false
         case #selector(gotoTab(_:)):
             return item.tag <= state.tabs.count
         case #selector(previousTab(_:)), #selector(nextTab(_:)):

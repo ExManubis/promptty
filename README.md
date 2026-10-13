@@ -65,6 +65,7 @@ and Option acts as Alt by default. libghostty itself binds nothing (`keybind = c
 | Close pane (the last pane closes the tab) | ⌘W |
 | Move focus between panes | ⌥⌘← ↑ → ↓ |
 | Equalize panes | ⌃⌘= |
+| Zoom the focused pane (press again, or move focus, split or close, to go back) | ⇧⌘↩ |
 | Copy, paste, select all, clear | ⌘C, ⌘V, ⌘A, ⌘K |
 | Bigger / smaller / actual size | ⌘= / ⌘- / ⌘0 |
 | Select previous / next command | ⌘↑ / ⌘↓ |

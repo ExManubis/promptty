@@ -8,6 +8,10 @@ struct PaneCard: View {
     let pane: Pane
     let tab: WorkspaceModel.Tab
     let visible: Bool
+    /// This pane fills the tab.
+    var zoomed = false
+    /// Another pane is zoomed: this one is kept alive, occluded, at the size it had.
+    var hidden = false
     let chrome: WindowChromeModel
     let actions: ChromeActions
 
@@ -23,7 +27,7 @@ struct PaneCard: View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 if let surface = actions.surfaceView(for: pane) {
-                    PaneHost(surface: surface, visible: visible)
+                    PaneHost(surface: surface, visible: visible, holdSize: hidden)
                 }
                 if let shell = actions.shell(for: pane.id), shell.bar != .hidden {
                     InputBarView(shell: shell, dark: chrome.panelIsDark)
@@ -41,6 +45,7 @@ struct PaneCard: View {
 
             LinkPreview(pane: pane.id, actions: actions)
             SecureLock(pane: pane.id, actions: actions)
+            if zoomed { ZoomBadge() }
 
             if let code = chrome.exitedPanes[pane.id] {
                 // A pinned tab's last pane is restarted, not closed.
@@ -175,5 +180,21 @@ private struct SecureLock: View {
                 .padding(6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
+    }
+}
+
+/// Marks the zoomed pane, at its top-left.
+private struct ZoomBadge: View {
+    var body: some View {
+        Image(systemName: "arrow.up.left.and.arrow.down.right")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(5)
+            .background(.regularMaterial, in: Circle())
+            .overlay(Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+            .help("Zoomed. Press the zoom shortcut again to show all panes.")
+            .padding(6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .accessibilityLabel("Zoomed pane")
     }
 }

@@ -9,6 +9,8 @@ import SwiftUI
 struct PaneHost: NSViewRepresentable {
     let surface: TerminalSurfaceView
     let visible: Bool
+    /// The terminal keeps its size however the view changes (a pane hidden by a zoom).
+    var holdSize = false
 
     func makeNSView(context: Context) -> PaneHostView { PaneHostView(cornerRadius: ChromeMetrics.paneCornerRadius) }
 
@@ -16,7 +18,7 @@ struct PaneHost: NSViewRepresentable {
         host.host(surface)
         host.isHidden = !visible
         surface.setOccluded(!visible)
-        surface.resizeMode = context.environment.terminalResizeMode
+        surface.resizeMode = holdSize ? .held : context.environment.terminalResizeMode
     }
 
     static func dismantleNSView(_ host: PaneHostView, coordinator: ()) {
