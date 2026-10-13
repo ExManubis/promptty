@@ -140,7 +140,8 @@ highlighted like its tab.
 Without help PrompTTY guesses an agent's state from its screen (still for three seconds: your
 turn). With **Claude Code's hooks** it knows: when you send a prompt, which tool runs ("Working ·
 Bash"), when a permission prompt waits for you (an orange shield, "Needs permission", and a
-notification naming it) and when the turn ends ("Your turn", and a "Done after …" notification
+notification naming it), when it asks you a question or has a plan for you to approve
+("Waiting", and a notification) and when the turn ends ("Your turn", and a "Done after …" notification
 when it took 10 s or more and you were looking elsewhere). **Settings › Agents › Install Claude
 Code Hooks…** shows what it will change, then adds one hook per event (SessionStart, SessionEnd,
 UserPromptSubmit, PreToolUse, PostToolUse, Notification, Stop, SubagentStop) to
@@ -164,8 +165,12 @@ watched again. Return, Esc, y, n, a digit or ⌃C pressed at a permission prompt
 An interrupted turn (Esc, ⌃C, a prompt answered "no") runs no hook: while the hooks say the agent
 works, a screen still for 3 s with no hook for 5 s ends the turn, without a notification. If
 another PrompTTY already listens on the socket (two copies sharing a data folder) it is left
-alone. Programs started from a pane inherit its variables, so agents in a tmux session or an
-editor's terminal report to the pane that started tmux or the editor.
+alone. Programs started from a pane inherit its variables, so an agent in a tmux session or an
+editor's terminal reports to the pane that started tmux or the editor; a limitation: those
+reports are ignored, as a pane shows an agent's state only while the agent itself is in front
+(there, tmux or the editor is). The hooks name the app by its path: after moving PrompTTY.app, or
+when macOS runs it from a temporary copy (App Translocation, for an app opened where it was
+downloaded), they find nothing to run until you install them again from Settings › Agents.
 
 For **Codex**, add `notify = ["<PrompTTY.app>/Contents/MacOS/promptty-hook", "codex-notify"]` at
 the top of `~/.codex/config.toml` (Settings › Agents shows the line with the path filled in): the
@@ -184,6 +189,8 @@ and move focus between panes with the shortcuts above.
     Sources/CommandBlocks    command blocks: where each command and its output start and end
     Sources/PaneActivity     what runs in a pane: foreground process, known programs and agents, repositories
     Sources/GhosttyBridge    the only code that touches libghostty
+    Sources/AgentHooks       agents' hook messages, the socket the app listens on, the hook state, Claude's settings merge
+    Sources/promptty-hook    the helper agents' hooks run, bundled in the app; sends one line to the socket
     Sources/PrompTTYApp      AppKit windows and menus; SwiftUI chrome, input bar and Settings
     Engine/                  libghostty as a local SwiftPM package; patches/ holds PrompTTY's engine patches
     script/                  bootstrap, run, test, build-engine, release, drive
