@@ -21,7 +21,8 @@ struct TabRow: View {
     /// The pointer has rested on the row: its preview shows.
     @State private var previewing = false
     @State private var previewTimer: Task<Void, Never>?
-    /// The row's frame in the window, for placing its preview.
+    /// The row's frame in the window, for placing its preview; known while the pointer is on the
+    /// row, `.zero` otherwise.
     @State private var rowFrame: CGRect = .zero
     @State private var draft = ""
     @State private var lastTap: Date?
@@ -30,6 +31,7 @@ struct TabRow: View {
 
     private var renaming: Bool { chrome.renamingTab == tab.id }
     private var paneDropTarget: Bool { chrome.dropTargetTab == tab.id }
+    private var previewShown: Bool { previewing || chrome.forcedPreview == tab.id }
 
     /// The tab's most urgent pane, for VoiceOver and the working shimmer (the Agents section shows
     /// activity; tabs show no dot).
@@ -57,9 +59,27 @@ struct TabRow: View {
                 hovering = inside
                 updatePreview()
             }
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rowFrame = $0 }
-            .onChange(of: previewing || chrome.forcedPreview == tab.id) { _, shown in
-                if shown { actions.showPreview(of: tab.id, beside: previewAnchor, titled: style == .tile) } else { actions.hidePreview(of: tab.id) }
+            .background {
+                // The frame matters only for a preview, which needs the pointer on the row:
+                // tracked only then, not for every row on every frame of a scroll.
+                if hovering || chrome.forcedPreview == tab.id {
+                    Color.clear
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                            let first = rowFrame == .zero
+                            rowFrame = frame
+                            // A preview asked for before the frame was known goes beside the row now.
+                            if first, previewShown { actions.showPreview(of: tab.id, beside: previewAnchor, titled: style == .tile) }
+                        }
+                        .onDisappear { rowFrame = .zero }
+                }
+            }
+            .onChange(of: previewShown) { _, shown in
+                // Without the frame yet, the preview shows once it is known.
+                if !shown {
+                    actions.hidePreview(of: tab.id)
+                } else if rowFrame != .zero {
+                    actions.showPreview(of: tab.id, beside: previewAnchor, titled: style == .tile)
+                }
             }
             .onChange(of: selected) { _, isSelected in
                 if isSelected {

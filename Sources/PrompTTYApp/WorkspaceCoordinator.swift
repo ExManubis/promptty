@@ -1,6 +1,7 @@
 import AppKit
 import CommandEditing
 import GhosttyBridge
+import Observation
 import PaneActivity
 import Preferences
 import WorkspaceModel
@@ -25,6 +26,10 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         activity.isSeen = { [weak self] in self?.isSeen($0) ?? false }
         activity.onNotice = { [weak self] pane, notice in self?.post(notice, for: pane) }
         activity.onSeen = { Notifications.remove(for: $0) }
+        activity.allPanes = { [weak self] in
+            Set(self?.workspace.windows.flatMap { $0.tabs.flatMap { $0.orderedPanes.map(\.id) } } ?? [])
+        }
+        activity.afterTick = { [weak self] in self?.lookUpRepositories() }
     }
 
     /// Opens a controller for every window in the model; creates a default window if none.
@@ -39,6 +44,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         }
         controllers.values.first?.window?.makeKeyAndOrderFront(nil)
         activity.start()
+        refreshAgents()
     }
 
     // MARK: Activity
@@ -108,31 +114,70 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     var postedNotices: [String] = []
     #endif
 
-    /// Every pane running an agent, window by window, tab by tab.
-    func agents() -> [AgentEntry] {
-        workspace.windows.flatMap { window in
+    /// Every pane running an agent, window by window, tab by tab, for the sidebars.
+    let agentList = AgentList()
+    private var agentsScheduled = false
+    /// The folders the agents work in, as the list last found them.
+    private var agentFolders: Set<String> = []
+    private var repositories = RepositoryCache()
+
+    /// The list is worked out again on the next turn of the run loop: changes made together are
+    /// one update.
+    private func scheduleAgents() {
+        guard !agentsScheduled else { return }
+        agentsScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { self?.refreshAgents() }
+        }
+    }
+
+    /// Works the agents out, watching what that read (the windows, tabs and panes, the panes'
+    /// titles and folders, what runs in each), and publishes them when they changed.
+    private func refreshAgents() {
+        agentsScheduled = false
+        let entries = withObservationTracking { agentEntries() } onChange: { [weak self] in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.scheduleAgents() } }
+        }
+        if entries != agentList.entries { agentList.entries = entries }
+        lookUpRepositories()
+    }
+
+    private func agentEntries() -> [AgentEntry] {
+        var folders = Set<String>()
+        let entries = workspace.windows.flatMap { window in
             window.tabs.flatMap { tab in
                 tab.orderedPanes.compactMap { pane -> AgentEntry? in
-                    let state = activity.activity(for: pane.id)
-                    guard let program = state.program, program.isAgent else { return nil }
-                    let own = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let title = own.isEmpty || own == pane.workingDirectory ? program.name : own
-                    return AgentEntry(pane: pane.id, tab: tab.id, program: program, title: title, activity: state,
-                                      repository: repository(for: activity.agentDirectory(for: pane.id) ?? pane.workingDirectory),
-                                      projectID: window.project(of: tab))
+                    let status = activity.status(for: pane.id)
+                    guard let program = status.activity.program, program.isAgent else { return nil }
+                    // The agent's own folder: it may differ from the shell's (`cd x && claude`).
+                    let folder = activity.agentDirectory(for: pane.id) ?? pane.workingDirectory
+                    folders.insert(folder)
+                    return AgentEntry(pane: pane.id, tab: tab.id, program: program,
+                                      title: AgentListing.title(paneTitle: pane.title, workingDirectory: pane.workingDirectory, program: program),
+                                      display: status.activity.display,
+                                      repository: repositories.repository(for: folder) ?? Repository(root: folder, branch: nil),
+                                      projectID: window.project(of: tab), status: status)
                 }
+            }
+        }
+        agentFolders = folders
+        return entries
+    }
+
+    /// Looks up the repositories of the agents' folders off the main thread: new folders at once,
+    /// the others again every few seconds (an agent may switch branches). Called after every
+    /// activity tick too.
+    private func lookUpRepositories() {
+        for folder in repositories.due(agentFolders, at: Date()) {
+            Task.detached(priority: .utility) { [weak self] in
+                let repository = Repository.find(for: folder, in: DiskFiles())
+                await self?.found(repository, for: folder)
             }
         }
     }
 
-    /// Repositories by folder, looked up again after a few seconds (an agent may switch branches).
-    private var repositories: [String: (repository: Repository, at: Date)] = [:]
-
-    private func repository(for directory: String) -> Repository {
-        if let cached = repositories[directory], Date().timeIntervalSince(cached.at) < 5 { return cached.repository }
-        let repository = Repository.find(for: directory, in: DiskFiles())
-        repositories[directory] = (repository, Date())
-        return repository
+    private func found(_ repository: Repository, for folder: String) {
+        if repositories.resolved(folder, repository, at: Date()) { scheduleAgents() }
     }
 
     /// A notification was clicked: its pane comes forward, focused.
@@ -329,7 +374,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         } else {
             let pane = tab.focusedPaneID
             let shell = controller.shell(for: pane)
-            let running = activity.activity(for: pane).isRunning || shell?.phase == .running
+            let running = activity.state(for: pane).isRunning || shell?.phase == .running
             // The program in front, not the shell itself (`-zsh`).
             let arguments = controller.existingSurface(for: pane)?.foregroundPID
                 .flatMap { pid in running && pid > 0 && pid != shell?.state.shellPID ? ProcessArguments.read(pid: Int32(pid))?.arguments : nil }

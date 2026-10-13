@@ -1,5 +1,6 @@
 import CoreGraphics
 import GhosttyBridge
+import Observation
 import PaneActivity
 import WorkspaceModel
 
@@ -8,10 +9,10 @@ import WorkspaceModel
 protocol ChromeActions: AnyObject {
     func surfaceView(for pane: Pane) -> TerminalSurfaceView?
     func shell(for pane: PaneID) -> PaneShell?
-    /// What runs in a pane and what happened there unseen (observable).
-    func activity(for pane: PaneID) -> PaneActivity
-    /// Every pane running an agent, in every window.
-    func agents() -> [AgentEntry]
+    /// What runs in a pane and what happened there unseen (observes that pane alone).
+    func activity(for pane: PaneID) -> PaneActivity.Visible
+    /// Every pane running an agent, in every window (observable).
+    var agentList: AgentList { get }
     /// Brings a pane forward, in whichever window it is.
     func reveal(_ pane: PaneID)
     /// Shows a tab's preview beside its sidebar row (`row` in the window's top-left coordinates),
@@ -68,17 +69,34 @@ protocol ChromeActions: AnyObject {
     func movePane(_ pane: PaneID, intoTab tab: TabID)
 }
 
+/// The sidebar's agents, worked out by the coordinator when panes, what runs in them or their
+/// repositories change, not by the view that shows them.
+@MainActor
+@Observable
+final class AgentList {
+    /// Window by window, tab by tab.
+    var entries: [AgentEntry] = []
+}
+
 /// An agent pane, for the sidebar's Agents section.
-struct AgentEntry: Identifiable {
+struct AgentEntry: Identifiable, Equatable {
     let pane: PaneID
     /// The tab the agent's pane is in, in whichever window.
     let tab: TabID
     let program: Program
     let title: String
-    let activity: PaneActivity
+    /// What the agent shows, for grouping and ordering; its row reads the rest from `status`.
+    let display: PaneActivity.Display
     /// The repository (or folder) the agent works in.
     let repository: Repository
     /// The sidebar project of the agent's tab; nil when it is in none.
     let projectID: ProjectID?
+    /// The pane's box, which its row observes.
+    let status: PaneStatus
     var id: PaneID { pane }
+
+    nonisolated static func == (a: AgentEntry, b: AgentEntry) -> Bool {
+        a.pane == b.pane && a.tab == b.tab && a.program == b.program && a.title == b.title && a.display == b.display
+            && a.repository == b.repository && a.projectID == b.projectID && a.status === b.status
+    }
 }

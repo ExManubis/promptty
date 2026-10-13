@@ -154,8 +154,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     func shell(for pane: PaneID) -> PaneShell? { shells[pane] }
     func blocks(for pane: PaneID) -> BlockOverlayView? { surfaces[pane]?.overlay as? BlockOverlayView }
-    func activity(for pane: PaneID) -> PaneActivity { coordinator.activity.activity(for: pane) }
-    func agents() -> [AgentEntry] { coordinator.agents() }
+    func activity(for pane: PaneID) -> PaneActivity.Visible { coordinator.activity.activity(for: pane) }
+    var agentList: AgentList { coordinator.agentList }
     func reveal(_ pane: PaneID) { coordinator.reveal(pane) }
     func screenText(for pane: PaneID) -> String? { surfaces[pane]?.visibleText() }
 

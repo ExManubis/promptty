@@ -3,15 +3,24 @@ import Observation
 import PaneActivity
 import WorkspaceModel
 
+/// What one pane's rows and header show of it, observed on its own: a change in one pane redraws
+/// only the views of that pane. More of what a pane shows (its progress, an agent's own report of
+/// its state) belongs here, beside its activity.
+@MainActor
+@Observable
+final class PaneStatus {
+    /// The pane's activity as views show it; set only when that changes.
+    fileprivate(set) var activity = PaneActivity().visible
+}
+
 /// Every pane's activity (what runs in it, what happened there unseen), for the tab rows and pane
 /// headers, and the notices for what finished or needs the user while they looked elsewhere.
 @MainActor
-@Observable
 final class ActivityTracker {
-    /// What views read: republished only when what they show changes.
-    private(set) var activities: [PaneID: PaneActivity] = [:]
+    /// What views read, a box per pane: a view observes the boxes it reads.
+    private var statuses: [PaneID: PaneStatus] = [:]
     /// The full state, with the per-second bookkeeping views do not need.
-    @ObservationIgnored private var states: [PaneID: PaneActivity] = [:]
+    private var states: [PaneID: PaneActivity] = [:]
 
     /// A pane to watch: its terminal, the shell's pid if known, and whether the user sees it.
     struct Watched {
@@ -31,31 +40,35 @@ final class ActivityTracker {
     }
 
     /// The panes to watch right now; set by the coordinator.
-    @ObservationIgnored var panes: () -> [Watched] = { [] }
+    var panes: () -> [Watched] = { [] }
+    /// Every pane in the workspace, with a terminal or not; set by the coordinator.
+    var allPanes: () -> Set<PaneID> = { [] }
     /// Whether the user sees one pane now; set by the coordinator.
-    @ObservationIgnored var isSeen: (PaneID) -> Bool = { _ in false }
+    var isSeen: (PaneID) -> Bool = { _ in false }
     /// A long command finished, a bell rang or a program asked for the user, unseen.
-    @ObservationIgnored var onNotice: (PaneID, Notice) -> Void = { _, _ in }
+    var onNotice: (PaneID, Notice) -> Void = { _, _ in }
     /// The user looked at a pane that had something unseen: its notification is out of date.
-    @ObservationIgnored var onSeen: (PaneID) -> Void = { _ in }
+    var onSeen: (PaneID) -> Void = { _ in }
+    /// After every tick (at most 4 times a second), for work that goes with the polling.
+    var afterTick: () -> Void = {}
 
     /// The first shell seen in a pane's foreground, for panes without PrompTTY's integration.
-    @ObservationIgnored private var shellPIDs: [PaneID: Int] = [:]
+    private var shellPIDs: [PaneID: Int] = [:]
     /// The last foreground pid read per pane, and what it was: the arguments are read once per pid.
-    @ObservationIgnored private var identified: [PaneID: (pid: Int, foreground: PaneActivity.Foreground)] = [:]
-    @ObservationIgnored private var timer: Timer?
-    @ObservationIgnored private var timerInterval: TimeInterval = 0.25
+    private var identified: [PaneID: (pid: Int, foreground: PaneActivity.Foreground)] = [:]
+    private var timer: Timer?
+    private var timerInterval: TimeInterval = 0.25
     /// When each pane's jobs last ran: the one timer ticks fast, panes the user cannot see run less.
-    @ObservationIgnored private var cadence = PollCadence<Job>()
+    private var cadence = PollCadence<Job>()
     private struct Job: Hashable {
         enum Kind: CaseIterable { case shell, foreground, screen }
         let pane: PaneID
         let kind: Kind
     }
     /// The last screen seen per agent pane, as a hash.
-    @ObservationIgnored private var screens: [PaneID: Int] = [:]
+    private var screens: [PaneID: Int] = [:]
     /// The folder each agent works in, read from its process.
-    @ObservationIgnored private var agentDirectories: [PaneID: String] = [:]
+    private var agentDirectories: [PaneID: String] = [:]
 
     /// The folder an agent's process works in (it may differ from the shell's: `cd x && claude`).
     func agentDirectory(for pane: PaneID) -> String? { agentDirectories[pane] }
@@ -81,9 +94,20 @@ final class ActivityTracker {
         timerInterval = interval
     }
 
-    func activity(for pane: PaneID) -> PaneActivity {
-        activities[pane] ?? PaneActivity()
+    /// A pane's box, made on first use: a view reading it before the pane is watched sees the
+    /// pane's activity once it is.
+    func status(for pane: PaneID) -> PaneStatus {
+        if let status = statuses[pane] { return status }
+        let status = PaneStatus()
+        statuses[pane] = status
+        return status
     }
+
+    /// What views show of a pane's activity (observes that pane alone).
+    func activity(for pane: PaneID) -> PaneActivity.Visible { status(for: pane).activity }
+
+    /// A pane's full state, unobserved, for actions (whether a command runs).
+    func state(for pane: PaneID) -> PaneActivity { states[pane] ?? PaneActivity() }
 
     /// Polls the panes that are due: an idle shell's foreground every 0.25 s where the user looks
     /// (1 s elsewhere; a command's end in an unseen pane is thus noticed after about 2 s, as it
@@ -128,13 +152,20 @@ final class ActivityTracker {
         }
         for gone in Set(states.keys).subtracting(live) {
             states[gone] = nil
-            activities[gone] = nil
+            if let status = statuses[gone], status.activity != PaneActivity().visible { status.activity = PaneActivity().visible }
             shellPIDs[gone] = nil
             identified[gone] = nil
             screens[gone] = nil
             agentDirectories[gone] = nil
             for kind in Job.Kind.allCases { cadence.forget(Job(pane: gone, kind: kind)) }
         }
+        // A box is kept while its pane exists (a view may hold it before the pane has a
+        // terminal), dropped once the pane is closed.
+        if statuses.count > live.count {
+            let existing = allPanes()
+            for gone in statuses.keys where !live.contains(gone) && !existing.contains(gone) { statuses[gone] = nil }
+        }
+        afterTick()
     }
 
     /// The shell reported how a command ended.
@@ -157,7 +188,8 @@ final class ActivityTracker {
 
     private func store(_ activity: PaneActivity, for pane: PaneID) {
         states[pane] = activity
-        if activities[pane]?.visible != activity.visible { activities[pane] = activity }
+        let status = status(for: pane)
+        if status.activity != activity.visible { status.activity = activity.visible }
     }
 
     private func foreground(of watched: Watched) -> PaneActivity.Foreground? {
