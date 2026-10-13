@@ -35,6 +35,8 @@ Everything is in **PrompTTY › Settings…** (⌘,) and applies immediately:
 - **Tabs & Windows:** sidebar or strip, sidebar width, folder for new tabs, session restore,
   close confirmation, and clipboard access by programs.
 - **Keyboard:** Option as Alt, vim-style navigation, and every shortcut below.
+- **Agents:** installing or removing Claude Code's hooks, and the line for Codex (see
+  [Agent hooks](#agent-hooks)).
 
 **PrompTTY › Secure Keyboard Entry** keeps other apps from seeing keystrokes while PrompTTY is in
 front (a checkmark; remembered). Separately, whenever a program asks for it, as a password prompt
@@ -132,6 +134,36 @@ whether it is working, waiting or wants your turn, and since when; click one to 
 forward, or right-click it to rename its tab or move it to a project. Agents are grouped under
 their projects, in order, then (outside any project) by git repository. The agent in the window's focused pane is
 highlighted like its tab.
+
+### Agent hooks
+
+Without help PrompTTY guesses an agent's state from its screen (still for three seconds: your
+turn). With **Claude Code's hooks** it knows: when you send a prompt, which tool runs ("Working ·
+Bash"), when a permission prompt waits for you (an orange shield, "Needs permission", and a
+notification naming it) and when the turn ends ("Your turn", and a "Done after …" notification
+when it took 10 s or more and you were looking elsewhere). **Settings › Agents › Install Claude
+Code Hooks…** shows what it will change, then adds one hook per event (SessionStart, SessionEnd,
+UserPromptSubmit, PreToolUse, PostToolUse, Notification, Stop, SubagentStop) to
+`~/.claude/settings.json`, each running `'<PrompTTY.app>/Contents/MacOS/promptty-hook' <Event>`.
+It keeps every other setting and hook, copies the file to `settings.json.bak` first, and
+installing again changes nothing; **Remove…** takes out only PrompTTY's entries (any command
+running a `…/promptty-hook`). Nothing is written until you click. Claude Code sessions started
+afterwards use the hooks.
+
+How it works: every pane, whatever its shell, starts with `PROMPTTY_PANE_ID` (the pane's id) and
+`PROMPTTY_SOCKET` (`hooks.sock` in the app's data folder, mode 0600; if that path is longer than
+a Unix socket allows, `promptty-<hash of the folder>.sock` in the temporary folder instead).
+`promptty-hook` reads the hook's JSON from standard input, keeps only the fields PrompTTY uses
+(session id, transcript path, folder, tool name, notification text; never the prompt or a tool's
+input), and sends them with the pane's id as one line to the socket. It prints nothing, always
+exits 0, gives up after 200 ms and does nothing outside PrompTTY. The app accepts only processes of
+the same user. While a pane's hooks report, they decide its agent's state and its screen is not
+watched; without hooks, or after ten minutes without one once the agent has gone, the screen is
+watched again. A key pressed at a permission prompt counts as the answer.
+
+For **Codex**, add `notify = ["<PrompTTY.app>/Contents/MacOS/promptty-hook", "codex-notify"]` at
+the top of `~/.codex/config.toml` (Settings › Agents shows the line with the path filled in): the
+end of each turn is then exact, while its work is still read from the screen.
 
 ## Splits
 
