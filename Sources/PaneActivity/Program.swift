@@ -96,7 +96,7 @@ public enum ProgramCatalog {
         "kiro": .init(background: 0x9046FF, foreground: white),
         "kimi": .init(background: 0x1783FF, foreground: white),
         "ollama": .init(background: 0x000000, foreground: white),
-        // The foreground stands for the bean's own orange, which it is drawn in.
+        // The foreground stands for the C's own orange, which it is drawn in.
         "claudewitz": .init(background: 0x5A3DB5, foreground: 0xDA7756),
         "node": .init(background: 0x5FA04E, foreground: white),
         "bun": .init(background: 0xFBF0DF, foreground: 0x14151A),

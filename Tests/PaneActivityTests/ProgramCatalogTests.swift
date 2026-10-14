@@ -145,7 +145,7 @@ final class ProgramCatalogTests: XCTestCase {
         XCTAssertEqual(ProgramCatalog.all.filter(\.fullColorLogo).map(\.id), ["claudewitz", "btop"])
     }
 
-    /// claudewitz's headphone bean keeps its own colors, on a dark purple square.
+    /// claudewitz's pixel C keeps its own colors, on a dark purple square.
     func testClaudewitzShowsItsOwnColors() {
         let claudewitz = ProgramCatalog.all.first { $0.id == "claudewitz" }
         XCTAssertEqual(claudewitz?.logo, "claudewitz")

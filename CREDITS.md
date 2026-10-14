@@ -11,5 +11,5 @@ Each logo is a trademark of its owner; PrompTTY shows them only to identify thos
   Goose (`logo-goose`), Kilo Code (`logo-kilocode`), Kiro (`logo-kiro`) and Kimi (`logo-kimi`).
 - [btop](https://github.com/aristocratos/btop) (`Img/icon.svg`), Apache License 2.0: `logo-btop`,
   redrawn with each of its red stripes as a plain shape in place of the original's SVG pattern.
-- [claudewitz](https://github.com/ExManubis/Claudewitz) (`assets/icon.svg`), MIT: `logo-claudewitz`, its
-  headphone bean without the icon's dark square, which the tile draws instead.
+- [claudewitz](https://github.com/ExManubis/Claudewitz) (`assets/icon-c.svg`), MIT: `logo-claudewitz`, its
+  pixel C cropped to the glyph and its shadow, on the tile's purple square.
