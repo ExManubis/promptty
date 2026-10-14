@@ -1,0 +1,89 @@
+# Developing PrompTTY
+
+## Build
+
+Requires an Apple silicon Mac with macOS 26, Xcode 26 or newer and its Metal toolchain, and Zig
+0.15 (`brew install zig@0.15`). libghostty is built locally into `Engine/` from the Ghostty source
+pinned by [libghostty-spm](https://github.com/sethdeckard/libghostty-spm), with PrompTTY's patches
+in `Engine/patches/` applied on top; the first build takes a few minutes, later ones about one.
+
+    ./script/bootstrap            # installs xcodegen if needed, builds the engine, resolves packages, generates the Xcode project
+    ./script/run                  # builds Debug and launches the app
+    ./script/test                 # library tests, then an app build
+    ./script/build-engine --force # rebuilds the engine after changing a patch
+    ./script/release              # a Developer ID signed, notarized disk image in dist/
+
+`script/build-engine` uses `$ZIG` if set, else Homebrew's `zig@0.15`, else the `zig` on `PATH`,
+and stops unless it is version 0.15.
+
+## Layout
+
+    Sources/WorkspaceModel   windows, tabs, panes, pins, projects and the split tree; session JSON (no AppKit)
+    Sources/Preferences      settings.json, terminal.conf generation, shortcuts, theme catalog
+    Sources/CommandEditing   the input bar's logic: zsh integration, history, completion, vi mode, git status
+    Sources/CommandBlocks    command blocks: where each command and its output start and end
+    Sources/PaneActivity     what runs in a pane: foreground process, known programs and agents, repositories
+    Sources/GhosttyBridge    the only code that touches libghostty
+    Sources/AgentHooks       agents' hook messages, the socket the app listens on, the hook state, Claude's settings merge
+    Sources/promptty-hook    the helper agents' hooks run, bundled in the app; sends one line to the socket
+    Sources/PrompTTYApp      AppKit windows and menus; SwiftUI chrome, input bar and Settings
+    Engine/                  libghostty as a local SwiftPM package; patches/ holds PrompTTY's engine patches
+    script/                  bootstrap, run, test, build-engine, release, drive
+    packaging/               the disk image's background and layout
+
+## Settings and config
+
+Settings are stored in `~/Library/Application Support/PrompTTY/settings.json`. From them the app
+writes `terminal.conf`, the only config libghostty reads. PrompTTY does not read
+`~/.config/ghostty/config`. libghostty itself binds no keys (`keybind = clear`); PrompTTY claims
+only shortcuts that contain ⌘, plus the vim-style navigation keys.
+
+PrompTTY loads its zsh integration through `ZDOTDIR` and then the user's own files. Other shells
+get a plain terminal, without the input bar.
+
+## Agent hooks
+
+**Install Claude Code Hooks…** adds one hook per event (SessionStart, SessionEnd,
+UserPromptSubmit, PreToolUse, PostToolUse, Notification, Stop, SubagentStop) to
+`~/.claude/settings.json`, each running `'<PrompTTY.app>/Contents/MacOS/promptty-hook' <Event>`.
+It keeps every other setting and hook (the file is rewritten with its keys sorted), copies the
+file to `settings.json.bak` first (or, when that backup exists already, to a dated
+`settings.json.bak-<date>`, so the original survives), and installing again changes nothing;
+**Remove…** takes out only PrompTTY's entries (any command running a `…/promptty-hook`).
+
+Every pane, whatever its shell, starts with `PROMPTTY_PANE_ID` (the pane's id) and
+`PROMPTTY_SOCKET` (`hooks.sock` in the app's data folder, mode 0600; if that path is longer than
+a Unix socket allows, `promptty-<hash of the folder>.sock` in the temporary folder instead).
+`promptty-hook` reads the hook's JSON from standard input, keeps only the fields PrompTTY uses
+(session id, transcript path, folder, tool name, notification text; never the prompt or a tool's
+input), and sends them with the pane's id as one line to the socket. It prints nothing, always
+exits 0, gives up after 200 ms and does nothing outside PrompTTY. The app accepts only processes of
+the same user.
+
+While a pane's hooks report, they decide its agent's state and its screen is not watched; without
+hooks, or after ten minutes without one once the agent has gone, the screen is watched again
+(still for three seconds: your turn). Return, Esc, y, n, a digit or ⌃C pressed at a permission
+prompt counts as the answer. An interrupted turn (Esc, ⌃C, a prompt answered "no") runs no hook:
+while the hooks say the agent works, a screen still for 3 s with no hook for 5 s ends the turn,
+without a notification. If another PrompTTY already listens on the socket (two copies sharing a
+data folder) it is left alone.
+
+Limitations:
+
+- Programs started from a pane inherit its variables, so an agent in a tmux session or an
+  editor's terminal reports to the pane that started tmux or the editor. Those reports are
+  ignored, as a pane shows an agent's state only while the agent itself is in front.
+- The hooks name the app by its path: after moving PrompTTY.app, or when macOS runs it from a
+  temporary copy (App Translocation, for an app opened where it was downloaded), they find nothing
+  to run until they are installed again from Settings › Agents.
+
+## Debug driver
+
+Debug builds can be driven without Screen Recording or Accessibility access, which is how the UI
+is checked in automated runs:
+
+    ./script/drive start /tmp/ptty                 # launch with its own data folder
+    ./script/drive run /tmp/ptty commands.txt      # actions, keys, typing, window snapshots
+    ./script/drive stop /tmp/ptty
+
+See `Sources/PrompTTYApp/Debug/DebugDriver.swift` for the command list.
