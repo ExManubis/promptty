@@ -212,9 +212,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// written is not written again (but at quit).
     private func saveSession(archiving: Archiving = .none) {
         let names = switch archiving {
-        case .none: coordinator?.archivedScrollback ?? [:]
-        case .changed: coordinator?.archiveScrollback(quitting: false) ?? [:]
-        case .all: coordinator?.archiveScrollback(quitting: true) ?? [:]
+        case .none: coordinator?.persistence.archivedScrollback ?? [:]
+        case .changed: coordinator?.persistence.archiveScrollback(quitting: false) ?? [:]
+        case .all: coordinator?.persistence.archiveScrollback(quitting: true) ?? [:]
         }
         let snapshot = workspace.snapshot { names[$0.id] }
         if archiving != .all, snapshot == savedSnapshot { return }
