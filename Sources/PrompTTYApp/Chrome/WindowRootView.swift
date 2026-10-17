@@ -188,7 +188,7 @@ struct WindowRootView: View {
             ZStack {
                 ForEach(state.tabs, id: \.id) { tab in
                     TabPanes(tab: tab, selected: tab.id == state.selectedTabID, outgoing: fading && tab.id == tabFade.outgoing,
-                             fadeGeneration: generation, chrome: chrome, actions: actions)
+                             fadeStartedAt: fading ? tabFade.startedAt : nil, chrome: chrome, actions: actions)
                 }
             }
             // The old tab is let go (hidden, its terminals occluded) once it has faded out.
