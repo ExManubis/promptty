@@ -197,6 +197,7 @@ final class ActivityTracker {
         timer.tolerance = interval * 0.4
         self.timer = timer
         timerInterval = interval
+        cadence.slack = interval * 0.45
     }
 
     /// A pane's box, made on first use: a view reading it before the pane is watched sees the
