@@ -33,7 +33,7 @@
   with what it printed before, colors included, above a fresh prompt (zsh).
 - **Projects and pinned tabs.** Group tabs into projects. Pin a tab running `claude` or
   `npm run dev` and it comes back, still running, the next time you open PrompTTY.
-- **Quick terminal.** ⌃⌘` from any app drops a terminal down from the top of the screen; the
+- **Quick terminal.** ⌥↩ from any app drops a terminal down from the top of the screen; the
   same keys (or clicking elsewhere) put it away, its shell still running. Change the keys or turn
   it off in Settings › Keyboard.
 - **Command palette.** ⇧⌘P finds any tab in any window and runs any command by name, with its
@@ -64,13 +64,13 @@ If you move PrompTTY.app, install the hooks again.
 
 ## Keys
 
-PrompTTY only takes shortcuts with ⌘, so ⌃ and ⌥ combinations reach your programs (Neovim
+PrompTTY only takes shortcuts with ⌘ (the quick terminal's ⌥↩ aside), so ⌃ and ⌥ combinations reach your programs (Neovim
 included), and Option works as Alt. Every shortcut can be changed in **Settings › Keyboard**.
 
 | Action | Keys |
 |---|---|
 | Command palette | ⇧⌘P |
-| Quick terminal, from any app | ⌃⌘` |
+| Quick terminal, from any app | ⌥↩ |
 | New window / close window | ⌘N / ⇧⌘W |
 | New tab / close tab | ⌘T / ⌥⌘W |
 | Reopen the last closed tab | ⇧⌘T |

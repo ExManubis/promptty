@@ -122,8 +122,18 @@ final class ShortcutMapTests: XCTestCase {
         for action in ShortcutAction.allCases {
             let shortcut = ShortcutMap.defaults[action]
             XCTAssertNotNil(shortcut, "\(action)")
-            XCTAssertTrue(shortcut?.containsCommand ?? false, "\(action)")
+            if action.needsCommand { XCTAssertTrue(shortcut?.containsCommand ?? false, "\(action)") }
         }
+    }
+
+    func testTheQuickTerminalTakesAnyModifierButNotABareKey() {
+        let m = ShortcutMap(overrides: [:])
+        XCTAssertEqual(m.shortcut(for: .quickTerminal), s("opt+return"))
+        XCTAssertNil(m.validate(s("ctrl+opt+t"), for: .quickTerminal))
+        XCTAssertEqual(m.validate(Shortcut(key: "return", modifiers: [])!, for: .quickTerminal), .missingModifier)
+        XCTAssertEqual(m.validate(s("opt+return"), for: .splitRight), .missingCommand)
+        XCTAssertEqual(ShortcutMap(overrides: ["quickTerminal": s("ctrl+space")]).shortcut(for: .quickTerminal), s("ctrl+space"))
+        XCTAssertEqual(ShortcutMap(overrides: ["quickTerminal": Shortcut(key: "space", modifiers: [])!]).shortcut(for: .quickTerminal), s("opt+return"))
     }
 
     func testDefaultsAreUniqueAndAvoidReserved() {

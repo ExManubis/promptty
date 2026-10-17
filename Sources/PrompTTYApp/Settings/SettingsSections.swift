@@ -291,6 +291,8 @@ struct KeyboardSection: View {
         switch error {
         case .missingCommand:
             return "\(shortcut.displayString) has no ⌘. Shortcuts need ⌘ so that keys like ⌃ and ⌥ always reach the terminal."
+        case .missingModifier:
+            return "\(shortcut.displayString) needs ⌘, ⌥, ⌃ or ⇧: it works in every app."
         case .reserved:
             return "\(shortcut.displayString) belongs to macOS or the app menu and can't be reassigned."
         case .conflict(let other):

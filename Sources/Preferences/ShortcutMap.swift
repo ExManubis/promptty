@@ -87,6 +87,11 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         }
     }
 
+    /// Whether the shortcut must contain ⌘, so ⌃ and ⌥ keys always reach the terminal. The quick
+    /// terminal's is system-wide, taken before any app (PrompTTY's terminals too) sees it: any
+    /// modifier will do.
+    public var needsCommand: Bool { self != .quickTerminal }
+
     /// 1–9 for the Go to Tab actions.
     public var tabNumber: Int? {
         let all: [ShortcutAction] = [.gotoTab1, .gotoTab2, .gotoTab3, .gotoTab4, .gotoTab5, .gotoTab6, .gotoTab7, .gotoTab8, .gotoTab9]
@@ -103,7 +108,7 @@ public struct ShortcutMap: Equatable, Sendable {
         .newWindow: s("cmd+n"),
         .closeWindow: s("shift+cmd+w"),
         .commandPalette: s("shift+cmd+p"),
-        .quickTerminal: s("ctrl+cmd+`"),
+        .quickTerminal: s("opt+return"),
         .newTab: s("cmd+t"),
         .closeTab: s("opt+cmd+w"),
         .reopenClosedTab: s("shift+cmd+t"),
@@ -156,7 +161,7 @@ public struct ShortcutMap: Equatable, Sendable {
         // Apply overrides in a stable order; drop any that break an invariant.
         for action in ShortcutAction.allCases {
             guard let candidate = overrides[action.rawValue],
-                  candidate.containsCommand,
+                  action.needsCommand ? candidate.containsCommand : !candidate.modifiers.isEmpty,
                   !Self.reserved.contains(candidate) else { continue }
             map[action] = candidate
         }
@@ -184,12 +189,15 @@ public struct ShortcutMap: Equatable, Sendable {
 
     public enum ValidationError: Error, Equatable, Sendable {
         case missingCommand
+        /// A global shortcut with no modifier at all (a bare key).
+        case missingModifier
         case reserved
         case conflict(ShortcutAction)
     }
 
     public func validate(_ shortcut: Shortcut, for action: ShortcutAction) -> ValidationError? {
-        if !shortcut.containsCommand { return .missingCommand }
+        if action.needsCommand, !shortcut.containsCommand { return .missingCommand }
+        if shortcut.modifiers.isEmpty { return .missingModifier }
         if Self.reserved.contains(shortcut) { return .reserved }
         if let owner = self.action(for: shortcut), owner != action { return .conflict(owner) }
         return nil
@@ -199,7 +207,7 @@ public struct ShortcutMap: Equatable, Sendable {
     /// previous shortcut (a swap). Invalid shortcuts change nothing.
     public func assigning(_ shortcut: Shortcut, to action: ShortcutAction) -> ShortcutMap {
         switch validate(shortcut, for: action) {
-        case .missingCommand, .reserved:
+        case .missingCommand, .missingModifier, .reserved:
             return self
         case .conflict(let owner):
             var copy = self

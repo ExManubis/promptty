@@ -122,7 +122,9 @@ enum MainMenu {
 
         let view = NSMenu(title: "View")
         view.addItem(item("Command Palette", Action.togglePalette, .commandPalette))
-        view.addItem(item("Quick Terminal", Action.toggleQuickTerminal, .quickTerminal))
+        // No key equivalent: its shortcut is system-wide (`GlobalHotKey`), and a menu item would
+        // take ⌥↩ from the terminal even with the quick terminal off.
+        view.addItem(item("Quick Terminal", Action.toggleQuickTerminal))
         view.addItem(.separator())
         view.addItem(item("Bigger", Action.biggerFont, .biggerFont))
         view.addItem(item("Smaller", Action.smallerFont, .smallerFont))

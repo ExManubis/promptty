@@ -4,7 +4,7 @@ import GhosttyBridge
 import Preferences
 
 /// The quick terminal: a terminal that drops down from the top of the screen the pointer is on,
-/// over any app, on a global shortcut (⌃⌘` by default), and goes again on the same shortcut or
+/// over any app, on a global shortcut (⌥↩ by default), and goes again on the same shortcut or
 /// when another window takes the keys. Its shell lives on between shows; it is a plain terminal
 /// (no input bar or tabs), kept apart from the workspace and the session.
 @MainActor
