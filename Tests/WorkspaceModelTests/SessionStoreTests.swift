@@ -26,6 +26,31 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.load(), snap)
     }
 
+    func testASplitLayoutRoundTrips() throws {
+        let store = SessionStore(url: dir.appendingPathComponent("session.json"))
+        let layout = ClosedLayout.split(axis: .vertical, ratio: 0.4,
+                                        first: .pane(workingDirectory: "/a", focused: false, label: "server", scrollback: "a.vt"),
+                                        second: .pane(workingDirectory: "/b", focused: true))
+        let tab = TabSnapshot(title: "b", customTitle: nil, workingDirectory: "/b", layout: layout)
+        let snap = SessionSnapshot(version: 1, tabLayout: .sidebar, windows: [WindowSnapshot(frame: nil, tabs: [tab], selectedIndex: 0)])
+        try store.save(snap)
+        XCTAssertEqual(store.load(), snap)
+    }
+
+    /// A file written before splits were kept (no `layout`, no `projects`) still loads.
+    func testAFileFromBeforeSplitsLoads() throws {
+        let url = dir.appendingPathComponent("session.json")
+        try Data(#"""
+        {"version": 1, "tabLayout": "sidebar", "windows": [{"tabs": [
+          {"title": "zsh", "workingDirectory": "/tmp", "scrollback": "x.vt", "label": "logs"}
+        ], "selectedIndex": 0}]}
+        """#.utf8).write(to: url)
+        let snap = try XCTUnwrap(SessionStore(url: url).load())
+        XCTAssertNil(snap.windows[0].tabs[0].layout)
+        XCTAssertEqual(snap.windows[0].tabs[0].scrollback, "x.vt")
+        XCTAssertEqual(snap.windows[0].tabs[0].label, "logs")
+    }
+
     func testCorruptFileIsRenamedToBakAndLoadReturnsNil() throws {
         let url = dir.appendingPathComponent("session.json")
         try Data("{ not json".utf8).write(to: url)

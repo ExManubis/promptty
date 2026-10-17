@@ -471,10 +471,10 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
-    /// At quit: writes what each tab's focused pane shows to the scrollback archive, and returns the
-    /// file kept for each tab. A restored tab never shown keeps the file it came with. Nothing
-    /// (and no files) when the setting is off.
-    func archiveScrollback() -> [TabID: String] {
+    /// At quit: writes what each pane shows to the scrollback archive, and returns the file kept
+    /// for each pane. A restored pane never shown keeps the file it came with. Nothing (and no
+    /// files) when the setting is off.
+    func archiveScrollback() -> [PaneID: String] {
         let archive = ScrollbackArchive(directory: AppPaths.scrollback)
         let settings = preferences.settings
         guard settings.restoreSession, settings.restoreScrollback else {
@@ -484,20 +484,19 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         let now = Date()
         var texts: [String: String] = [:]
         var kept = Set<String>()
-        var names: [TabID: String] = [:]
+        var names: [PaneID: String] = [:]
         for state in workspace.windows {
             guard let controller = controllers[state.id] else { continue }
-            for tab in state.tabs {
-                let pane = tab.focusedPane
+            for pane in state.tabs.flatMap(\.orderedPanes) {
                 if let surface = controller.surfaces[pane.id] {
                     guard let text = surface.allText(styled: true),
                           let archived = ScrollbackArchive.archived(text, savedAt: now) else { continue }
-                    let name = "\(tab.id.rawValue.uuidString).vt"
+                    let name = "\(pane.id.rawValue.uuidString).vt"
                     texts[name] = archived
-                    names[tab.id] = name
+                    names[pane.id] = name
                 } else if let pending = pane.restoredScrollback {
                     kept.insert(pending)
-                    names[tab.id] = pending
+                    names[pane.id] = pending
                 }
             }
         }
@@ -506,17 +505,15 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         return names
     }
 
-    private var lastArchive: [TabID: String] = [:]
+    private var lastArchive: [PaneID: String] = [:]
 
-    /// The archive files written last, for a session saved in between: each tab's, or the one a
-    /// restored tab came with (until its shell prints it).
-    var archivedScrollback: [TabID: String] {
+    /// The archive files written last, for a session saved in between: each pane's, or the one a
+    /// restored pane came with (until its shell prints it).
+    var archivedScrollback: [PaneID: String] {
         guard preferences.settings.restoreSession, preferences.settings.restoreScrollback else { return [:] }
-        var names: [TabID: String] = [:]
-        for state in workspace.windows {
-            for tab in state.tabs {
-                if let name = lastArchive[tab.id] ?? tab.focusedPane.restoredScrollback { names[tab.id] = name }
-            }
+        var names: [PaneID: String] = [:]
+        for pane in workspace.windows.flatMap(\.tabs).flatMap(\.orderedPanes) {
+            if let name = lastArchive[pane.id] ?? pane.restoredScrollback { names[pane.id] = name }
         }
         return names
     }

@@ -1,8 +1,8 @@
 import Foundation
 
 /// What panes showed when the app quit, kept beside the session so restored tabs open with their
-/// output above a fresh prompt. One file per tab (its focused pane), named in the session file;
-/// the shell integration prints it once and deletes it.
+/// output above a fresh prompt. One file per pane, named in the session file; the shell
+/// integration prints it once and deletes it.
 public struct ScrollbackArchive: Sendable {
     /// Lines kept per pane: enough to see what happened, small enough to print at once.
     public static let maxLines = 2000
@@ -33,8 +33,8 @@ public struct ScrollbackArchive: Sendable {
     }
 
     /// Writes the archives and removes every other file in the folder (earlier quits') but those
-    /// in `keeping` (restored tabs never shown, whose shells have not printed theirs yet). `texts`:
-    /// a name for each tab's text. Returns the names written.
+    /// in `keeping` (restored panes never shown, whose shells have not printed theirs yet). `texts`:
+    /// a name for each pane's text. Returns the names written.
     @discardableResult
     public func replace(with texts: [String: String], keeping: Set<String> = []) -> Set<String> {
         let fm = FileManager.default

@@ -30,8 +30,9 @@
   as Markdown or rerun. ⌃⌘↑ jumps straight to the last failure. ⌘F finds anything in the
   scrollback, every match highlighted. Scrolled back while a command keeps printing, a pill says
   how many new lines are below; click it to jump down.
-- **Pick up where you left off.** Quit and reopen PrompTTY: every tab comes back in its folder
-  with what it printed before, colors included, above a fresh prompt (zsh).
+- **Pick up where you left off.** Quit and reopen PrompTTY: every tab comes back with its splits,
+  each pane in its folder, with its label and what it printed before, colors included, above a
+  fresh prompt (zsh).
 - **Projects and pinned tabs.** Group tabs into projects. Pin a tab running `claude` or
   `npm run dev` and it comes back, still running, the next time you open PrompTTY.
 - **Jump to a folder.** ⌘J lists the folders you work in, most used and most recent first:

@@ -59,9 +59,11 @@ id, then label, then id suffix (`PaneTarget`). Settings › Tabs › Command lin
 ## Restored output
 
 With **Settings › Tabs › Keep each tab's output when quitting** on (and session restore on), the
-app writes what each tab's focused pane holds (its last 2000 lines, with colors, read with
-libghostty's VT text format) to `scrollback/<tab>.vt` in the data folder, at quit and every two
-minutes; the session file names each tab's file. A restored zsh pane starts with
+app writes what each pane holds (its last 2000 lines, with colors, read with libghostty's VT
+text format) to `scrollback/<pane>.vt` in the data folder, at quit and every two minutes; the
+session file names each pane's file. A split tab is saved with its layout (`TabSnapshot.layout`:
+the split tree, each pane's folder, label and file) and comes back split; a pinned tab comes back
+as its pin, one pane. A restored zsh pane starts with
 `PROMPTTY_RESTORE` set to its file: the integration's `.zshenv` prints it before anything else and
 deletes it. Files no tab names any more are removed at the next write. Other shells start plain.
 

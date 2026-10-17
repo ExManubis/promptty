@@ -13,10 +13,14 @@ public struct TabSnapshot: Codable, Equatable, Sendable {
     public var scrollback: String?
     /// The focused pane's label; absent when it has none.
     public var label: String?
+    /// The panes, for a tab split into several: each one's folder, label and scrollback file.
+    /// Absent for a tab with one pane, and in session files written before splits were kept
+    /// (whose tabs come back with the focused pane alone, as described by the fields above).
+    public var layout: ClosedLayout?
     public init(title: String, customTitle: String?, workingDirectory: String, pin: TabPin? = nil, project: ProjectID? = nil,
-                scrollback: String? = nil, label: String? = nil) {
+                scrollback: String? = nil, label: String? = nil, layout: ClosedLayout? = nil) {
         self.title = title; self.customTitle = customTitle; self.workingDirectory = workingDirectory; self.pin = pin
-        self.project = project; self.scrollback = scrollback; self.label = label
+        self.project = project; self.scrollback = scrollback; self.label = label; self.layout = layout
     }
 }
 
@@ -65,8 +69,8 @@ public struct SessionSnapshot: Codable, Equatable, Sendable {
 }
 
 extension Workspace {
-    /// `scrollback`: the archive file kept for a tab, if any.
-    public func snapshot(scrollback: (Tab) -> String? = { _ in nil }) -> SessionSnapshot {
+    /// `scrollback`: the archive file kept for a pane, if any.
+    public func snapshot(scrollback: (Pane) -> String? = { _ in nil }) -> SessionSnapshot {
         SessionSnapshot(
             version: SessionSnapshot.currentVersion,
             tabLayout: tabLayout,
@@ -74,8 +78,8 @@ extension Workspace {
             windows: windows.map { w in
                 WindowSnapshot(
                     frame: w.frame,
-                    tabs: w.tabs.map { TabSnapshot(title: $0.title, customTitle: $0.customTitle, workingDirectory: $0.workingDirectory, pin: $0.pin, project: w.project(of: $0), scrollback: scrollback($0),
-                                                label: $0.focusedPane.label) },
+                    tabs: w.tabs.map { TabSnapshot(title: $0.title, customTitle: $0.customTitle, workingDirectory: $0.workingDirectory, pin: $0.pin, project: w.project(of: $0), scrollback: scrollback($0.focusedPane),
+                                                label: $0.focusedPane.label, layout: $0.hasSplits ? $0.layout(scrollback: scrollback) : nil) },
                     selectedIndex: w.selectedTabID.flatMap(w.index(of:))
                 )
             }
@@ -83,7 +87,8 @@ extension Workspace {
     }
 
     /// Rebuilds a workspace. Working directories that are no longer directories fall back to
-    /// `fallbackDirectory`. A pinned tab opens in its pinned folder and runs its command there.
+    /// `fallbackDirectory`. A split tab comes back split; a pinned tab opens as its pin: one pane in
+    /// its pinned folder, running its command there.
     /// Projects come back as they were; a tab naming a project the file does not have is in none. Windows without tabs are skipped; if none remain, the result
     /// is one window with one tab so the app never launches without a terminal.
     public static func restore(
@@ -109,8 +114,13 @@ extension Workspace {
                 // within each group (a session from a build with a flat list is regrouped).
                 w.selectedTabID = nil
                 let tab = w.addTab(title: t.title, workingDirectory: exists ? wanted : fallbackDirectory, customTitle: t.customTitle, project: project)
-                tab.focusedPane.restoredScrollback = t.scrollback
-                tab.focusedPane.label = t.label.flatMap(Pane.label)
+                if let layout = t.layout, t.pin == nil {
+                    tab.restore(layout) { directoryExists($0) ? $0 : fallbackDirectory }
+                    tab.focusedPane.title = t.title
+                } else {
+                    tab.focusedPane.restoredScrollback = t.scrollback
+                    tab.focusedPane.label = t.label.flatMap(Pane.label)
+                }
                 if let pin = t.pin {
                     w.pin(tab.id, pin)
                     if exists { tab.focusedPane.startupCommand = pin.command }

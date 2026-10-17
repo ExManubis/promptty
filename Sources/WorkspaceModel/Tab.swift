@@ -219,12 +219,15 @@ public final class Tab {
 
 extension Tab {
     /// The panes as laid out now, for reopening the tab once it is closed.
-    public var closedLayout: ClosedLayout {
+    public var closedLayout: ClosedLayout { layout() }
+
+    /// The panes as laid out now; `scrollback`: the archive file kept for a pane, if any.
+    public func layout(scrollback: (Pane) -> String? = { _ in nil }) -> ClosedLayout {
         func layout(_ node: SplitNode) -> ClosedLayout {
             switch node {
             case .leaf(let id):
                 return .pane(workingDirectory: panes[id]?.workingDirectory ?? workingDirectory, focused: id == focusedPaneID,
-                             label: panes[id]?.label)
+                             label: panes[id]?.label, scrollback: panes[id].flatMap(scrollback))
             case .split(let axis, let ratio, let first, let second):
                 return .split(axis: axis, ratio: ratio, first: layout(first), second: layout(second))
             }
@@ -238,8 +241,9 @@ extension Tab {
         var focused: PaneID?
         func build(_ node: ClosedLayout) -> SplitNode {
             switch node {
-            case .pane(let dir, let isFocused, let label):
-                let pane = Pane(workingDirectory: directory(dir), label: label)
+            case .pane(let dir, let isFocused, let label, let scrollback):
+                let pane = Pane(workingDirectory: directory(dir), label: label.flatMap(Pane.label))
+                pane.restoredScrollback = scrollback
                 made[pane.id] = pane
                 if isFocused { focused = pane.id }
                 return .leaf(pane.id)

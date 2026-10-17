@@ -25,6 +25,24 @@ final class TabPaneTests: XCTestCase {
         XCTAssertEqual(tab.workingDirectory, "/a")
     }
 
+    func testLayoutRoundTripsThroughRestore() {
+        let tab = Tab(title: "", workingDirectory: "/a")
+        let first = tab.focusedPane
+        first.label = "server"
+        let second = tab.split(first.id, direction: .down, workingDirectory: "/b")
+        let layout = tab.layout { $0.id == second.id ? "b.vt" : nil }
+        XCTAssertEqual(layout, .split(axis: .vertical, ratio: 0.5,
+                                      first: .pane(workingDirectory: "/a", focused: false, label: "server"),
+                                      second: .pane(workingDirectory: "/b", focused: true, scrollback: "b.vt")))
+        let copy = Tab(title: "", workingDirectory: "/")
+        copy.restore(layout) { $0 }
+        XCTAssertEqual(copy.layout { $0.restoredScrollback }, layout)
+        // Reopening a closed tab brings back no output.
+        XCTAssertEqual(tab.closedLayout, .split(axis: .vertical, ratio: 0.5,
+                                                first: .pane(workingDirectory: "/a", focused: false, label: "server"),
+                                                second: .pane(workingDirectory: "/b", focused: true)))
+    }
+
     func testCustomTitleStillWinsOverFocusedPane() {
         let tab = Tab(title: "first", customTitle: "Mine", workingDirectory: "/a")
         _ = tab.split(tab.focusedPaneID, direction: .down, workingDirectory: "/b")

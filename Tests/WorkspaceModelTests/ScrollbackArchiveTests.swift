@@ -34,7 +34,7 @@ final class ScrollbackArchiveTests: XCTestCase {
         let ws = Workspace(tabLayout: .sidebar)
         let w = ws.addWindow()
         let tab = w.addTab(title: "", workingDirectory: "/tmp")
-        let snapshot = ws.snapshot { $0.id == tab.id ? "x.vt" : nil }
+        let snapshot = ws.snapshot { $0.id == tab.focusedPaneID ? "x.vt" : nil }
         XCTAssertEqual(snapshot.windows[0].tabs[0].scrollback, "x.vt")
         let data = try JSONEncoder().encode(snapshot)
         let restored = Workspace.restore(from: try JSONDecoder().decode(SessionSnapshot.self, from: data), directoryExists: { _ in true })
