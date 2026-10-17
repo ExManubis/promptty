@@ -10,34 +10,17 @@ public enum ListeningPorts {
 
     /// The ports `root` and the processes under it listen on, lowest first.
     public static func find(root: Int32) -> [Int] {
+        find(root: root, in: ProcessTree.snapshot() ?? ProcessTree([]))
+    }
+
+    /// The same, from `processes`: one look at the process table, shared by every pane looked up
+    /// at the same time.
+    public static func find(root: Int32, in processes: ProcessTree) -> [Int] {
         var ports = Set<Int>()
-        for pid in tree(root) {
+        for pid in processes.descendants(of: root, limit: maxProcesses) {
             ports.formUnion(listening(pid))
         }
         return ports.sorted()
-    }
-
-    /// Whether anything runs under `pid` (a shell at its prompt has nothing).
-    public static func hasChildren(_ pid: Int32) -> Bool { !children(of: pid).isEmpty }
-
-    /// `root` and its descendants, breadth first, at most `maxProcesses`.
-    static func tree(_ root: Int32) -> [Int32] {
-        var out: [Int32] = [root]
-        var index = 0
-        while index < out.count, out.count < maxProcesses {
-            out += children(of: out[index]).prefix(maxProcesses - out.count)
-            index += 1
-        }
-        return out
-    }
-
-    static func children(of pid: Int32) -> [Int32] {
-        var buffer = [Int32](repeating: 0, count: 64)
-        let bytes = buffer.withUnsafeMutableBytes { proc_listchildpids(pid, $0.baseAddress, Int32($0.count)) }
-        guard bytes > 0 else { return [] }
-        // Returns a count of pids on current systems (bytes on old ones); never more than fit.
-        let count = min(Int(bytes), buffer.count)
-        return buffer.prefix(count).filter { $0 > 0 }
     }
 
     /// The ports `pid`'s TCP sockets listen on.
@@ -60,5 +43,51 @@ public enum ListeningPorts {
             if port > 0 { ports.insert(port) }
         }
         return ports
+    }
+}
+
+/// Which processes run under which, from one read of the kernel's process table: walking every
+/// pane's tree from it costs one system call, where asking for each process's children scans the
+/// whole table each time.
+public struct ProcessTree: Sendable {
+    private let children: [Int32: [Int32]]
+
+    /// From (pid, parent pid) pairs.
+    public init(_ processes: [(pid: Int32, parent: Int32)]) {
+        var children: [Int32: [Int32]] = [:]
+        for p in processes where p.pid > 0 && p.pid != p.parent { children[p.parent, default: []].append(p.pid) }
+        self.children = children
+    }
+
+    /// Every process now; nil if the table cannot be read.
+    public static func snapshot() -> ProcessTree? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+        let stride = MemoryLayout<kinfo_proc>.stride
+        // The table can grow between asking its size and reading it: then ask again.
+        for _ in 0..<3 {
+            var size = 0
+            guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0, size > 0 else { return nil }
+            var procs = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 32)
+            size = procs.count * stride
+            if sysctl(&mib, u_int(mib.count), &procs, &size, nil, 0) == 0 {
+                return ProcessTree(procs.prefix(size / stride).map { (pid: $0.kp_proc.p_pid, parent: $0.kp_eproc.e_ppid) })
+            }
+            guard errno == ENOMEM else { return nil }
+        }
+        return nil
+    }
+
+    /// Whether anything runs under `pid` (a shell at its prompt has nothing).
+    public func hasChildren(_ pid: Int32) -> Bool { children[pid]?.isEmpty == false }
+
+    /// `root` and its descendants, breadth first, at most `limit`.
+    public func descendants(of root: Int32, limit: Int) -> [Int32] {
+        var out: [Int32] = [root]
+        var index = 0
+        while index < out.count, out.count < limit {
+            out += (children[out[index]] ?? []).prefix(limit - out.count)
+            index += 1
+        }
+        return out
     }
 }

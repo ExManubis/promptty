@@ -256,7 +256,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     /// Looks up the repositories of the agents' folders off the main thread: new folders at once,
     /// the others again every few seconds (an agent may switch branches). Called after every
-    /// activity tick too.
+    /// activity tick too, while a window is on screen.
     private func lookUpRepositories() {
         for folder in repositories.due(agentFolders, at: Date()) {
             Task.detached(priority: .utility) { [weak self] in
