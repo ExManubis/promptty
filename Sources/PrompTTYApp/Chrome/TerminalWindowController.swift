@@ -174,6 +174,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func progress(for pane: PaneID) -> PaneProgress? { coordinator.activity.status(for: pane).progress }
     func isSecure(_ pane: PaneID) -> Bool { coordinator.activity.status(for: pane).secure }
     func ports(for pane: PaneID) -> [Int] { coordinator.activity.status(for: pane).ports }
+    func remoteHost(for pane: PaneID) -> String? { coordinator.activity.status(for: pane).remoteHost }
     func openPort(_ port: Int) {
         guard let url = URL(string: "http://localhost:\(port)") else { return }
         NSWorkspace.shared.open(url)

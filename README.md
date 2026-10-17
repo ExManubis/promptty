@@ -18,6 +18,8 @@
 - **Long commands tell you when they're done.** A command that ran 10 seconds or more in a tab you
   aren't looking at posts a notification with how it ended and how long it took (Settings › Tabs
   sets how long is long, or turns it off).
+- **Remote hosts.** A tab running `ssh` shows the host it's connected to, and the command palette
+  lists every host in `~/.ssh/config` to open in a new tab.
 - **Dev servers at a glance.** A tab whose programs listen on a port shows it (`:3000`) under its
   name; click it to open `localhost:3000` in your browser.
 - **A smarter prompt.** In zsh, an input bar replaces the shell prompt: history, suggestions,

@@ -33,6 +33,13 @@ final class PaneStatus {
         if self.progress != progress { self.progress = progress }
     }
 
+    /// Where an `ssh` in front of the pane is connected (`user@host`); nil when none runs.
+    private(set) var remoteHost: String?
+
+    func setRemoteHost(_ host: String?) {
+        if remoteHost != host { remoteHost = host }
+    }
+
     /// The TCP ports the pane's programs listen on (a dev server's), lowest first.
     private(set) var ports: [Int] = []
 
@@ -132,6 +139,8 @@ final class ActivityTracker {
     }
     /// The last screen seen per agent pane, as a hash.
     private var screens: [PaneID: Int] = [:]
+    /// Where each pane's `ssh` (or `mosh`) is connected, read from its arguments.
+    private var remoteHosts: [PaneID: String] = [:]
     /// The folder each agent works in, read from its process.
     private var agentDirectories: [PaneID: String] = [:]
     /// Panes whose listening ports are being looked up, off the main thread.
@@ -228,6 +237,7 @@ final class ActivityTracker {
                 screens[watched.pane] = nil
             }
             lookUpPorts(watched, at: now)
+            status(for: watched.pane).setRemoteHost(remoteHosts[watched.pane])
             if watched.seen, activity.hasUnseen {
                 activity.seen()
                 onSeen(watched.pane)
@@ -247,6 +257,8 @@ final class ActivityTracker {
             identified[gone] = nil
             screens[gone] = nil
             agentDirectories[gone] = nil
+            remoteHosts[gone] = nil
+            statuses[gone]?.setRemoteHost(nil)
             hooks[gone] = nil
             hookPrograms[gone] = nil
             hookScreens[gone] = nil
@@ -410,6 +422,7 @@ final class ActivityTracker {
             // Pids are reused: what ran before is forgotten once the shell is back.
             identified[watched.pane] = nil
             agentDirectories[watched.pane] = nil
+            remoteHosts[watched.pane] = nil
             return .shell
         }
         if let known = identified[watched.pane], known.pid == pid { return known.foreground }
@@ -426,6 +439,11 @@ final class ActivityTracker {
             .flatMap { ProgramCatalog.identify(executable: $0.executable, arguments: $0.arguments) }
             .map { .program($0) } ?? .command
         identified[watched.pane] = (pid, foreground)
+        if case .program(let program) = foreground, program.id == "ssh", let process {
+            remoteHosts[watched.pane] = SSHCommand.destination(arguments: process.arguments)
+        } else {
+            remoteHosts[watched.pane] = nil
+        }
         if case .program(let program) = foreground, program.isAgent {
             agentDirectories[watched.pane] = ProcessArguments.workingDirectory(pid: Int32(pid))
         } else {

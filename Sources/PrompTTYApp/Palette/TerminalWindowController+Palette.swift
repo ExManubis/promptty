@@ -1,4 +1,5 @@
 import AppKit
+import PaneActivity
 import WorkspaceModel
 
 /// The command palette (⇧⌘P) over this window.
@@ -23,7 +24,7 @@ extension TerminalWindowController {
         // The app menu's commands (About, Hide, Quit) are seldom what is looked for: last.
         let commands = MenuCommands.entries(in: NSApp.mainMenu, window: window)
         let app = commands.filter { $0.subtitle == "PrompTTY" }
-        return tabEntries() + projectEntries() + commands.filter { $0.subtitle != "PrompTTY" } + app
+        return tabEntries() + projectEntries() + commands.filter { $0.subtitle != "PrompTTY" } + sshEntries() + app
     }
 
     /// Every tab in every window, this window's first, the selected one last (it is where you are).
@@ -53,6 +54,23 @@ extension TerminalWindowController {
         return entries + [selected].compactMap { $0 }
     }
 
+    /// A new tab connected to each host in `~/.ssh/config`.
+    private func sshEntries() -> [PaletteEntry] {
+        SSHHosts.read().map { host in
+            PaletteEntry(
+                id: "ssh:\(host)",
+                icon: "globe",
+                title: "SSH to \(host)",
+                subtitle: "~/.ssh/config",
+                keywords: "ssh remote connect",
+                run: { [weak self] in
+                    guard let self else { return }
+                    self.coordinator.newTab(in: self.state, running: "ssh \(SSHHosts.quoted(host))")
+                }
+            )
+        }
+    }
+
     private func projectEntries() -> [PaletteEntry] {
         coordinator.workspace.projects.map { project in
             PaletteEntry(
@@ -64,5 +82,31 @@ extension TerminalWindowController {
                 run: { [weak self] in self?.newTab(inProject: project.id) }
             )
         }
+    }
+}
+
+/// The hosts in the user's ssh config, read when the palette opens.
+enum SSHHosts {
+    static func read() -> [String] {
+        let dir = AppPaths.sshDirectory
+        guard let text = try? String(contentsOf: dir.appendingPathComponent("config"), encoding: .utf8) else { return [] }
+        return SSHConfig.hosts(in: text) { pattern in
+            // Relative to ~/.ssh, as ssh reads them; `~` is the home folder.
+            let expanded = (pattern as NSString).expandingTildeInPath
+            let full = expanded.hasPrefix("/") ? expanded : dir.appendingPathComponent(expanded).path
+            return glob(full).compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }
+        }
+    }
+
+    /// Shell-safe: a host from a config file is not trusted to be a plain word.
+    static func quoted(_ host: String) -> String {
+        host.allSatisfy { $0.isLetter || $0.isNumber || "-._@".contains($0) } ? host : "'" + host.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func glob(_ pattern: String) -> [String] {
+        var result = glob_t()
+        defer { globfree(&result) }
+        guard Darwin.glob(pattern, 0, nil, &result) == 0 else { return [] }
+        return (0..<Int(result.gl_pathc)).compactMap { result.gl_pathv[$0].map { String(cString: $0) } }
     }
 }

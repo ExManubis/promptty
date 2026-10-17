@@ -387,6 +387,16 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
+    /// A new tab, after the selected one, running `command` at its first prompt (typed ahead into
+    /// a shell without the integration).
+    func newTab(in state: WindowState, running command: String) {
+        let project = state.selectedTab.flatMap(state.project(of:))
+        let tab = state.addTab(title: "", workingDirectory: NSHomeDirectory(), project: project)
+        tab.focusedPane.startupCommand = command
+        controllers[state.id]?.reload()
+        modelDidChange()
+    }
+
     func select(_ id: TabID) {
         guard let state = workspace.window(containing: id) else { return }
         state.select(id: id)
