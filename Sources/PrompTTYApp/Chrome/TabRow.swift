@@ -128,11 +128,84 @@ struct TabRow: View {
 
     @ViewBuilder
     private var content: some View {
-        if style == .tile {
-            tileContent
-        } else {
-            rowContent
+        switch style {
+        case .tile: tileContent
+        case .full: sidebarRowContent
+        case .compact: rowContent
         }
+    }
+
+    /// The pane the row stands for: its agent's, if it runs one, else the focused one.
+    private var leadPane: Pane {
+        agents.flatMap { tab.pane($0.entry.pane) } ?? tab.focusedPane
+    }
+
+    /// A sidebar row, one line as Rex's: the program's tile (a blue dot on it for what happened
+    /// out of sight), the title and folder, "•••" while an agent works.
+    private var sidebarRowContent: some View {
+        let lead = leadPane
+        let program = actions.activity(for: lead.id).program
+        let marks = TabActivityMarks(tab: tab, selected: selected, actions: actions)
+        // An agent's row reads its task alone, as Rex's do.
+        let (title, folder) = agents != nil ? (tab.listTitle, nil)
+            : PaneTitle.titleAndFolder(pane: lead, program: program, customTitle: tab.customTitle)
+        return HStack(spacing: 9) {
+            SidebarTabIcon(program: program, badge: marks.badge)
+                .animation(.easeOut(duration: 0.2), value: marks.badge)
+            if renaming {
+                TextField("Tab name", text: $draft)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .focused($fieldFocused)
+                    .onAppear { fieldFocused = true }
+                    .onSubmit(commitRename)
+                    .onExitCommand(perform: cancelRename)
+                    .onChange(of: fieldFocused) { _, focused in if !focused, renaming { commitRename() } }
+            } else {
+                HStack(spacing: 5) {
+                    Text(title)
+                        .font(.system(size: 13, weight: selected ? .medium : .regular))
+                        .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.85))
+                        .layoutPriority(1)
+                    if let folder {
+                        Text(folder)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.tertiary)
+                            .truncationMode(.head)
+                    }
+                }
+                .lineLimit(1)
+                .truncationMode(.tail)
+                // The rest of the row's width, so the line truncates only when it must.
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // The progress and "•••", or under the pointer the close button.
+            ZStack(alignment: .trailing) {
+                HStack(spacing: 6) {
+                    TabProgressRing(panes: stackPanes, actions: actions)
+                    if marks.working { WorkingDots() }
+                }
+                .opacity(hovering && !renaming ? 0 : 1)
+                closeButton
+            }
+        }
+        .padding(.leading, 8)
+        .padding(.trailing, 8)
+        .frame(height: ChromeMetrics.tabRowHeight)
+    }
+
+    private var closeButton: some View {
+        Button { actions.requestCloseTab(tab.id) } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .semibold))
+                .frame(width: 16, height: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .opacity(hovering && !renaming ? 1 : 0)
+        .help("Close Tab")
+        .accessibilityLabel("Close \(tab.listTitle)")
     }
 
     /// The tile: its own icon or its programs centered. Renamed in a popover, having no title of
@@ -201,19 +274,6 @@ struct TabRow: View {
                         }
                     }
                     .lineLimit(1)
-                } else {
-                    Text(tab.listTitle)
-                        .font(.system(size: 13, weight: selected ? .medium : .regular))
-                        .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.85))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                // In the sidebar, a tab running an agent says what its most urgent agent does.
-                if style == .full, let agents {
-                    AgentStatusLine(summary: agents)
-                } else if style == .full {
-                    // Otherwise, the ports its servers listen on.
-                    TabPortsLine(panes: stackPanes, actions: actions)
                 }
             }
             // The rest of the row's width, so the lines truncate only when they must.
@@ -223,38 +283,24 @@ struct TabRow: View {
                 HStack(spacing: 6) {
                     TabProgressRing(panes: stackPanes, actions: actions)
                     // The strip's pills show only new output, no activity dot.
-                    let newOutput = !selected && stackPanes.contains { actions.hasUnseenOutput($0) }
-                    if style == .full {
-                        ActivityIndicator(display: display, newOutput: newOutput)
-                    } else if newOutput {
+                    if !selected, stackPanes.contains(where: { actions.hasUnseenOutput($0) }) {
                         ActivityIndicator(display: .idle, newOutput: true)
                     }
                 }
                 .opacity(hovering && !renaming ? 0 : 1)
-                Button { actions.requestCloseTab(tab.id) } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
-                        .frame(width: 16, height: 16)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .opacity(hovering && !renaming ? 1 : 0)
-                .help("Close Tab")
-                .accessibilityLabel("Close \(tab.listTitle)")
+                closeButton
             }
         }
         .padding(.leading, 8)
         .padding(.trailing, 6)
-        .frame(height: style == .full ? ChromeMetrics.tabRowHeight : 28)
+        .frame(height: 28)
     }
 
-    /// The second line, for VoiceOver.
+    /// What the agent does, for VoiceOver (the Activity shows it).
     private var agentsLabel: String? {
         guard style == .full, let agents else { return nil }
         let activity = agents.entry.status.activity
-        return AgentListing.status(branch: agents.entry.repository.notableBranch, display: activity.display, tool: activity.tool,
-                                   since: activity.agentSince, others: agents.others, now: Date())
+        return AgentListing.activity(display: activity.display, tool: activity.tool)
     }
 
     /// The tab's agents, for its second line.
@@ -437,10 +483,10 @@ struct NewTabRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: 9) {
                 Image(systemName: "plus")
                     .font(.system(size: 12, weight: .regular))
-                    .frame(width: 18)
+                    .frame(width: SidebarTabIcon.size)
                 Text("New Tab")
                     .font(.system(size: 13))
                 Spacer()

@@ -18,8 +18,8 @@ enum ChromeMetrics {
 
     /// Sidebar rows (Dia-sized): "+ New Tab".
     static let rowHeight: CGFloat = 30
-    /// Sidebar tab rows: two lines, the second for an agent's state.
-    static let tabRowHeight: CGFloat = 38
+    /// Sidebar tab rows: one line, as Rex's (the Activity's rows have two).
+    static let tabRowHeight: CGFloat = 32
     static let rowCornerRadius: CGFloat = 8
     static let sidebarHorizontalPadding: CGFloat = 8
 }

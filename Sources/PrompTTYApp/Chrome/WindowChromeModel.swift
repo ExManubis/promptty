@@ -23,6 +23,9 @@ final class WindowChromeModel {
     /// terminal read as one surface.
     var panelColor: NSColor = .textBackgroundColor
     var panelIsDark: Bool { ChromeTint.isDark(panelColor) }
+    /// The sidebar lists only the tabs running agents, with what each does and since when (Rex's
+    /// Activity).
+    var showsActivity = false
     var banner: BannerContent?
     /// Panes whose shell exited, with the exit code, until they are closed.
     var exitedPanes: [PaneID: UInt32] = [:]

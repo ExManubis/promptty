@@ -18,7 +18,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     case newWindow, closeWindow, commandPalette, quickTerminal
     case newTab, closeTab, nextTab, previousTab, reopenClosedTab, goToFolder
     case gotoTab1, gotoTab2, gotoTab3, gotoTab4, gotoTab5, gotoTab6, gotoTab7, gotoTab8, gotoTab9
-    case toggleSidebar, toggleTabLayout
+    case toggleSidebar, toggleTabLayout, toggleActivity
     case splitRight, splitDown, closePane
     case focusPaneLeft, focusPaneUp, focusPaneRight, focusPaneDown, equalizePanes, zoomPane, toggleBroadcast
     case copy, paste, selectAll, clear, biggerFont, smallerFont, actualSizeFont
@@ -42,6 +42,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
             return "Go to Tab \(tabNumber!)"
         case .toggleSidebar: return "Toggle Sidebar"
         case .toggleTabLayout: return "Toggle Tab Layout"
+        case .toggleActivity: return "Show Activity"
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .closePane: return "Close Pane"
@@ -76,7 +77,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     public var group: ShortcutGroup {
         switch self {
         case .newWindow, .closeWindow, .commandPalette, .quickTerminal: return .window
-        case .newTab, .closeTab, .nextTab, .previousTab, .reopenClosedTab, .goToFolder, .toggleSidebar, .toggleTabLayout,
+        case .newTab, .closeTab, .nextTab, .previousTab, .reopenClosedTab, .goToFolder, .toggleSidebar, .toggleTabLayout, .toggleActivity,
              .gotoTab1, .gotoTab2, .gotoTab3, .gotoTab4, .gotoTab5, .gotoTab6, .gotoTab7, .gotoTab8, .gotoTab9:
             return .tabs
         case .splitRight, .splitDown, .closePane, .focusPaneLeft, .focusPaneUp, .focusPaneRight, .focusPaneDown, .equalizePanes, .zoomPane, .toggleBroadcast:
@@ -121,6 +122,7 @@ public struct ShortcutMap: Equatable, Sendable {
         .gotoTab7: s("cmd+7"), .gotoTab8: s("cmd+8"), .gotoTab9: s("cmd+9"),
         .toggleSidebar: s("cmd+b"),
         .toggleTabLayout: s("ctrl+cmd+s"),
+        .toggleActivity: s("cmd+."),
         .splitRight: s("cmd+d"),
         .splitDown: s("shift+cmd+d"),
         .closePane: s("cmd+w"),

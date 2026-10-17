@@ -10,22 +10,24 @@ public enum AgentListing {
         return (candidates.first { $0.id == focused } ?? candidates[0]).id
     }
 
-    /// A tab row's second line: "feature-x · Working · Bash · 20 s", "Needs permission · Bash ·
-    /// 5 s · +1 agent", "Your turn · 2 min", "Waiting". The branch tells parallel agents apart; the
-    /// tool shows while the agent works or asks to run it; `others` counts the tab's other agents.
-    public static func status(branch: String?, display: PaneActivity.Display, tool: String?, since: Date?,
-                              others: Int, now: Date) -> String {
-        var parts: [String] = branch.map { [$0] } ?? []
+    /// An agent's line in the sidebar's Activity, as Rex's: "Working · Bash", "Needs permission ·
+    /// Bash", "Your turn", "Done". How long ago it changed shows apart (`ago`).
+    public static func activity(display: PaneActivity.Display, tool: String?) -> String {
         switch display {
-        case .permission: parts.append("Needs permission")
-        case .attention: parts.append("Your turn")
-        case .working: parts.append("Working")
-        default: parts.append("Waiting")
+        case .working: tool.map { "Working · \($0)" } ?? "Working"
+        case .permission: tool.map { "Needs permission · \($0)" } ?? "Needs permission"
+        case .attention: "Your turn"
+        default: "Done"
         }
-        if let tool, display == .working || display == .permission { parts.append(tool) }
-        if let since { parts.append(elapsed(now.timeIntervalSince(since))) }
-        if let others = self.others(others) { parts.append(others) }
-        return parts.joined(separator: " · ")
+    }
+
+    /// How long ago, as Rex's Activity reads it: "now", "5m", "12h", "3d".
+    public static func ago(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds))
+        if total < 60 { return "now" }
+        if total < 3600 { return "\(total / 60)m" }
+        if total < 86400 { return "\(total / 3600)h" }
+        return "\(total / 86400)d"
     }
 
     /// How many other agents a tab has: "+1 agent", "+3 agents"; nil for none. Shown apart from
@@ -33,23 +35,6 @@ public enum AgentListing {
     public static func others(_ count: Int) -> String? {
         guard count > 0 else { return nil }
         return count == 1 ? "+1 agent" : "+\(count) agents"
-    }
-
-    /// "1 min 20 s" is too busy beside an agent: seconds, then minutes, then hours and minutes.
-    public static func elapsed(_ seconds: TimeInterval) -> String {
-        let total = max(0, Int(seconds))
-        if total < 60 { return "\(total) s" }
-        let minutes = total / 60
-        if minutes < 60 { return "\(minutes) min" }
-        return "\(minutes / 60) h \(minutes % 60) min"
-    }
-
-    /// When `elapsed` next reads differently for a duration counted from `since`: the next second
-    /// while it shows seconds, the next minute after that.
-    public static func nextChange(since: Date, after now: Date) -> Date {
-        let seconds = max(0, now.timeIntervalSince(since))
-        let step: TimeInterval = seconds < 59 ? 1 : 60
-        return since.addingTimeInterval((floor(seconds / step) + 1) * step)
     }
 }
 

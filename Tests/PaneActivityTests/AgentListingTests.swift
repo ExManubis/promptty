@@ -2,13 +2,21 @@ import PaneActivity
 import XCTest
 
 final class AgentListingTests: XCTestCase {
-    private let claude = ProgramCatalog.identify(executable: "/usr/local/bin/claude", arguments: ["claude"])!
+    func testAgo() {
+        XCTAssertEqual(AgentListing.ago(-3), "now")
+        XCTAssertEqual(AgentListing.ago(59), "now")
+        XCTAssertEqual(AgentListing.ago(60), "1m")
+        XCTAssertEqual(AgentListing.ago(3599), "59m")
+        XCTAssertEqual(AgentListing.ago(3600 * 12 + 5), "12h")
+        XCTAssertEqual(AgentListing.ago(86400 * 3), "3d")
+    }
 
-    func testElapsed() {
-        XCTAssertEqual(AgentListing.elapsed(-3), "0 s")
-        XCTAssertEqual(AgentListing.elapsed(59.9), "59 s")
-        XCTAssertEqual(AgentListing.elapsed(60), "1 min")
-        XCTAssertEqual(AgentListing.elapsed(3_725), "1 h 2 min")
+    func testActivityLine() {
+        XCTAssertEqual(AgentListing.activity(display: .working, tool: "Bash"), "Working · Bash")
+        XCTAssertEqual(AgentListing.activity(display: .working, tool: nil), "Working")
+        XCTAssertEqual(AgentListing.activity(display: .permission, tool: "Edit"), "Needs permission · Edit")
+        XCTAssertEqual(AgentListing.activity(display: .attention, tool: "Bash"), "Your turn")
+        XCTAssertEqual(AgentListing.activity(display: .idle, tool: nil), "Done")
     }
 
     func testTheMostUrgentAgentShowsTiesToTheFocusedPaneThenOrder() {
@@ -22,38 +30,6 @@ final class AgentListingTests: XCTestCase {
         XCTAssertNil(AgentListing.others(0))
         XCTAssertEqual(AgentListing.others(1), "+1 agent")
         XCTAssertEqual(AgentListing.others(3), "+3 agents")
-    }
-
-    func testStatusLine() {
-        let now = Date(timeIntervalSinceReferenceDate: 1000)
-        XCTAssertEqual(AgentListing.status(branch: "feature-x", display: .working, tool: "Bash", since: now - 20, others: 0, now: now),
-                       "feature-x · Working · Bash · 20 s")
-        XCTAssertEqual(AgentListing.status(branch: nil, display: .permission, tool: "Bash", since: now - 5, others: 1, now: now),
-                       "Needs permission · Bash · 5 s · +1 agent")
-        XCTAssertEqual(AgentListing.status(branch: nil, display: .attention, tool: "Bash", since: now - 120, others: 2, now: now),
-                       "Your turn · 2 min · +2 agents")
-        XCTAssertEqual(AgentListing.status(branch: nil, display: .idle, tool: nil, since: nil, others: 0, now: now), "Waiting")
-    }
-
-    /// Every second while the label shows seconds, then on each minute boundary.
-    func testNextChangeTicksSecondsThenMinutes() {
-        let since = Date(timeIntervalSinceReferenceDate: 1_000)
-        XCTAssertEqual(AgentListing.nextChange(since: since, after: since), since.addingTimeInterval(1))
-        XCTAssertEqual(AgentListing.nextChange(since: since, after: since.addingTimeInterval(12.4)), since.addingTimeInterval(13))
-        XCTAssertEqual(AgentListing.nextChange(since: since, after: since.addingTimeInterval(58.5)), since.addingTimeInterval(59))
-        XCTAssertEqual(AgentListing.nextChange(since: since, after: since.addingTimeInterval(59.2)), since.addingTimeInterval(60))
-        XCTAssertEqual(AgentListing.nextChange(since: since, after: since.addingTimeInterval(60)), since.addingTimeInterval(120))
-        XCTAssertEqual(AgentListing.nextChange(since: since, after: since.addingTimeInterval(130)), since.addingTimeInterval(180))
-        // A clock behind `since` waits for the first second.
-        XCTAssertEqual(AgentListing.nextChange(since: since, after: since.addingTimeInterval(-5)), since.addingTimeInterval(1))
-        // Each tick's label differs from the one before it.
-        var now = since
-        var labels: [String] = []
-        for _ in 0..<70 {
-            labels.append(AgentListing.elapsed(now.timeIntervalSince(since)))
-            now = AgentListing.nextChange(since: since, after: now)
-        }
-        XCTAssertEqual(Set(labels).count, labels.count)
     }
 }
 
