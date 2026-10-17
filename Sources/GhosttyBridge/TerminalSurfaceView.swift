@@ -363,6 +363,12 @@ public final class TerminalSurfaceView: NSView {
             guard resizeMode != oldValue else { return }
             trailingResize?.cancel()
             trailingResize = nil
+            // libghostty redraws its layer whenever the layer's bounds change, there and then on
+            // the main thread, waiting for the GPU: every frame of a slide, for the same screen.
+            // Held, the screen stays put at the top left (the layer's gravity) and is not redrawn
+            // until the size is let go.
+            layer?.needsDisplayOnBoundsChange = resizeMode != .held
+            if oldValue == .held { layer?.setNeedsDisplay() }
             sizeDidChange()
         }
     }
