@@ -41,7 +41,8 @@ struct PaletteKind {
 }
 
 /// The command palette (⌘K): every tab in every window, every menu command and a few more
-/// things, fuzzy-filtered by typing. Built when it opens; nothing it lists changes while it is up.
+/// things, fuzzy-filtered by typing. Built when it opens; what needs the disk (ssh hosts, whether
+/// a folder still exists) is read off the main thread and arrives through `setEntries`.
 @MainActor
 @Observable
 final class PaletteModel {
@@ -50,16 +51,30 @@ final class PaletteModel {
     }
     private(set) var results: [PaletteEntry] = []
     private(set) var selection: Int?
-    @ObservationIgnored private let entries: [PaletteEntry]
-    @ObservationIgnored private let ranking: [PaletteRanking.Entry]
+    @ObservationIgnored private var entries: [PaletteEntry]
+    @ObservationIgnored private var ranking: [PaletteRanking.Entry]
 
     let kind: PaletteKind
 
     init(entries: [PaletteEntry], kind: PaletteKind = .commands) {
         self.kind = kind
         self.entries = entries
-        ranking = entries.map { PaletteRanking.Entry(title: $0.title, keywords: [$0.subtitle ?? "", $0.keywords].joined(separator: " ")) }
+        ranking = Self.ranking(of: entries)
         refresh()
+    }
+
+    /// Replaces what the palette lists, keeping the query and, while it is still listed, the
+    /// selected entry.
+    func setEntries(_ entries: [PaletteEntry]) {
+        let chosen = choice?.id
+        self.entries = entries
+        ranking = Self.ranking(of: entries)
+        refresh()
+        if let chosen, let index = results.firstIndex(where: { $0.id == chosen }) { selection = index }
+    }
+
+    private static func ranking(of entries: [PaletteEntry]) -> [PaletteRanking.Entry] {
+        entries.map { PaletteRanking.Entry(title: $0.title, keywords: [$0.subtitle ?? "", $0.keywords].joined(separator: " ")) }
     }
 
     var choice: PaletteEntry? { selection.flatMap { results.indices.contains($0) ? results[$0] : nil } }

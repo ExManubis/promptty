@@ -8,7 +8,16 @@ extension TerminalWindowController {
     @objc func togglePalette(_ sender: Any?) {
         if chrome.palette != nil { return closePalette(running: nil) }
         // Built while the terminal still has the keys, so the menu commands validate against it.
-        chrome.palette = PaletteModel(entries: paletteEntries())
+        let (before, after) = paletteEntries()
+        let palette = PaletteModel(entries: before + sshEntries(SSHHosts.cached) + after)
+        chrome.palette = palette
+        // The hosts as last read; the config is read again off the main thread when it changed.
+        let known = SSHHosts.cached
+        Task { [weak self, weak palette] in
+            let hosts = await SSHHosts.refresh()
+            guard let self, let palette, self.chrome.palette === palette, hosts != known else { return }
+            palette.setEntries(before + self.sshEntries(hosts) + after)
+        }
     }
 
     /// Go to Folder (⌘J): the folders worked in, best first, and the open tabs' folders. Return
@@ -16,19 +25,34 @@ extension TerminalWindowController {
     /// new tab there.
     @objc func goToFolder(_ sender: Any?) {
         if chrome.palette != nil { return closePalette(running: nil) }
-        chrome.palette = PaletteModel(entries: folderEntries(), kind: .folders)
+        let (entries, directories) = folderEntries()
+        let palette = PaletteModel(entries: entries, kind: .folders)
+        chrome.palette = palette
+        // Listed at once; the folders gone since (or on a share that does not answer) leave the
+        // list when the disk has said so, off the main thread.
+        Task { [weak self, weak palette] in
+            let missing = await Task.detached(priority: .userInitiated) {
+                Set(directories.filter { directory in
+                    var isDirectory: ObjCBool = false
+                    return !(FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory) && isDirectory.boolValue)
+                })
+            }.value
+            guard let self, let palette, self.chrome.palette === palette, !missing.isEmpty else { return }
+            palette.setEntries(zip(entries, directories).filter { !missing.contains($0.1) }.map(\.0))
+        }
     }
 
-    private func folderEntries() -> [PaletteEntry] {
-        let fm = FileManager.default
+    /// The entries, and the folders they go to (in the same order).
+    private func folderEntries() -> (entries: [PaletteEntry], directories: [String]) {
         let open = Set(coordinator.workspace.windows.flatMap { $0.tabs.flatMap { $0.orderedPanes.map(\.workingDirectory) } })
         var seen = Set<String>()
         var entries: [PaletteEntry] = []
+        var directories: [String] = []
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         func add(_ directory: String, subtitle: String?) {
-            var isDirectory: ObjCBool = false
-            guard seen.insert(directory).inserted, fm.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else { return }
+            guard seen.insert(directory).inserted else { return }
+            directories.append(directory)
             entries.append(PaletteEntry(
                 id: "folder:\(directory)", icon: open.contains(directory) ? "folder.fill" : "folder",
                 title: Tab.abbreviate(directory), subtitle: subtitle, keywords: (directory as NSString).lastPathComponent,
@@ -44,7 +68,7 @@ extension TerminalWindowController {
             add(visited.directory, subtitle: "\(commands) · \(formatter.localizedString(for: visited.last, relativeTo: Date()))")
         }
         for directory in open.sorted() { add(directory, subtitle: "open") }
-        return entries
+        return (entries, directories)
     }
 
     /// `cd` in the focused pane at its prompt; with a program running there, a new tab instead.
@@ -70,7 +94,8 @@ extension TerminalWindowController {
         }
     }
 
-    private func paletteEntries() -> [PaletteEntry] {
+    /// The entries before the ssh hosts, and after them.
+    private func paletteEntries() -> (before: [PaletteEntry], after: [PaletteEntry]) {
         // The app menu's commands (About, Hide, Quit) are seldom what is looked for: last.
         let shortcuts = coordinator.preferences.shortcuts
         let commands = MenuCommands.entries(in: NSApp.mainMenu, window: window) { title in
@@ -78,7 +103,7 @@ extension TerminalWindowController {
                 .map { shortcuts.shortcut(for: $0).displayString }
         }
         let app = commands.filter { $0.subtitle == "PrompTTY" }
-        return tabEntries() + savedEntries() + projectEntries() + commands.filter { $0.subtitle != "PrompTTY" } + sshEntries() + app
+        return (tabEntries() + savedEntries() + projectEntries() + commands.filter { $0.subtitle != "PrompTTY" }, app)
     }
 
     /// Every tab in every window, this window's first, the selected one last (it is where you are).
@@ -122,8 +147,8 @@ extension TerminalWindowController {
     }
 
     /// A new tab connected to each host in `~/.ssh/config`.
-    private func sshEntries() -> [PaletteEntry] {
-        SSHHosts.read().map { host in
+    private func sshEntries(_ hosts: [String]) -> [PaletteEntry] {
+        hosts.map { host in
             PaletteEntry(
                 id: "ssh:\(host)",
                 icon: "globe",
@@ -152,9 +177,30 @@ extension TerminalWindowController {
     }
 }
 
-/// The hosts in the user's ssh config, read when the palette opens.
+/// The hosts in the user's ssh config: the palette lists them as last read, and reads the config
+/// again, off the main thread, when it has changed since.
 enum SSHHosts {
-    static func read() -> [String] {
+    @MainActor static private(set) var cached: [String] = []
+    /// The config's modification date when `cached` was read.
+    @MainActor private static var cachedDate: Date?
+
+    /// The hosts now: read again when the config changed (or is gone).
+    @MainActor static func refresh() async -> [String] {
+        let known = cachedDate
+        let read = await Task.detached(priority: .userInitiated) { () -> (date: Date?, hosts: [String])? in
+            let config = AppPaths.sshDirectory.appendingPathComponent("config")
+            let date = (try? FileManager.default.attributesOfItem(atPath: config.path))?[.modificationDate] as? Date
+            guard date == nil || date != known else { return nil }
+            return (date, date == nil ? [] : SSHHosts.read())
+        }.value
+        if let read {
+            cached = read.hosts
+            cachedDate = read.date
+        }
+        return cached
+    }
+
+    nonisolated static func read() -> [String] {
         let dir = AppPaths.sshDirectory
         guard let text = try? String(contentsOf: dir.appendingPathComponent("config"), encoding: .utf8) else { return [] }
         return SSHConfig.hosts(in: text) { pattern in
