@@ -9,10 +9,10 @@ index b16885109..d393e3f83 100644
 +    _ = @import("termio/sync_hold.zig");
  }
 diff --git a/src/termio/Exec.zig b/src/termio/Exec.zig
-index 87d47807c..5095b1d7f 100644
+index 87d47807c..67c46784c 100644
 --- a/src/termio/Exec.zig
 +++ b/src/termio/Exec.zig
-@@ -1338,11 +1338,19 @@ pub const ReadThread = struct {
+@@ -1338,11 +1338,20 @@ pub const ReadThread = struct {
                  @call(.always_inline, termio.Termio.processOutput, .{ io, buf[0..n] });
              }
  
@@ -21,8 +21,9 @@ index 87d47807c..5095b1d7f 100644
 +            // Wait for data. Output termio holds back for an unfinished
 +            // synchronized update is parsed as it stands if nothing more
 +            // comes soon: the program may be waiting for input, or for a
-+            // reply to a query it sent inside the update.
-+            const timeout: i32 = if (io.hasHeldOutput()) 20 else -1;
++            // reply to a query it sent inside the update. Nor is any held
++            // past a deadline (sync_hold.zig).
++            const timeout = io.heldOutputTimeout();
 +            const ready = posix.poll(&pollfds, timeout) catch |err| {
                  log.warn("poll failed on read thread, exiting early err={}", .{err});
                  return;
@@ -35,7 +36,7 @@ index 87d47807c..5095b1d7f 100644
              // If our quit fd is set, we're done.
              if (pollfds[1].revents & posix.POLL.IN != 0) {
 diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
-index 1d1bfe25a..84ef91354 100644
+index 1d1bfe25a..e0baf8abb 100644
 --- a/src/termio/Termio.zig
 +++ b/src/termio/Termio.zig
 @@ -12,6 +12,7 @@ const EnvMap = std.process.EnvMap;
@@ -66,7 +67,7 @@ index 1d1bfe25a..84ef91354 100644
      self.terminal.deinit(self.alloc);
      self.config.deinit();
      self.mailbox.deinit(self.alloc);
-@@ -641,6 +648,25 @@ pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
+@@ -641,6 +648,27 @@ pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
  /// call with pty data but it is also called by the read thread when using
  /// an exec subprocess.
  pub fn processOutput(self: *Termio, buf: []const u8) void {
@@ -75,17 +76,19 @@ index 1d1bfe25a..84ef91354 100644
 +    self.sync_hold.feed(self.alloc, buf, self, parseOutput);
 +}
 +
-+/// True when the read thread holds back output: an unfinished
-+/// synchronized update, or the first bytes of what may start one.
-+pub fn hasHeldOutput(self: *const Termio) bool {
-+    return self.sync_hold.holding();
++/// How long, in milliseconds, the read thread may wait for more output
++/// before it must call `flushHeldOutput`; -1 when it holds nothing back.
++/// Held output is an unfinished synchronized update, or the first bytes of
++/// what may start one.
++pub fn heldOutputTimeout(self: *const Termio) i32 {
++    return self.sync_hold.pollTimeout();
 +}
 +
 +/// Parses output held back, an unfinished synchronized update included.
 +/// The read thread calls this when the program goes quiet partway
-+/// through one.
++/// through one, or has held it too long.
 +pub fn flushHeldOutput(self: *Termio) void {
-+    self.sync_hold.flush(self, parseOutput);
++    self.sync_hold.flush(self.alloc, self, parseOutput);
 +}
 +
 +fn parseOutput(self: *Termio, buf: []const u8) void {
@@ -94,10 +97,10 @@ index 1d1bfe25a..84ef91354 100644
      self.renderer_state.mutex.lock();
 diff --git a/src/termio/sync_hold.zig b/src/termio/sync_hold.zig
 new file mode 100644
-index 000000000..d48a28140
+index 000000000..431572224
 --- /dev/null
 +++ b/src/termio/sync_hold.zig
-@@ -0,0 +1,281 @@
+@@ -0,0 +1,411 @@
 +//! Holds back the bytes of a synchronized update (DEC mode 2026) until the
 +//! update ends, then hands the whole update to the parser at once.
 +//!
@@ -122,7 +125,21 @@ index 000000000..d48a28140
 +
 +/// An update this large is parsed as it stands; the renderer still waits for
 +/// its end, as it would without holding it back.
-+max_bytes: usize = 16 * 1024 * 1024,
++max_bytes: usize = 2 * 1024 * 1024,
++
++/// Output held back this long is parsed as it stands, however steadily more
++/// arrives: a program killed in the middle of an update never sends its end,
++/// and what follows (the shell, the echo of typed keys) must not wait for it.
++max_hold_ns: u64 = 250 * std.time.ns_per_ms,
++
++/// How long the read thread waits for more output before it parses what is
++/// held back: the program may be waiting for input, or for a reply to a
++/// query it sent inside the update.
++quiet_ms: i32 = 20,
++
++/// A buffer grown past this by a large update is given back once the update
++/// is parsed, so a pane does not keep its largest update's memory.
++keep_capacity: usize = 256 * 1024,
 +
 +/// Bytes not parsed yet: an update that has not ended, or the start of what
 +/// may be the sequence that begins one.
@@ -135,6 +152,9 @@ index 000000000..d48a28140
 +/// again from its start for every chunk.
 +scan_from: usize = 0,
 +
++/// When what `buf` holds began to be held back; null when nothing is.
++held_since: ?std.time.Instant = null,
++
 +pub fn deinit(self: *SyncHold, alloc: Allocator) void {
 +    self.buf.deinit(alloc);
 +}
@@ -142,6 +162,19 @@ index 000000000..d48a28140
 +/// True when bytes are held back; `flush` parses them.
 +pub fn holding(self: *const SyncHold) bool {
 +    return self.buf.items.len > 0;
++}
++
++/// How long, in milliseconds, the read thread may wait for more output
++/// before it must `flush`: -1 (no limit) when nothing is held back, else
++/// `quiet_ms` or what is left of `max_hold_ns`, whichever is sooner.
++pub fn pollTimeout(self: *const SyncHold) i32 {
++    if (!self.holding()) return -1;
++    const since = self.held_since orelse return self.quiet_ms;
++    const now = std.time.Instant.now() catch return self.quiet_ms;
++    const held = now.since(since);
++    if (held >= self.max_hold_ns) return 0;
++    const left_ms = std.math.divCeil(u64, self.max_hold_ns - held, std.time.ns_per_ms) catch unreachable;
++    return @intCast(@min(left_ms, @as(u64, @intCast(self.quiet_ms))));
 +}
 +
 +/// Takes the next chunk of output and calls `parse` with what may be parsed
@@ -164,29 +197,62 @@ index 000000000..d48a28140
 +
 +    self.buf.appendSlice(alloc, data) catch {
 +        // Out of memory: stop holding back.
-+        self.flush(ctx, parse);
++        self.flush(alloc, ctx, parse);
 +        parse(ctx, data);
 +        return;
 +    };
-+    self.process(ctx, parse, false);
++    const parsed = self.process(ctx, parse, false);
++
++    // What is held now began to be held now, unless it was held before and
++    // none of it was parsed.
++    const now = std.time.Instant.now() catch null;
++    if (!self.holding()) {
++        self.held_since = null;
++    } else if (parsed > 0 or self.held_since == null) {
++        self.held_since = now;
++    } else if (now != null and now.?.since(self.held_since.?) >= self.max_hold_ns) {
++        // Held too long while output kept coming: parse it as it stands.
++        self.flush(alloc, ctx, parse);
++        return;
++    }
++    self.trim(alloc);
 +}
 +
 +/// Parses everything held back, an unfinished update included (the program
 +/// went quiet in the middle of one, e.g. waiting for a reply to a query).
 +pub fn flush(
 +    self: *SyncHold,
++    alloc: Allocator,
 +    ctx: anytype,
 +    comptime parse: fn (@TypeOf(ctx), []const u8) void,
 +) void {
-+    self.process(ctx, parse, true);
++    _ = self.process(ctx, parse, true);
++    self.held_since = null;
++    self.trim(alloc);
 +}
 +
++/// Gives back a buffer a large update grew, once what it holds is small.
++fn trim(self: *SyncHold, alloc: Allocator) void {
++    if (self.buf.capacity <= self.keep_capacity) return;
++    if (self.buf.items.len == 0) {
++        self.buf.clearAndFree(alloc);
++        return;
++    }
++    if (self.buf.items.len > self.keep_capacity) return;
++    var smaller: std.ArrayListUnmanaged(u8) = .empty;
++    smaller.ensureTotalCapacityPrecise(alloc, self.keep_capacity) catch return;
++    smaller.appendSliceAssumeCapacity(self.buf.items);
++    self.buf.deinit(alloc);
++    self.buf = smaller;
++}
++
++/// Parses what may be parsed of `buf` and returns how many bytes that was.
 +fn process(
 +    self: *SyncHold,
 +    ctx: anytype,
 +    comptime parse: fn (@TypeOf(ctx), []const u8) void,
 +    force: bool,
-+) void {
++) usize {
 +    const data = self.buf.items;
 +    var i: usize = 0;
 +    while (i < data.len) {
@@ -233,6 +299,7 @@ index 000000000..d48a28140
 +    std.mem.copyForwards(u8, self.buf.items[0..rest], data[i..]);
 +    self.buf.shrinkRetainingCapacity(rest);
 +    self.scan_from -|= i;
++    return i;
 +}
 +
 +/// The length of the longest proper prefix of `pattern` that `data` ends with.
@@ -351,7 +418,7 @@ index 000000000..d48a28140
 +
 +    hold.feed(alloc, start ++ "half", &rec, Recorder.parse);
 +    try std.testing.expectEqual(@as(usize, 0), rec.calls.items.len);
-+    hold.flush(&rec, Recorder.parse);
++    hold.flush(alloc, &rec, Recorder.parse);
 +    try std.testing.expectEqual(@as(usize, 1), rec.calls.items.len);
 +    try std.testing.expect(!hold.holding());
 +
@@ -364,7 +431,7 @@ index 000000000..d48a28140
 +    // A lone escape at the end of a read is held, then flushed.
 +    hold.feed(alloc, "x\x1b", &rec, Recorder.parse);
 +    try std.testing.expect(hold.holding());
-+    hold.flush(&rec, Recorder.parse);
++    hold.flush(alloc, &rec, Recorder.parse);
 +    try std.testing.expect(!hold.holding());
 +}
 +
@@ -378,4 +445,70 @@ index 000000000..d48a28140
 +    hold.feed(alloc, start ++ "0123456789abcdefXYZ", &rec, Recorder.parse);
 +    try std.testing.expectEqual(@as(usize, 1), rec.calls.items.len);
 +    try std.testing.expect(!hold.holding());
++}
++
++test "a stuck update is parsed once held too long, however steadily output comes" {
++    const alloc = std.testing.allocator;
++    var hold: SyncHold = .{ .max_hold_ns = 5 * std.time.ns_per_ms };
++    defer hold.deinit(alloc);
++    var rec: Recorder = .{ .alloc = alloc };
++    defer rec.deinit();
++
++    // The program was killed inside an update; the shell goes on writing.
++    hold.feed(alloc, start ++ "half a frame", &rec, Recorder.parse);
++    try std.testing.expectEqual(@as(usize, 0), rec.calls.items.len);
++    try std.testing.expect(hold.pollTimeout() >= 0);
++    try std.testing.expect(hold.pollTimeout() <= hold.quiet_ms);
++
++    std.Thread.sleep(10 * std.time.ns_per_ms);
++    try std.testing.expectEqual(@as(i32, 0), hold.pollTimeout());
++    hold.feed(alloc, "$ ", &rec, Recorder.parse);
++    try std.testing.expect(!hold.holding());
++    try std.testing.expectEqual(@as(i32, -1), hold.pollTimeout());
++
++    // What follows passes straight through.
++    hold.feed(alloc, "ls", &rec, Recorder.parse);
++    const all = try rec.joined();
++    defer alloc.free(all);
++    try std.testing.expectEqualStrings(start ++ "half a frame$ ls", all);
++    try std.testing.expectEqualStrings("ls", rec.calls.items[rec.calls.items.len - 1]);
++}
++
++test "back-to-back updates restart the hold time" {
++    const alloc = std.testing.allocator;
++    var hold: SyncHold = .{ .max_hold_ns = 5 * std.time.ns_per_ms };
++    defer hold.deinit(alloc);
++    var rec: Recorder = .{ .alloc = alloc };
++    defer rec.deinit();
++
++    // Each read ends partway into the next update, so something is always
++    // held, but no update is held long: none is parsed in pieces.
++    hold.feed(alloc, start ++ "on", &rec, Recorder.parse);
++    std.Thread.sleep(10 * std.time.ns_per_ms);
++    hold.feed(alloc, "e" ++ end ++ start ++ "tw", &rec, Recorder.parse);
++    try std.testing.expect(hold.holding());
++    hold.feed(alloc, "o" ++ end, &rec, Recorder.parse);
++    try std.testing.expectEqual(@as(usize, 2), rec.calls.items.len);
++    try std.testing.expectEqualStrings(start ++ "one" ++ end, rec.calls.items[0]);
++    try std.testing.expectEqualStrings(start ++ "two" ++ end, rec.calls.items[1]);
++}
++
++test "a large update's buffer is given back once it is parsed" {
++    const alloc = std.testing.allocator;
++    var hold: SyncHold = .{ .keep_capacity = 64 };
++    defer hold.deinit(alloc);
++    var rec: Recorder = .{ .alloc = alloc };
++    defer rec.deinit();
++
++    hold.feed(alloc, start ++ ("x" ** 1000), &rec, Recorder.parse);
++    try std.testing.expect(hold.buf.capacity > 1000);
++    hold.feed(alloc, end ++ start ++ "next", &rec, Recorder.parse);
++    try std.testing.expect(hold.holding());
++    try std.testing.expect(hold.buf.capacity <= 64);
++
++    // An unfinished one too, when it is flushed.
++    hold.feed(alloc, "x" ** 1000, &rec, Recorder.parse);
++    try std.testing.expect(hold.buf.capacity > 1000);
++    hold.flush(alloc, &rec, Recorder.parse);
++    try std.testing.expectEqual(@as(usize, 0), hold.buf.capacity);
 +}
