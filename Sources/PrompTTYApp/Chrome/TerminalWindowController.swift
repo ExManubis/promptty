@@ -633,6 +633,12 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     func toggleSidebar() { coordinator.toggleTabListHidden() }
     func split(_ pane: PaneID, direction: SplitDirection) { coordinator.split(pane, direction: direction) }
+    func toggleZoom(_ pane: PaneID) {
+        guard let tab = state.tab(containing: pane) else { return }
+        if tab.zoomedPaneID == nil { tab.focus(pane) }
+        tab.toggleZoom()
+        reload()
+    }
 
     /// Asks libghostty to close the pane's surface; it answers through `close_surface_cb`, whose
     /// handler confirms first when a process is still running.

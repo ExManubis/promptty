@@ -88,6 +88,8 @@ protocol ChromeActions: AnyObject {
     /// The window's traffic lights, which go with the sidebar when it collapses.
     func setTrafficLightsShown(_ shown: Bool)
     func split(_ pane: PaneID, direction: SplitDirection)
+    /// Zooms a pane (focusing it), or unzooms its tab.
+    func toggleZoom(_ pane: PaneID)
     func requestClosePane(_ pane: PaneID)
     func focusPane(_ pane: PaneID)
     func setRatio(in tab: TabID, at path: SplitPath, _ ratio: Double)

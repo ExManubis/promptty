@@ -230,7 +230,11 @@ struct ProgramStack: View {
     }
 
     @ViewBuilder
-    private func logo(of program: Program?, size: CGFloat) -> some View {
+    private func logo(of program: Program?, size: CGFloat) -> some View { Self.logo(of: program, size: size) }
+
+    /// A program's logo for its tile, or the prompt for a shell.
+    @ViewBuilder
+    static func logo(of program: Program?, size: CGFloat) -> some View {
         if program?.logo != nil {
             // On a brand tile in the brand's pairing; on the dark tile in the brand's color, as on
             // a dark background.
@@ -269,6 +273,23 @@ struct ProgramStack: View {
     private static func label(for cards: [Card]) -> String {
         let names = cards.map { $0.program?.name ?? "Terminal" }
         return cards.count == 1 ? names[0] : "\(cards.count) panes: " + names.joined(separator: ", ")
+    }
+}
+
+/// One pane's program as a flat tile (a pane header's), not tilted or stacked.
+struct ProgramTile: View {
+    let program: Program?
+    var width: CGFloat = 20
+    var height: CGFloat = 16
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+        shape.fill(ProgramStack.background(for: program))
+            .overlay { ProgramStack.logo(of: program, size: 11) }
+            .overlay(shape.strokeBorder(Color.white.opacity(0.14), lineWidth: 0.5).padding(0.5))
+            .overlay(shape.strokeBorder(.black.opacity(0.45), lineWidth: 0.75))
+            .frame(width: width, height: height)
+            .accessibilityLabel(program?.name ?? "Terminal")
     }
 }
 

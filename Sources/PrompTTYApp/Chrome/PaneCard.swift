@@ -17,6 +17,15 @@ struct PaneCard: View {
 
     private var focused: Bool { tab.focusedPaneID == pane.id }
     private var broadcasting: Bool { chrome.broadcastTabs.contains(tab.id) }
+    @Environment(\.paneHeaders) private var headerSetting
+
+    private var showsHeader: Bool {
+        switch headerSetting {
+        case .always: true
+        case .splits: tab.hasSplits
+        case .never: false
+        }
+    }
 
     /// A hairline edge; in a split tab the focused pane's edge is brighter so it stands out.
     private var borderOpacity: Double {
@@ -27,6 +36,9 @@ struct PaneCard: View {
     var body: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
+                if showsHeader {
+                    PaneHeader(pane: pane, tab: tab, focused: focused, zoomed: zoomed, chrome: chrome, actions: actions)
+                }
                 if let surface = actions.surfaceView(for: pane) {
                     PaneHost(surface: surface, visible: visible, holdSize: hidden)
                 }
@@ -44,15 +56,19 @@ struct PaneCard: View {
                 .animation(PaneAnimation.focusFade, value: focused)
                 .allowsHitTesting(false)
 
-            ClipboardBanner(pane: pane.id, actions: actions)
-            LinkPreview(pane: pane.id, actions: actions)
-            SecureLock(pane: pane.id, actions: actions)
-            FindBar(pane: pane.id, actions: actions)
-            if let label = pane.label, actions.findState(for: pane.id) == nil {
-                PaneLabelChip(label: label, besideBadge: actions.isSecure(pane.id))
+            // Over the terminal, below the header (which shows the label and the zoom itself).
+            Group {
+                ClipboardBanner(pane: pane.id, actions: actions)
+                LinkPreview(pane: pane.id, actions: actions)
+                SecureLock(pane: pane.id, actions: actions)
+                FindBar(pane: pane.id, actions: actions)
+                if !showsHeader, let label = pane.label, actions.findState(for: pane.id) == nil {
+                    PaneLabelChip(label: label, besideBadge: actions.isSecure(pane.id))
+                }
+                if zoomed, !showsHeader { ZoomBadge() }
+                if broadcasting { BroadcastBadge() }
             }
-            if zoomed { ZoomBadge() }
-            if broadcasting { BroadcastBadge() }
+            .padding(.top, showsHeader ? PaneHeader.height : 0)
 
             if let code = chrome.exitedPanes[pane.id] {
                 // A pinned tab's last pane is restarted, not closed.
