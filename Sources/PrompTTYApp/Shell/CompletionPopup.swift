@@ -20,6 +20,8 @@ enum DirectoryListing {
 final class CompletionList {
     var items: [String] = []
     var selected = 0
+    /// Best match at the bottom, next to the caret, as Rex's path picker lists them.
+    var bottomUp = false
 }
 
 /// The list of completions above the caret, in a borderless child window of the pane's window.
@@ -34,13 +36,16 @@ final class CompletionPopup {
     var isVisible: Bool { panel?.isVisible == true }
     var selectedItem: String? { list.items.indices.contains(list.selected) ? list.items[list.selected] : nil }
 
-    func show(_ items: [String], anchor: NSRect, in window: NSWindow, font: NSFont) {
+    var bottomUp: Bool { list.bottomUp }
+
+    func show(_ items: [String], anchor: NSRect, in window: NSWindow, font: NSFont, bottomUp: Bool = false) {
         list.items = items
         list.selected = 0
+        list.bottomUp = bottomUp
         let panel = self.panel ?? makePanel(font: font)
         self.panel = panel
         let rows = min(items.count, Self.maxRows)
-        let width = min(520, max(220, items.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0) + 36)
+        let width = min(520, max(220, items.map { (CompletionListView.name(of: $0) as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0) + 56)
         let height = CGFloat(rows) * Self.rowHeight + 10
         // Above the caret: the bar sits at the bottom of the pane.
         let origin = NSPoint(x: anchor.minX - 8, y: anchor.maxY + 4)
@@ -49,10 +54,15 @@ final class CompletionPopup {
         panel.orderFront(nil)
     }
 
+    /// New items; the panel keeps its place and grows or shrinks from the caret's side.
     func update(_ items: [String]) {
         let keep = selectedItem
         list.items = items
         list.selected = keep.flatMap { items.firstIndex(of: $0) } ?? 0
+        guard let panel else { return }
+        var frame = panel.frame
+        frame.size.height = CGFloat(min(items.count, Self.maxRows)) * Self.rowHeight + 10
+        panel.setFrame(frame, display: true)
     }
 
     func move(by delta: Int) {
@@ -90,27 +100,52 @@ private struct CompletionListView: View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
-                    ForEach(Array(list.items.enumerated()), id: \.offset) { index, item in
-                        Text(item)
-                            .font(font)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(maxWidth: .infinity, minHeight: rowHeight, alignment: .leading)
-                            .padding(.horizontal, 8)
-                            .background {
-                                if index == list.selected {
-                                    RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(0.12))
-                                }
-                            }
-                            .foregroundStyle(Color.primary)
+                    let rows = Array(list.items.enumerated())
+                    ForEach(list.bottomUp ? rows.reversed() : rows, id: \.offset) { index, item in
+                        row(item, selected: index == list.selected)
                             .id(index)
                     }
                 }
                 .padding(5)
             }
             .scrollIndicators(.never)
+            .defaultScrollAnchor(list.bottomUp ? .bottom : .top)
             .onChange(of: list.selected) { _, new in proxy.scrollTo(new) }
         }
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    /// A candidate as Rex's path picker shows it: its kind's icon and its own name, the selected
+    /// one on the accent color.
+    private func row(_ item: String, selected: Bool) -> some View {
+        let folder = item.hasSuffix("/")
+        let path = item.contains("/")
+        return HStack(spacing: 7) {
+            if path {
+                Image(systemName: folder ? "folder.fill" : "doc")
+                    .font(.system(size: 11))
+                    .foregroundStyle(selected ? Color.white : (folder ? Color.accentColor : Color.secondary))
+                    .frame(width: 14)
+            }
+            Text(Self.name(of: item))
+                .font(font)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .frame(maxWidth: .infinity, minHeight: rowHeight, alignment: .leading)
+        .padding(.horizontal, 8)
+        .background {
+            if selected {
+                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.accentColor)
+            }
+        }
+        .foregroundStyle(selected ? Color.white : Color.primary)
+    }
+
+    /// A path's last name ("config/aerc/" shows "aerc"); anything else as it is.
+    static func name(of item: String) -> String {
+        let trimmed = item.hasSuffix("/") ? String(item.dropLast()) : item
+        guard let slash = trimmed.lastIndex(of: "/") else { return trimmed }
+        return String(trimmed[trimmed.index(after: slash)...])
     }
 }

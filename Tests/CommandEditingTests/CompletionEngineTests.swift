@@ -8,6 +8,7 @@ private struct FakeSources: CompletionSources {
         "/repo": [("Sources", true), ("Package.swift", false), ("README.md", false), (".git", true), ("My File.txt", false)],
         "/repo/Sources": [("CommandEditing", true), ("CoreThing", true)],
         "/Users/me": [("Developer", true), ("Desktop", true), ("Documents", true)],
+        "/work": [("fixtures", true), ("Firefox", true), ("fx.txt", false), ("lefty", true), ("misc", true), (".fx", true), ("graphics", true)],
     ]
     var branches: [String] = ["main", "mvp", "input-bar"]
 
@@ -65,7 +66,7 @@ final class CompletionEngineTests: XCTestCase {
     }
 
     func testHomeExpansionKeepsTheTilde() {
-        XCTAssertEqual(complete("cd ~/De|")?.candidates, ["~/Desktop/", "~/Developer/"])
+        XCTAssertEqual(complete("ls ~/De|")?.candidates, ["~/Desktop/", "~/Developer/"])
     }
 
     func testHiddenEntriesOnlyWithADot() {
@@ -180,5 +181,40 @@ final class CompletionSnapshotTests: XCTestCase {
         snapshot.branches["/repo"] = ["main", "mvp", "input-bar"]
         XCTAssertTrue(snapshot.has(.gitBranches("/repo")))
         XCTAssertEqual(complete("git switch m|", snapshot), ["main", "mvp"])
+    }
+
+    // MARK: cd's folders
+
+    private func folders(_ marked: String, in directory: String = "/work") -> Completion? {
+        let cursor = (marked as NSString).range(of: "|", options: .backwards).location
+        let text = (marked as NSString).replacingCharacters(in: NSRange(location: cursor, length: 1), with: "")
+        return CompletionEngine.complete(text: text, cursor: cursor, directory: directory, home: "/Users/me", sources: FakeSources())
+    }
+
+    func testCdOffersFoldersOnlyStartingThenContainingThenLettersInOrder() {
+        let c = folders("cd f|")
+        XCTAssertEqual(c?.candidates, ["Firefox/", "fixtures/", "graphics/", "lefty/"])
+        XCTAssertEqual(c?.folders, true)
+        XCTAssertEqual(folders("cd fx|")?.candidates, ["Firefox/", "fixtures/"])
+    }
+
+    func testCdHidesDotFoldersUnlessTypedWithADot() {
+        XCTAssertFalse(folders("cd |")?.candidates.contains(".fx/") ?? true)
+        XCTAssertEqual(folders("cd .f|")?.candidates, [".fx/"])
+    }
+
+    func testCdCompletesInsideATypedFolder() {
+        let c = folders("cd Sources/C|", in: "/repo")
+        XCTAssertEqual(c?.candidates, ["Sources/CommandEditing/", "Sources/CoreThing/"])
+    }
+
+    func testTheFolderPickerIsForCdsArgumentOnly() {
+        XCTAssertTrue(CompletionEngine.picksFolder(text: "cd fx", cursor: 5))
+        XCTAssertTrue(CompletionEngine.picksFolder(text: "cd ", cursor: 3))
+        XCTAssertTrue(CompletionEngine.picksFolder(text: "ls && pushd sr", cursor: 14))
+        XCTAssertFalse(CompletionEngine.picksFolder(text: "cd", cursor: 2))
+        XCTAssertFalse(CompletionEngine.picksFolder(text: "ls fx", cursor: 5))
+        XCTAssertFalse(CompletionEngine.picksFolder(text: "cd -", cursor: 4))
+        XCTAssertFalse(CompletionEngine.picksFolder(text: "cd a b", cursor: 6))
     }
 }

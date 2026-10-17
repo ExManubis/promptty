@@ -53,6 +53,8 @@ public struct Completion: Equatable, Sendable {
     public var candidates: [String]
     /// What every candidate starts with; inserted first when there are several.
     public var commonPrefix: String
+    /// `cd`'s folders: matched loosely and ranked (best first), for the folder picker.
+    public var folders = false
 
     /// With one candidate: the text to insert, with a space after anything but a directory.
     public var singleInsertion: String? {
@@ -71,6 +73,8 @@ public enum CompletionEngine {
         case gitSubcommands(word: String)
         case gitBranches(word: String)
         case paths(word: String)
+        /// `cd`'s (or `pushd`'s) folder.
+        case folders(word: String)
     }
 
     private struct Analysis {
@@ -94,6 +98,8 @@ public enum CompletionEngine {
             kind = .commands(word: word)
         } else if commandWords.first == "git", let git = gitKind(commandWords, word: word) {
             kind = git
+        } else if commandWords.count == 1, folderCommands.contains(commandWords[0]), !word.hasPrefix("-") {
+            kind = .folders(word: word)
         } else {
             kind = .paths(word: word)
         }
@@ -104,9 +110,18 @@ public enum CompletionEngine {
     public static func need(text: String, cursor: Int, directory: String, home: String) -> CompletionNeed? {
         switch analyze(text: text, cursor: cursor).kind {
         case .gitBranches: .gitBranches(directory)
-        case .paths(let word): .directory(lookupDirectory(word, directory: directory, home: home))
+        case .paths(let word), .folders(let word): .directory(lookupDirectory(word, directory: directory, home: home))
         case .exports, .commands, .gitSubcommands: nil
         }
+    }
+
+    /// The commands whose argument is a folder: the bar opens the folder picker as it is typed.
+    static let folderCommands: Set<String> = ["cd", "pushd"]
+
+    /// Whether the caret is in `cd`'s folder, where the bar shows the folder picker as you type.
+    public static func picksFolder(text: String, cursor: Int) -> Bool {
+        if case .folders = analyze(text: text, cursor: cursor).kind { return true }
+        return false
     }
 
     public static func complete(text: String, cursor: Int, directory: String, home: String, sources: CompletionSources) -> Completion? {
@@ -123,6 +138,10 @@ public enum CompletionEngine {
             candidates = sources.gitBranches(in: directory).filter { $0.hasPrefix(word) }
         case .paths(let word):
             candidates = pathCandidates(word, directory: directory, home: home, sources: sources)
+        case .folders(let word):
+            let ranked = folderCandidates(word, directory: directory, home: home, sources: sources)
+            guard !ranked.isEmpty else { return nil }
+            return Completion(replacement: analysis.start..<analysis.end, candidates: ranked, commonPrefix: commonPrefix(ranked), folders: true)
         }
         guard !candidates.isEmpty else { return nil }
         let sorted = Array(Set(candidates)).sorted()
@@ -210,6 +229,42 @@ public enum CompletionEngine {
         return sources.entries(inDirectory: lookup)
             .filter { $0.name.hasPrefix(namePrefix) && (namePrefix.hasPrefix(".") || !$0.name.hasPrefix(".")) }
             .map { shownDir + ShellQuoting.escape($0.name) + ($0.isDirectory ? "/" : "") }
+    }
+
+    /// The folders in the typed folder that match the typed name loosely, best first: names that
+    /// start with it, then names that contain it, then names with its letters in order ("fx" finds
+    /// "fixtures"), ignoring case; alphabetical within each. Hidden ones only for a name typed with
+    /// a dot.
+    private static func folderCandidates(_ word: String, directory: String, home: String, sources: CompletionSources) -> [String] {
+        let (typedDir, namePrefix) = splitPath(word)
+        let lookup = lookupDirectory(word, directory: directory, home: home)
+        let shownDir = ShellQuoting.escape(typedDir)
+        let query = namePrefix.lowercased()
+        let folders = sources.entries(inDirectory: lookup)
+            .filter { $0.isDirectory && (namePrefix.hasPrefix(".") || !$0.name.hasPrefix(".")) }
+            .map(\.name)
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        var ranks: [[String]] = [[], [], []]
+        for name in folders {
+            let lower = name.lowercased()
+            if query.isEmpty || lower.hasPrefix(query) {
+                ranks[0].append(name)
+            } else if lower.contains(query) {
+                ranks[1].append(name)
+            } else if isSubsequence(query, of: lower) {
+                ranks[2].append(name)
+            }
+        }
+        return ranks.flatMap { $0 }.map { shownDir + ShellQuoting.escape($0) + "/" }
+    }
+
+    private static func isSubsequence(_ needle: String, of haystack: String) -> Bool {
+        var rest = needle[...]
+        for ch in haystack where ch == rest.first {
+            rest = rest.dropFirst()
+            if rest.isEmpty { return true }
+        }
+        return rest.isEmpty
     }
 
     private static func unescape(_ s: String) -> String {
