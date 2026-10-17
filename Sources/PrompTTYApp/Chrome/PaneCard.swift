@@ -20,24 +20,39 @@ struct PaneCard: View {
     @Environment(\.paneHeaders) private var headerSetting
     @Environment(\.translucentPanes) private var translucent
 
-    /// The card's surface. See-through, the focused pane of a split a touch brighter than the
-    /// others (Rex shows focus that way, dimming nothing); opaque, the theme's background.
-    private var surface: Color {
-        let base = chrome.panelColor
-        guard translucent else { return Color(nsColor: base) }
-        let dark = chrome.panelIsDark
-        let lit = focused || !tab.hasSplits
-        let shaded = dark
-            ? base.blended(withFraction: lit ? 0.08 : 0.055, of: .white)
-            : base.blended(withFraction: lit ? 0 : 0.035, of: .black)
-        return Color(nsColor: shaded ?? base).opacity(dark ? 0.78 : 0.86)
+    /// The card's surface. Opaque, the theme's background. See-through, frosted glass as Rex's: a
+    /// little of the theme's background for its hue, and a light lift that sets the pane a few levels
+    /// above the frame, with the wallpaper's color coming through both; the focused pane of a split
+    /// a touch brighter than the others (Rex shows focus that way, dimming nothing).
+    @ViewBuilder
+    private var surface: some View {
+        let shape = RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
+        if translucent {
+            let dark = chrome.panelIsDark
+            let lit = focused || !tab.hasSplits
+            shape.fill(Color(nsColor: chrome.panelColor).opacity(dark ? 0.22 : 0.38))
+                .overlay(shape.fill(Color.white.opacity(dark ? (lit ? 0.065 : 0.04) : (lit ? 0.32 : 0.2))))
+                // The sheen: light catching the top of the glass, fading over its first lines.
+                .overlay(shape.fill(LinearGradient(colors: [Color.white.opacity(dark ? 0.06 : 0.25), .clear],
+                                                   startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.08))))
+        } else {
+            shape.fill(Color(nsColor: chrome.panelColor))
+        }
     }
 
-    /// The rim: a faint light edge on dark (as Rex's), a faint dark one on light.
-    private var rim: Color {
-        guard translucent else { return Color.primary.opacity(borderOpacity) }
+    /// The glass's edge: brightest along the top (Rex's is a bright line there), faint down the
+    /// sides. Opaque cards keep a plain hairline.
+    private var rim: AnyShapeStyle {
+        guard translucent else { return AnyShapeStyle(Color.primary.opacity(borderOpacity)) }
         let lit = focused && tab.hasSplits
-        return chrome.panelIsDark ? Color.white.opacity(lit ? 0.16 : 0.08) : Color.black.opacity(lit ? 0.16 : 0.08)
+        let top = chrome.panelIsDark ? (lit ? 0.62 : 0.45) : 0.95
+        let side = chrome.panelIsDark ? (lit ? 0.12 : 0.07) : 0.12
+        let sideColor = chrome.panelIsDark ? Color.white : Color.black
+        return AnyShapeStyle(LinearGradient(stops: [
+            .init(color: Color.white.opacity(top), location: 0),
+            .init(color: sideColor.opacity(side), location: 0.04),
+            .init(color: sideColor.opacity(side * 0.7), location: 1),
+        ], startPoint: .top, endPoint: .bottom))
     }
 
     private var showsHeader: Bool {
@@ -100,15 +115,15 @@ struct PaneCard: View {
         .background {
             // The card: the terminal theme's color, a hairline edge and a soft shadow, so each
             // pane stands apart from the window background and from its neighbours.
-            let shape = RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
-            shape.fill(surface)
-                .shadow(color: .black.opacity(chrome.panelIsDark ? (translucent ? 0.18 : 0.25) : 0.08), radius: translucent ? 6 : 2.5, y: 1)
+            surface
+                .shadow(color: .black.opacity(chrome.panelIsDark ? (translucent ? 0.22 : 0.25) : (translucent ? 0.06 : 0.08)),
+                        radius: translucent ? 8 : 2.5, y: translucent ? 2 : 1)
                 .animation(PaneAnimation.focusFade, value: focused)
         }
         .overlay {
             RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
-                .strokeBorder(broadcasting ? Color.orange.opacity(focused ? 0.95 : 0.6) : rim,
-                              lineWidth: broadcasting ? 2 : 1)
+                .strokeBorder(broadcasting ? AnyShapeStyle(Color.orange.opacity(focused ? 0.95 : 0.6)) : rim,
+                              lineWidth: broadcasting ? 2 : (translucent ? 0.75 : 1))
                 .animation(PaneAnimation.focusFade, value: borderOpacity)
                 .animation(PaneAnimation.focusFade, value: broadcasting)
                 .allowsHitTesting(false)

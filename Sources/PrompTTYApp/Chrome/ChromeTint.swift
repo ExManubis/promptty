@@ -12,13 +12,13 @@ enum ChromeTint {
             : NSColor(srgbRed: frameLight, green: frameLight, blue: frameLight + 0.006, alpha: frameAlphaLight)
     }
 
-    // The tint over the blurred desktop. Dark, it is mostly tint: a near-black frame close to the
-    // panes, as Rex's, with only a hint of the wallpaper; light, more of the blur shows, as Dia's.
-    static let frameDark: CGFloat = 0.06
+    // The tint over the blurred desktop: frosted glass, as Rex's, dark enough for the panes on it to
+    // read while the wallpaper's color comes through the frame and, fainter, the panes.
+    static let frameDark: CGFloat = 0.09
     static let frameLight: CGFloat = 0.93
     /// How opaque the tint over the blur is; the rest is blurred desktop.
-    static let frameAlphaDark: CGFloat = 0.80
-    static let frameAlphaLight: CGFloat = 0.55
+    static let frameAlphaDark: CGFloat = 0.42
+    static let frameAlphaLight: CGFloat = 0.38
 
     /// A theme-tinted frame over the blur, with the same transparency as the neutral one.
     static func overBlur(_ color: NSColor) -> NSColor {

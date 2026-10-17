@@ -21,7 +21,9 @@ private struct BehindWindowBlur: NSViewRepresentable {
         let view = NSVisualEffectView()
         view.material = .underWindowBackground
         view.blendingMode = .behindWindow
-        view.state = .followsWindowActiveState
+        // Glass in the background too: the window keeps its look when another app is in front,
+        // instead of flattening to gray.
+        view.state = .active
         return view
     }
 

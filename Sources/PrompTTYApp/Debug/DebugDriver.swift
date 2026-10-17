@@ -158,6 +158,10 @@ final class DebugDriver {
             return ""
         case "snapshot":
             return snapshot(name: arg, in: directory)
+        case "composite":
+            // The first window as it is on screen, with what is below it (its own backdrop, the
+            // desktop's blur): how see-through chrome really looks.
+            return composite(name: arg, in: directory)
         case "appearance":
             switch arg {
             case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -279,6 +283,21 @@ final class DebugDriver {
               let sym = dlsym(handle, "CGWindowListCreateImage") else { return nil }
         return unsafeBitCast(sym, to: CreateImage.self)
     }()
+
+    private func composite(name: String, in directory: URL) -> String {
+        guard let createImage = Self.createImage, let window = NSApp.orderedWindows.first(where: { $0 is TerminalWindow }) else {
+            return "error: no window"
+        }
+        let screenHeight = NSScreen.screens.first?.frame.height ?? 0
+        let bounds = CGRect(x: window.frame.minX, y: screenHeight - window.frame.maxY, width: window.frame.width, height: window.frame.height)
+        // kCGWindowListOptionOnScreenBelowWindow | kCGWindowListOptionIncludingWindow; best resolution.
+        guard let image = createImage(bounds, (1 << 2) | (1 << 3), UInt32(window.windowNumber), 1 << 3)?.takeRetainedValue() else {
+            return "error: capture failed"
+        }
+        let url = directory.appendingPathComponent("\(name).png")
+        try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: url)
+        return "\(url.lastPathComponent) \(image.width)x\(image.height)"
+    }
 
     private func snapshot(name: String, in directory: URL) -> String {
         guard let createImage = Self.createImage else { return "error: CGWindowListCreateImage unavailable" }
