@@ -8,9 +8,12 @@ public struct TabSnapshot: Codable, Equatable, Sendable {
     public var pin: TabPin?
     /// Absent in session files written before projects, and for a tab in none.
     public var project: ProjectID?
-    public init(title: String, customTitle: String?, workingDirectory: String, pin: TabPin? = nil, project: ProjectID? = nil) {
+    /// The file (`ScrollbackArchive`) with what the tab's focused pane showed; absent when none was
+    /// kept.
+    public var scrollback: String?
+    public init(title: String, customTitle: String?, workingDirectory: String, pin: TabPin? = nil, project: ProjectID? = nil, scrollback: String? = nil) {
         self.title = title; self.customTitle = customTitle; self.workingDirectory = workingDirectory; self.pin = pin
-        self.project = project
+        self.project = project; self.scrollback = scrollback
     }
 }
 
@@ -59,7 +62,8 @@ public struct SessionSnapshot: Codable, Equatable, Sendable {
 }
 
 extension Workspace {
-    public func snapshot() -> SessionSnapshot {
+    /// `scrollback`: the archive file kept for a tab, if any.
+    public func snapshot(scrollback: (Tab) -> String? = { _ in nil }) -> SessionSnapshot {
         SessionSnapshot(
             version: SessionSnapshot.currentVersion,
             tabLayout: tabLayout,
@@ -67,7 +71,7 @@ extension Workspace {
             windows: windows.map { w in
                 WindowSnapshot(
                     frame: w.frame,
-                    tabs: w.tabs.map { TabSnapshot(title: $0.title, customTitle: $0.customTitle, workingDirectory: $0.workingDirectory, pin: $0.pin, project: w.project(of: $0)) },
+                    tabs: w.tabs.map { TabSnapshot(title: $0.title, customTitle: $0.customTitle, workingDirectory: $0.workingDirectory, pin: $0.pin, project: w.project(of: $0), scrollback: scrollback($0)) },
                     selectedIndex: w.selectedTabID.flatMap(w.index(of:))
                 )
             }
@@ -101,6 +105,7 @@ extension Workspace {
                 // within each group (a session from a build with a flat list is regrouped).
                 w.selectedTabID = nil
                 let tab = w.addTab(title: t.title, workingDirectory: exists ? wanted : fallbackDirectory, customTitle: t.customTitle, project: project)
+                tab.focusedPane.restoredScrollback = t.scrollback
                 if let pin = t.pin {
                     w.pin(tab.id, pin)
                     if exists { tab.focusedPane.startupCommand = pin.command }

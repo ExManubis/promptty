@@ -59,6 +59,16 @@ public enum ZshIntegration {
     'builtin' 'unset' '_promptty_file'
 
     if [[ -o 'interactive' ]]; then
+        # A tab reopened at launch: what it showed before the app quit, printed once above the
+        # first prompt (before the user's files print anything of their own).
+        if [[ -n "${PROMPTTY_RESTORE-}" ]]; then
+            if [[ -r "$PROMPTTY_RESTORE" ]]; then
+                'builtin' 'print' -rn -- "$(<"$PROMPTTY_RESTORE")"$'\r\n'
+                'command' 'rm' -f -- "$PROMPTTY_RESTORE" 2>/dev/null
+            fi
+            'builtin' 'unset' 'PROMPTTY_RESTORE'
+        fi
+
         # The prompt PrompTTY shows instead of zsh's: nothing, but the marks (OSC 133) that tell
         # the terminal a prompt waiting for input starts here, which is how it finds where each
         # command starts. In the prompt, zero-width, they are printed again whenever zsh redraws

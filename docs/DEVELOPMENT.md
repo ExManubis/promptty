@@ -41,6 +41,15 @@ only shortcuts that contain ⌘, plus the vim-style navigation keys.
 PrompTTY loads its zsh integration through `ZDOTDIR` and then the user's own files. Other shells
 get a plain terminal, without the input bar.
 
+## Restored output
+
+With **Settings › Tabs › Keep each tab's output when quitting** on (and session restore on), the
+app writes what each tab's focused pane holds (its last 2000 lines, with colors, read with
+libghostty's VT text format) to `scrollback/<tab>.vt` in the data folder, at quit and every two
+minutes; the session file names each tab's file. A restored zsh pane starts with
+`PROMPTTY_RESTORE` set to its file: the integration's `.zshenv` prints it before anything else and
+deletes it. Files no tab names any more are removed at the next write. Other shells start plain.
+
 ## Agent hooks
 
 **Install Claude Code Hooks…** adds one hook per event (SessionStart, SessionEnd,

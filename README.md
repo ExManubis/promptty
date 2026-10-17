@@ -23,6 +23,8 @@
 - **Command blocks.** Every command and its output is a block you can jump between, copy, copy
   as Markdown or rerun. ⌃⌘↑ jumps straight to the last failure. ⌘F finds anything in the
   scrollback, every match highlighted.
+- **Pick up where you left off.** Quit and reopen PrompTTY: every tab comes back in its folder
+  with what it printed before, colors included, above a fresh prompt (zsh).
 - **Projects and pinned tabs.** Group tabs into projects. Pin a tab running `claude` or
   `npm run dev` and it comes back, still running, the next time you open PrompTTY.
 - **Command palette.** ⇧⌘P finds any tab in any window and runs any command by name, with its

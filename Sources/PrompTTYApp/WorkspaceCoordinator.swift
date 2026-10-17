@@ -414,6 +414,56 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
+    /// At quit: writes what each tab's focused pane shows to the scrollback archive, and returns the
+    /// file kept for each tab. A restored tab never shown keeps the file it came with. Nothing
+    /// (and no files) when the setting is off.
+    func archiveScrollback() -> [TabID: String] {
+        let archive = ScrollbackArchive(directory: AppPaths.scrollback)
+        let settings = preferences.settings
+        guard settings.restoreSession, settings.restoreScrollback else {
+            archive.clear()
+            return [:]
+        }
+        let now = Date()
+        var texts: [String: String] = [:]
+        var kept = Set<String>()
+        var names: [TabID: String] = [:]
+        for state in workspace.windows {
+            guard let controller = controllers[state.id] else { continue }
+            for tab in state.tabs {
+                let pane = tab.focusedPane
+                if let surface = controller.surfaces[pane.id] {
+                    guard let text = surface.allText(styled: true),
+                          let archived = ScrollbackArchive.archived(text, savedAt: now) else { continue }
+                    let name = "\(tab.id.rawValue.uuidString).vt"
+                    texts[name] = archived
+                    names[tab.id] = name
+                } else if let pending = pane.restoredScrollback {
+                    kept.insert(pending)
+                    names[tab.id] = pending
+                }
+            }
+        }
+        archive.replace(with: texts, keeping: kept)
+        lastArchive = names
+        return names
+    }
+
+    private var lastArchive: [TabID: String] = [:]
+
+    /// The archive files written last, for a session saved in between: each tab's, or the one a
+    /// restored tab came with (until its shell prints it).
+    var archivedScrollback: [TabID: String] {
+        guard preferences.settings.restoreSession, preferences.settings.restoreScrollback else { return [:] }
+        var names: [TabID: String] = [:]
+        for state in workspace.windows {
+            for tab in state.tabs {
+                if let name = lastArchive[tab.id] ?? tab.focusedPane.restoredScrollback { names[tab.id] = name }
+            }
+        }
+        return names
+    }
+
     /// The tabs closed most recently, for Reopen Closed Tab.
     private(set) var closedTabs = ClosedTabStack()
 

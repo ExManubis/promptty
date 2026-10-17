@@ -122,6 +122,9 @@ struct TabsSection: View {
 
             Section("Windows") {
                 Toggle("Reopen windows and tabs at launch", isOn: $model.settings.restoreSession)
+                Toggle("Keep each tab's output when quitting", isOn: $model.settings.restoreScrollback)
+                    .disabled(!model.settings.restoreSession)
+                    .help("Reopened tabs show what they printed before, above a fresh prompt (zsh).")
                 Toggle("Ask before closing a running process", isOn: $model.settings.confirmCloseRunning)
             }
 

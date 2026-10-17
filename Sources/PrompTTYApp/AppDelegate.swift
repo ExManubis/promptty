@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var appearanceObservation: NSKeyValueObservation?
     private var sessionStore: SessionStore!
     private var saver: DebouncedSaver!
+    private var scrollbackTimer: Timer?
     private var preferences: PreferencesController!
     private var layoutObserver: NSObjectProtocol?
     private var notificationRouter: NotificationRouter?
@@ -99,6 +100,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         preferences.onAppSettingsChanged = { [weak self] in self?.coordinator.applyAppSettings($0) }
         saver = DebouncedSaver(delay: .seconds(1)) { [weak self] in self?.saveSession() }
         coordinator.onModelChanged = { [weak self] in self?.saver.schedule() }
+        scrollbackTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.saveSession(archivingScrollback: true) }
+        }
+        scrollbackTimer?.tolerance = 30
         runtime.sink = coordinator
         // Output in any terminal wakes the runtime (`.render` is never sent on macOS). The 120 Hz
         // link runs only in the key window, so that is the only one told.
@@ -180,12 +185,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         coordinator?.secureInput.shutDown()
         coordinator?.stopHooks()
         saver?.flush()
-        saveSession()
+        saveSession(archivingScrollback: true)
     }
 
-    private func saveSession() {
+    /// `archivingScrollback`: also write what each tab shows (at quit, and now and then, so a crash
+    /// loses little); otherwise the files written last are named.
+    private func saveSession(archivingScrollback: Bool = false) {
+        let names = archivingScrollback ? coordinator?.archiveScrollback() ?? [:] : coordinator?.archivedScrollback ?? [:]
         do {
-            try sessionStore.save(workspace.snapshot())
+            try sessionStore.save(workspace.snapshot { names[$0.id] })
         } catch {
             NSLog("PrompTTY: could not save session: \(error)")
         }

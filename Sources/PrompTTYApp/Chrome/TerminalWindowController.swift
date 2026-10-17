@@ -127,8 +127,13 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func surfaceView(for pane: Pane) -> TerminalSurfaceView? {
         if let existing = surfaces[pane.id] { return existing }
         guard state.tab(containing: pane.id) != nil else { return nil }
-        let environment = ShellIntegration.environment(for: pane.id)
+        var environment = ShellIntegration.environment(for: pane.id)
         let integrated = !environment.isEmpty
+        // What the pane showed before the app quit, printed by the integration at startup.
+        if integrated, let name = pane.restoredScrollback {
+            environment["PROMPTTY_RESTORE"] = ScrollbackArchive(directory: AppPaths.scrollback).url(for: name).path
+        }
+        pane.restoredScrollback = nil
         // Every pane, whatever its shell: where an agent's hooks report, and for which pane.
         let hookEnvironment = HookEnvironment.variables(pane: pane.id.rawValue, socket: AppPaths.hookSocket)
         // A pinned tab's command: run from the bar at the first prompt, or typed ahead into a

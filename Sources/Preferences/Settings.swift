@@ -56,6 +56,8 @@ public struct Settings: Equatable, Sendable {
     public var tabListHidden = false
     public var newTabDirectory = NewTabDirectory.currentPane
     public var restoreSession = true
+    /// Restored tabs show what they printed before the app quit (zsh panes).
+    public var restoreScrollback = true
     public var confirmCloseRunning = true
 
     // Notifications
@@ -110,7 +112,7 @@ extension Settings: Codable {
         case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, tabLayout, sidebarWidth, tabListHidden
         case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, secureKeyboardEntry, shortcuts
         case clipboardRead, clipboardWrite, clipboardReadPrograms, clipboardWritePrograms
-        case notifyCommands, notifyAfterSeconds
+        case notifyCommands, notifyAfterSeconds, restoreScrollback
     }
 
     public init(from decoder: Decoder) throws {
@@ -136,6 +138,7 @@ extension Settings: Codable {
         s.tabListHidden = value(.tabListHidden, s.tabListHidden)
         s.newTabDirectory = value(.newTabDirectory, s.newTabDirectory)
         s.restoreSession = value(.restoreSession, s.restoreSession)
+        s.restoreScrollback = value(.restoreScrollback, s.restoreScrollback)
         s.confirmCloseRunning = value(.confirmCloseRunning, s.confirmCloseRunning)
         s.notifyCommands = value(.notifyCommands, s.notifyCommands)
         s.notifyAfterSeconds = value(.notifyAfterSeconds, s.notifyAfterSeconds)
@@ -178,6 +181,7 @@ extension Settings: Codable {
         try c.encode(tabListHidden, forKey: .tabListHidden)
         try c.encode(newTabDirectory, forKey: .newTabDirectory)
         try c.encode(restoreSession, forKey: .restoreSession)
+        try c.encode(restoreScrollback, forKey: .restoreScrollback)
         try c.encode(confirmCloseRunning, forKey: .confirmCloseRunning)
         try c.encode(notifyCommands, forKey: .notifyCommands)
         try c.encode(notifyAfterSeconds, forKey: .notifyAfterSeconds)

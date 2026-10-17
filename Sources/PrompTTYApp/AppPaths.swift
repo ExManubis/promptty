@@ -24,6 +24,8 @@ enum AppPaths {
     }()
 
     static var session: URL { support.appendingPathComponent("session.json") }
+    /// What tabs showed when the app quit (`ScrollbackArchive`).
+    static var scrollback: URL { support.appendingPathComponent("scrollback", isDirectory: true) }
     static var folderHistory: URL { support.appendingPathComponent("folder-history.jsonl") }
 
     /// Where agents' hooks reach the app (`PROMPTTY_SOCKET` in every pane): `hooks.sock` in the

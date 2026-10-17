@@ -17,6 +17,9 @@ public final class Pane {
     public var workingDirectory: String
     /// Run at the shell's first prompt (a pinned tab's command), then cleared.
     @ObservationIgnored public var startupCommand: String?
+    /// The name of the file holding what the pane showed before the app quit (`ScrollbackArchive`),
+    /// printed above its first prompt, then cleared.
+    @ObservationIgnored public var restoredScrollback: String?
 
     public init(id: PaneID = PaneID(), title: String = "", workingDirectory: String, startupCommand: String? = nil) {
         self.id = id

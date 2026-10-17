@@ -58,6 +58,22 @@ extension TerminalSurfaceView {
         text(in: GHOSTTY_POINT_ACTIVE)
     }
 
+    /// Everything the terminal holds, scrollback and screen, with its colors and styles as escape
+    /// sequences (`vt`) or as plain text.
+    public func allText(styled vt: Bool) -> String? {
+        guard let surface else { return nil }
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text_format(surface, selection, vt ? GHOSTTY_TEXT_FORMAT_VT : GHOSTTY_TEXT_FORMAT_PLAIN, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let ptr = text.text else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: ptr, count: Int(text.text_len)), as: UTF8.self)
+    }
+
     private func text(in tag: ghostty_point_tag_e) -> String? {
         guard let surface else { return nil }
         let selection = ghostty_selection_s(
