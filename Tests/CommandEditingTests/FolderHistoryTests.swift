@@ -62,4 +62,18 @@ final class FolderHistoryTests: XCTestCase {
         XCTAssertEqual(Autosuggester.suggestion(for: "swift b", local: h.ranked(for: "/app"), history: global), "uild")
         XCTAssertNil(Autosuggester.suggestion(for: "make", local: [], history: global))
     }
+
+    func testFrecentFoldersWeighRecentWorkAboveOldHabits() {
+        let now = Date(timeIntervalSince1970: 10_000_000)
+        var h = FolderHistory()
+        // Ten commands a month ago in ~/old; three in the last hour in ~/new; one yesterday in ~/mid.
+        for i in 0..<10 { h.add(command: "ls \(i)", directory: "/old", date: now.addingTimeInterval(-30 * 86400)) }
+        for i in 0..<3 { h.add(command: "make \(i)", directory: "/new", date: now.addingTimeInterval(-600)) }
+        h.add(command: "git pull", directory: "/mid", date: now.addingTimeInterval(-30 * 3600))
+        let folders = h.frecentFolders(now: now)
+        XCTAssertEqual(folders.map(\.directory), ["/new", "/old", "/mid"])
+        XCTAssertEqual(folders[0].commands, 3)
+        XCTAssertEqual(folders[1].commands, 10)
+        XCTAssertEqual(h.frecentFolders(now: now, limit: 1).count, 1)
+    }
 }

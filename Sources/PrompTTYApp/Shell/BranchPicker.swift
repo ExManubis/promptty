@@ -113,7 +113,7 @@ struct BranchPickerView: View {
         case .up: model.list.moveSelection(by: -1)
         case .down: model.list.moveSelection(by: 1)
         case .left, .right: return false
-        case .enter:
+        case .enter, .commandEnter:
             if let choice = model.list.choice { choose(choice) }
         case .escape: cancel()
         }

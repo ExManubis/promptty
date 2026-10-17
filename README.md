@@ -33,6 +33,8 @@
   with what it printed before, colors included, above a fresh prompt (zsh).
 - **Projects and pinned tabs.** Group tabs into projects. Pin a tab running `claude` or
   `npm run dev` and it comes back, still running, the next time you open PrompTTY.
+- **Jump to a folder.** ⌘J lists the folders you work in, most used and most recent first:
+  Return goes there, ⌘Return opens a new tab there.
 - **Quick terminal.** ⌥↩ from any app drops a terminal down from the top of the screen; the
   same keys (or clicking elsewhere) put it away, its shell still running. Change the keys or turn
   it off in Settings › Keyboard.
@@ -95,6 +97,7 @@ included), and Option works as Alt. Every shortcut can be changed in **Settings 
 | New window / close window | ⌘N / ⇧⌘W |
 | New tab / close tab | ⌘T / ⌥⌘W |
 | Reopen the last closed tab | ⇧⌘T |
+| Go to a folder | ⌘J |
 | Next / previous tab, go to tab 1–9 | ⇧⌘] / ⇧⌘[, ⌘1…⌘9 |
 | Toggle sidebar / sidebar or strip | ⌘B / ⌃⌘S |
 | Split right / split down | ⌘D / ⇧⌘D |

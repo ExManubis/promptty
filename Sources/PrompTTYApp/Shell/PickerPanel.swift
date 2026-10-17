@@ -164,7 +164,8 @@ struct PickerRow<Accessory: View>: View {
 /// A picker's filter field. The arrows, ⏎ and ⎋ drive the list instead of the text, except ←
 /// and → when the picker has nothing to do with them.
 struct PickerField: NSViewRepresentable {
-    enum Command { case up, down, left, right, enter, escape }
+    /// `commandEnter`: ⌘Return, which pickers without a second choice treat as Return.
+    enum Command { case up, down, left, right, enter, commandEnter, escape }
 
     @Binding var text: String
     let placeholder: String
@@ -188,6 +189,7 @@ struct PickerField: NSViewRepresentable {
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
         (field as? FocusingTextField)?.onControlR = onControlR
+        (field as? FocusingTextField)?.onCommandReturn = { _ = context.coordinator.parent.onCommand(.commandEnter) }
         if field.stringValue != text { field.stringValue = text }
     }
 
@@ -223,6 +225,7 @@ struct PickerField: NSViewRepresentable {
 /// loop: a field made first responder before its first layout draws its placeholder as text.
 private final class FocusingTextField: NSTextField {
     var onControlR: (() -> Void)?
+    var onCommandReturn: (() -> Void)?
 
     /// ⌃R has no text-editing meaning, so it never reaches `doCommandBy`: seen here, before the
     /// field editor gets the key.
@@ -230,6 +233,11 @@ private final class FocusingTextField: NSTextField {
         let mods = event.modifierFlags.intersection([.shift, .control, .option, .command])
         if let onControlR, mods == .control, event.charactersIgnoringModifiers?.lowercased() == "r" {
             onControlR()
+            return true
+        }
+        // ⌘Return is a key equivalent, never a newline for the field.
+        if let onCommandReturn, mods == .command, event.keyCode == 36 || event.keyCode == 76 {
+            onCommandReturn()
             return true
         }
         return super.performKeyEquivalent(with: event)

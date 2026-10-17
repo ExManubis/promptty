@@ -16,7 +16,7 @@ public enum ShortcutGroup: String, CaseIterable, Sendable {
 /// Every app command that has an editable shortcut.
 public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     case newWindow, closeWindow, commandPalette, quickTerminal
-    case newTab, closeTab, nextTab, previousTab, reopenClosedTab
+    case newTab, closeTab, nextTab, previousTab, reopenClosedTab, goToFolder
     case gotoTab1, gotoTab2, gotoTab3, gotoTab4, gotoTab5, gotoTab6, gotoTab7, gotoTab8, gotoTab9
     case toggleSidebar, toggleTabLayout
     case splitRight, splitDown, closePane
@@ -35,6 +35,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .newTab: return "New Tab"
         case .closeTab: return "Close Tab"
         case .reopenClosedTab: return "Reopen Closed Tab"
+        case .goToFolder: return "Go to Folder"
         case .nextTab: return "Next Tab"
         case .previousTab: return "Previous Tab"
         case .gotoTab1, .gotoTab2, .gotoTab3, .gotoTab4, .gotoTab5, .gotoTab6, .gotoTab7, .gotoTab8, .gotoTab9:
@@ -75,7 +76,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     public var group: ShortcutGroup {
         switch self {
         case .newWindow, .closeWindow, .commandPalette, .quickTerminal: return .window
-        case .newTab, .closeTab, .nextTab, .previousTab, .reopenClosedTab, .toggleSidebar, .toggleTabLayout,
+        case .newTab, .closeTab, .nextTab, .previousTab, .reopenClosedTab, .goToFolder, .toggleSidebar, .toggleTabLayout,
              .gotoTab1, .gotoTab2, .gotoTab3, .gotoTab4, .gotoTab5, .gotoTab6, .gotoTab7, .gotoTab8, .gotoTab9:
             return .tabs
         case .splitRight, .splitDown, .closePane, .focusPaneLeft, .focusPaneUp, .focusPaneRight, .focusPaneDown, .equalizePanes, .zoomPane, .toggleBroadcast:
@@ -112,6 +113,7 @@ public struct ShortcutMap: Equatable, Sendable {
         .newTab: s("cmd+t"),
         .closeTab: s("opt+cmd+w"),
         .reopenClosedTab: s("shift+cmd+t"),
+        .goToFolder: s("cmd+j"),
         .nextTab: s("shift+cmd+]"),
         .previousTab: s("shift+cmd+["),
         .gotoTab1: s("cmd+1"), .gotoTab2: s("cmd+2"), .gotoTab3: s("cmd+3"),

@@ -78,6 +78,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         workspace.tabLayout = TabLayout(preferences.settings.tabLayout)
         ShellIntegration.install()
+        // Read now, off the main thread, so ⌘J and the bar's suggestions have it when first asked.
+        _ = FolderHistoryStore.shared
         EditorStyle.update(family: preferences.settings.fontFamily, size: preferences.settings.fontSize)
         EditorStyle.update(foreground: runtime.configuredForeground, palette: runtime.configuredANSIPalette)
         EditorStyle.cursor = preferences.cursorColor

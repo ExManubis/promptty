@@ -43,6 +43,9 @@ final class FolderHistoryStore {
         return ranked
     }
 
+    /// The folders commands ran in, most used and most recent first (⌘J).
+    func frecentFolders() -> [FolderHistory.Visited] { history.frecentFolders(now: Date()) }
+
     /// Records a command for this session's suggestions, and on disk only when the shell keeps a
     /// history file itself: a shell with `HISTFILE` unset is not recorded either.
     func add(_ command: String, in directory: String, persist: Bool) {

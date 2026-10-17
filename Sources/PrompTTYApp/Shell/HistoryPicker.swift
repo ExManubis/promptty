@@ -99,7 +99,7 @@ struct HistoryPickerView: View {
         case .up: model.moveSelection(by: -1)
         case .down: model.moveSelection(by: 1)
         case .left, .right: return false
-        case .enter: if let choice = model.choice { choose(choice) }
+        case .enter, .commandEnter: if let choice = model.choice { choose(choice) }
         case .escape: cancel()
         }
         return true

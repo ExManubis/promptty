@@ -107,7 +107,7 @@ struct FolderPickerView: View {
         case .left:
             guard model.browser.query.isEmpty else { return false }
             model.browser.goUp()
-        case .enter:
+        case .enter, .commandEnter:
             if let choice = model.browser.choice { choose(choice) }
         case .escape: cancel()
         }
