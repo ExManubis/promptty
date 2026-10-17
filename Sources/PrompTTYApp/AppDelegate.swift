@@ -114,7 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         saver = DebouncedSaver(delay: .seconds(1)) { [weak self] in self?.saveSession() }
         coordinator.onModelChanged = { [weak self] in self?.saver.schedule() }
         scrollbackTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.saveSession(archivingScrollback: true) }
+            MainActor.assumeIsolated { self?.saveSession(archiving: .changed) }
         }
         scrollbackTimer?.tolerance = 30
         runtime.sink = coordinator
@@ -197,16 +197,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         preferences?.flush()
         coordinator?.secureInput.shutDown()
         coordinator?.stopHooks()
-        saver?.flush()
-        saveSession(archivingScrollback: true)
+        // One save covers a pending one too.
+        saveSession(archiving: .all)
     }
 
-    /// `archivingScrollback`: also write what each tab shows (at quit, and now and then, so a crash
-    /// loses little); otherwise the files written last are named.
-    private func saveSession(archivingScrollback: Bool = false) {
-        let names = archivingScrollback ? coordinator?.archiveScrollback() ?? [:] : coordinator?.archivedScrollback ?? [:]
+    /// Whether a save also writes what the panes show: every pane (at quit), or those whose screen
+    /// changed (now and then, so a crash loses little).
+    private enum Archiving { case none, changed, all }
+
+    /// The session as last written.
+    private var savedSnapshot: SessionSnapshot?
+
+    /// Without archiving, the files written last are named. A session the same as the one last
+    /// written is not written again (but at quit).
+    private func saveSession(archiving: Archiving = .none) {
+        let names = switch archiving {
+        case .none: coordinator?.archivedScrollback ?? [:]
+        case .changed: coordinator?.archiveScrollback(quitting: false) ?? [:]
+        case .all: coordinator?.archiveScrollback(quitting: true) ?? [:]
+        }
+        let snapshot = workspace.snapshot { names[$0.id] }
+        if archiving != .all, snapshot == savedSnapshot { return }
         do {
-            try sessionStore.save(workspace.snapshot { names[$0.id] })
+            try sessionStore.save(snapshot)
+            savedSnapshot = snapshot
         } catch {
             NSLog("PrompTTY: could not save session: \(error)")
         }

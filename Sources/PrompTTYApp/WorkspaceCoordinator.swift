@@ -471,25 +471,42 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
-    /// At quit: writes what each pane shows to the scrollback archive, and returns the file kept
-    /// for each pane. A restored pane never shown keeps the file it came with. Nothing (and no
-    /// files) when the setting is off.
-    func archiveScrollback() -> [PaneID: String] {
+    /// Writes what each pane shows to the scrollback archive (at quit, and every two minutes so a
+    /// crash loses little), and returns the file kept for each pane. Only the last lines are read.
+    /// Except at quit, a pane whose screen has not changed since it was last written keeps that
+    /// file, and the files are written off the main thread. A restored pane never shown keeps the
+    /// file it came with. Nothing (and no files) when the setting is off.
+    func archiveScrollback(quitting: Bool) -> [PaneID: String] {
         let archive = ScrollbackArchive(directory: AppPaths.scrollback)
         let settings = preferences.settings
+        let write = { (work: @escaping @Sendable () -> Void) in
+            if quitting { Self.archiveQueue.sync(execute: work) } else { Self.archiveQueue.async(execute: work) }
+        }
         guard settings.restoreSession, settings.restoreScrollback else {
-            archive.clear()
+            write { archive.clear() }
+            lastArchive = [:]
+            archiveMarks = [:]
             return [:]
         }
         let now = Date()
         var texts: [String: String] = [:]
         var kept = Set<String>()
         var names: [PaneID: String] = [:]
+        var marks: [PaneID: ArchiveMark] = [:]
         for state in workspace.windows {
             guard let controller = controllers[state.id] else { continue }
             for pane in state.tabs.flatMap(\.orderedPanes) {
                 if let surface = controller.surfaces[pane.id] {
-                    guard let text = surface.allText(styled: true),
+                    let mark = ArchiveMark(rows: surface.totalRows, screen: surface.activeScreenText()?.hashValue)
+                    marks[pane.id] = mark
+                    if !quitting, archiveMarks[pane.id] == mark {
+                        if let name = lastArchive[pane.id] {
+                            kept.insert(name)
+                            names[pane.id] = name
+                        }
+                        continue
+                    }
+                    guard let text = surface.recentText(rows: ScrollbackArchive.maxLines, styled: true),
                           let archived = ScrollbackArchive.archived(text, savedAt: now) else { continue }
                     let name = "\(pane.id.rawValue.uuidString).vt"
                     texts[name] = archived
@@ -500,10 +517,22 @@ final class WorkspaceCoordinator: GhosttyActionSink {
                 }
             }
         }
-        archive.replace(with: texts, keeping: kept)
+        write { [texts, kept] in archive.replace(with: texts, keeping: kept) }
         lastArchive = names
+        archiveMarks = marks
         return names
     }
+
+    /// Archive files are written here, in order; at quit the app waits for it.
+    private static let archiveQueue = DispatchQueue(label: "dev.promptty.scrollback", qos: .utility)
+
+    /// What a pane's terminal held when it was last archived: its rows, and its screen's text.
+    private struct ArchiveMark: Equatable {
+        let rows: Int?
+        let screen: Int?
+    }
+
+    private var archiveMarks: [PaneID: ArchiveMark] = [:]
 
     private var lastArchive: [PaneID: String] = [:]
 

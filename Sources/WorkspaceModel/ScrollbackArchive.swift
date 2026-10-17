@@ -18,12 +18,20 @@ public struct ScrollbackArchive: Sendable {
     /// The text to keep from a pane: its last `maxLines` lines without the trailing blank ones (the
     /// empty prompt), then a dim line saying when it was saved. Nil when there is nothing to keep.
     public static func archived(_ text: String, savedAt date: Date, maxLines: Int = maxLines) -> String? {
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { line in
-            line.hasSuffix("\r") ? line.dropLast() : line
+        // From the end back, so a long text is not split whole for its last lines.
+        var lines: [Substring] = []
+        var end = text.endIndex
+        while lines.count < maxLines {
+            let newline = text.utf8[..<end].lastIndex(of: UInt8(ascii: "\n"))
+            let start = newline.map { text.utf8.index(after: $0) } ?? text.startIndex
+            var line = text[start..<end]
+            if line.hasSuffix("\r") { line = line.dropLast() }
+            if !lines.isEmpty || !Self.isBlank(line) { lines.append(line) }
+            guard let newline else { break }
+            end = newline
         }
-        while let last = lines.last, Self.isBlank(last) { lines.removeLast() }
         guard !lines.isEmpty else { return nil }
-        if lines.count > maxLines { lines.removeFirst(lines.count - maxLines) }
+        lines.reverse()
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d, HH:mm"
         formatter.locale = Locale(identifier: "en_US_POSIX")
