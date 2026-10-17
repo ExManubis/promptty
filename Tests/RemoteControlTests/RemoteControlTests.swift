@@ -23,6 +23,31 @@ final class ControlCommandLineTests: XCTestCase {
         XCTAssertEqual(r.options, ["cwd": "/tmp"])
     }
 
+    func testLabelKeepOpenAndBlockOptions() throws {
+        let r = try request(["split", "right", "--label", "tests", "--keep-open", "--json", "--", "make", "test"])
+        XCTAssertEqual(r.options, ["label": "tests"])
+        XCTAssertEqual(r.flags, ["keep-open", "json"])
+        XCTAssertEqual(r.arguments, ["right", "make", "test"])
+        let c = try request(["capture", "-c", "cmd:abcd", "--markdown"])
+        XCTAssertEqual(c.options, ["cmd": "cmd:abcd"])
+        XCTAssertEqual(c.flags, ["markdown"])
+    }
+
+    func testBlockIsRexsNameForAPane() throws {
+        XCTAssertEqual(try request(["-b", "logs", "capture"]).target, "logs")
+        XCTAssertEqual(try request(["capture", "--block", "block:abcd"]).target, "block:abcd")
+    }
+
+    func testWaitNeedsAPaneOrACommandAndWaitsAsLongAsItsTimeout() throws {
+        // Not the caller's own pane, whose command is the one running promptty.
+        XCTAssertThrowsError(try ControlCommandLine.parse(["wait"], caller: "C"))
+        XCTAssertThrowsError(try ControlCommandLine.parse(["wait", "-c", "x", "--timeout", "soon"], caller: nil))
+        let w = try request(["wait", "-c", "1234", "--timeout", "30"])
+        XCTAssertEqual(ControlCommandLine.replyTimeout(for: w), 35)
+        XCTAssertGreaterThan(ControlCommandLine.replyTimeout(for: try request(["wait", "-b", "tests"])), 3600)
+        XCTAssertEqual(ControlCommandLine.replyTimeout(for: try request(["ls"])), 15)
+    }
+
     func testUsageErrors() {
         XCTAssertThrowsError(try ControlCommandLine.parse(["frobnicate"], caller: nil))
         XCTAssertThrowsError(try ControlCommandLine.parse(["split", "sideways"], caller: nil))
@@ -45,6 +70,11 @@ final class PaneTargetTests: XCTestCase {
         XCTAssertEqual(PaneTarget.resolve("aaaa-1111-beef", among: panes), .found("AAAA-1111-BEEF"))
         XCTAssertEqual(PaneTarget.resolve("logs", among: panes), .found("BBBB-2222-BEEF"))
         XCTAssertEqual(PaneTarget.resolve("cafe", among: panes), .found("CCCC-3333-CAFE"))
+    }
+
+    func testRexsBlockPrefixIsOptional() {
+        XCTAssertEqual(PaneTarget.resolve("block:aaaa-1111-beef", among: panes), .found("AAAA-1111-BEEF"))
+        XCTAssertEqual(PaneTarget.resolve("block:cafe", among: panes), .found("CCCC-3333-CAFE"))
     }
 
     func testAmbiguousAndMissing() {

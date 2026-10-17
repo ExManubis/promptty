@@ -20,6 +20,8 @@ public final class Pane {
     public var label: String?
     /// Run at the shell's first prompt (a pinned tab's command), then cleared.
     @ObservationIgnored public var startupCommand: String?
+    /// The id `promptty` gave the startup command before it ran (`CommandLog`), for its block.
+    @ObservationIgnored public var startupBlockID: String?
     /// The name of the file holding what the pane showed before the app quit (`ScrollbackArchive`),
     /// printed above its first prompt, then cleared.
     @ObservationIgnored public var restoredScrollback: String?

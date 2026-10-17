@@ -1,7 +1,8 @@
 import Foundation
 
-/// Finds the pane `-p` names, as Rex resolves its targets: a full id, then a label, then the end
-/// of an id (at least 4 characters). Matching is case-insensitive.
+/// Finds the pane `-p` (or `-b`) names, as Rex resolves its targets: a full id, then a label, then
+/// the end of an id (at least 4 characters). Matching is case-insensitive, and Rex's `block:`
+/// before a pane's id is optional.
 public enum PaneTarget {
     public struct Candidate: Equatable, Sendable {
         public let id: String
@@ -20,7 +21,8 @@ public enum PaneTarget {
     }
 
     public static func resolve(_ query: String, among candidates: [Candidate]) -> Resolution {
-        let q = query.lowercased()
+        var q = query.lowercased()
+        if q.hasPrefix(ControlEnvironment.blockPrefix) { q.removeFirst(ControlEnvironment.blockPrefix.count) }
         guard !q.isEmpty else { return .missing }
         if let exact = candidates.first(where: { $0.id.lowercased() == q }) { return .found(exact.id) }
         let labelled = candidates.filter { $0.label?.lowercased() == q }

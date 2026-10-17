@@ -1,4 +1,5 @@
 import AppKit
+import CommandBlocks
 import CommandEditing
 import SwiftUI
 import Darwin
@@ -183,12 +184,20 @@ final class PaneShell {
 
     /// Run from the bar at the first prompt (a pinned tab's command).
     @ObservationIgnored private var startupCommand: String?
+    /// The id `promptty` gave the startup command, for its record.
+    @ObservationIgnored private var startupBlockID: String?
 
-    init(pane: PaneID, directory: String, integrated: Bool, startupCommand: String? = nil) {
+    /// The commands run from the bar, with ids for `promptty` (`capture -b`, `wait -b`).
+    @ObservationIgnored private(set) var commands = CommandLog()
+    /// A command ended (for `promptty wait`).
+    @ObservationIgnored var onCommandFinished: ((CommandRecord) -> Void)?
+
+    init(pane: PaneID, directory: String, integrated: Bool, startupCommand: String? = nil, startupBlockID: String? = nil) {
         self.pane = pane
         self.directory = directory
         self.integrated = integrated
         self.startupCommand = startupCommand
+        self.startupBlockID = startupBlockID
         editorHeight = CommandTextView.lineHeight(for: EditorStyle.font)
     }
 
@@ -220,7 +229,8 @@ final class PaneShell {
                 MainActor.assumeIsolated {
                     guard let self, self.bar == .active, self.state.phase == .idle, let command = self.startupCommand else { return }
                     self.startupCommand = nil
-                    self.run(command, recordingHistory: false)
+                    self.run(command, recordingHistory: false, id: self.startupBlockID)
+                    self.startupBlockID = nil
                 }
             }
         }
@@ -238,6 +248,7 @@ final class PaneShell {
 
     func commandFinished(code: Int16, durationNs: UInt64) {
         state.commandFinished(code: Int(code), durationNanoseconds: durationNs)
+        if let record = commands.finish(code: Int(code)) { onCommandFinished?(record) }
     }
 
     // MARK: The bar
@@ -369,9 +380,13 @@ final class PaneShell {
 
     /// zsh gets the command as a paste (one line edit, however many lines) followed by Return.
     /// A pinned tab's command, run again at each launch, is not added to the suggestions again.
-    private func run(_ command: String, recordingHistory: Bool = true) {
-        guard state.phase == .idle, let surface else { return }
+    /// Returns the command's id (none for an empty line, or when the pane is not at a prompt).
+    @discardableResult
+    private func run(_ command: String, recordingHistory: Bool = true, id: String? = nil) -> String? {
+        guard state.phase == .idle, let surface else { return nil }
+        var started: String?
         if !command.isEmpty {
+            started = commands.start(command, id: id)
             surface.sendText(command)
             if recordingHistory {
                 history.add(command)
@@ -383,17 +398,34 @@ final class PaneShell {
         editor.textView.commandRan()
         state.submitted()
         phaseChanged()
+        return started
     }
 
     /// A command broadcast from another pane of the tab: run at a prompt, else typed for whatever
     /// runs (an ssh session's shell) and entered.
-    func receiveBroadcast(_ command: String) {
+    /// `promptty send --enter`: runs `command` from the bar now, or at the next prompt when the
+    /// last command has just ended and the prompt is on its way. Returns its id; nil when a
+    /// program has the terminal (the text is the program's to read).
+    func runFromControl(_ command: String) -> String? {
+        if state.phase == .idle, bar == .active { return run(command, recordingHistory: false) }
+        guard integrated, !command.isEmpty, state.phase == .running, startupCommand == nil,
+              let last = commands.records.last, !last.running else { return nil }
+        let id = CommandLog.newID()
+        startupCommand = command
+        startupBlockID = id
+        return id
+    }
+
+    /// Returns the command's id when it ran at a prompt.
+    @discardableResult
+    func receiveBroadcast(_ command: String) -> String? {
         if state.phase == .idle, bar == .active {
-            run(command, recordingHistory: false)
+            return run(command, recordingHistory: false)
         } else if let surface {
             if !command.isEmpty { surface.sendText(command) }
             surface.sendReturn()
         }
+        return nil
     }
 
     /// Puts `command` in the bar in place of its text, for the user to run with Return: only at a
@@ -457,6 +489,7 @@ final class PaneShell {
         guard bar == .active, state.phase == .idle, let surface else { return }
         surface.sendText(command)
         history.add(command)
+        commands.start(command)
         lastCommand = command
         surface.sendReturn()
         keepingDraft = true

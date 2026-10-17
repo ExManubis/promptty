@@ -73,8 +73,22 @@ promptty label server                      # name this pane
 promptty notify "Deploy done"
 ```
 
-`-p` names a pane by its label, its id or the end of its id. Exit status: 0 ok, 1 failed,
-2 usage, 3 no such pane (or more than one), 4 PrompTTY not reachable. Turn it off in
+An agent can work in a pane beside it and read back exactly what its command did. As in Rex, a
+pane is also called a block (`-b` is the same as `-p`, and `$PROMPTTY_BLOCK` holds a pane's own
+id); on top of that every command run from the input bar or by `promptty` has an id of its own:
+
+```sh
+promptty split right --label tests --json -- make test   # {"block": "block:…", "cmd": "cmd:…", "pane": "…"}
+promptty wait -b tests --timeout 600                      # waits for make; exits with its status
+promptty capture -c <cmd>                                 # that command's output, nothing else
+promptty -b tests send --enter --json make lint           # another command, another cmd id
+promptty ls --json                                        # each pane's recent commands and exit codes
+```
+
+`-p`/`-b` names a pane by its label, its id (with or without `block:`) or the end of its id; `-c`
+a command by its id or the end of it. Panes set `TERM_PROGRAM=PrompTTY`. Exit status: 0 ok,
+1 failed, 2 usage, 3 no such pane or command (or more than one), 4 PrompTTY not reachable, 5 `wait`
+timed out. Turn it off in
 **Settings › Tabs › Command line**.
 
 ## Connect your agents
