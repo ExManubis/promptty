@@ -11,11 +11,13 @@ struct ProgramIcon: View {
     var fallbackSymbol = "terminal"
     /// The logo's color, in place of the brand's (on a brand-colored tile).
     var tint: Color?
+    /// One color even for a logo drawn in its own colors (a pane header's glyph, as Rex's).
+    var monochrome = false
 
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        if let program, let logo = program.logo, program.fullColorLogo {
+        if let program, let logo = program.logo, program.fullColorLogo, !monochrome {
             // In its own colors, whatever the tile.
             Image("logo-\(logo)")
                 .renderingMode(.original)

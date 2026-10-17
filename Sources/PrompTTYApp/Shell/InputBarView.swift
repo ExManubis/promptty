@@ -2,8 +2,9 @@ import CommandEditing
 import SwiftUI
 import WorkspaceModel
 
-/// The input bar at the bottom of a pane at a prompt: a Liquid Glass box, inset from the card's
-/// edges, holding a header in place of the shell prompt and the editor below it.
+/// The input bar at the bottom of a pane at a prompt: on the pane's own surface below a hairline
+/// (no card of its own, as Rex's panes have none), a header in place of the shell prompt and the
+/// editor below it.
 struct InputBarView: View {
     let shell: PaneShell
     let dark: Bool
@@ -36,9 +37,9 @@ struct InputBarView: View {
         .frame(maxWidth: .infinity, minHeight: Self.minHeight, alignment: .leading)
         // Its own height, not a share of the pane: the spacers only divide the box's inside.
         .fixedSize(horizontal: false, vertical: true)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
-        .padding([.horizontal, .bottom], Self.inset)
-        .padding(.top, 2)
+        .overlay(alignment: .top) {
+            Rectangle().fill(Color.primary.opacity(0.09)).frame(height: 1).padding(.horizontal, 10)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Command input")
     }

@@ -3,9 +3,9 @@ import Preferences
 import SwiftUI
 import WorkspaceModel
 
-/// A pane's header, as Rex draws one: its program, title and folder (and label) on a slightly
-/// lighter band; split, zoom and close at the right, on the focused pane and under the pointer.
-/// Dragging it moves the pane.
+/// A pane's header, as Rex draws one: the top of the pane itself (no band, no rule), its program as
+/// a one-color glyph, its title and folder (and label); split, zoom and close at the right, on the
+/// focused pane and under the pointer. Dragging it moves the pane.
 struct PaneHeader: View {
     let pane: Pane
     let tab: WorkspaceModel.Tab
@@ -15,7 +15,7 @@ struct PaneHeader: View {
     let actions: ChromeActions
     @State private var hovering = false
 
-    static let height: CGFloat = 30
+    static let height: CGFloat = 28
 
     var body: some View {
         // Read here: only the header redraws as the program changes.
@@ -23,7 +23,9 @@ struct PaneHeader: View {
         let (title, folder) = PaneTitle.titleAndFolder(pane: pane, program: activity.program)
         let lit = focused || !tab.hasSplits
         HStack(spacing: 8) {
-            ProgramTile(program: activity.program)
+            ProgramIcon(program: activity.program, size: 13, fallbackSymbol: "apple.terminal",
+                        tint: Color.primary.opacity(lit ? 0.75 : 0.5), monochrome: true)
+                .frame(width: 16)
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(lit ? Color.primary : Color.secondary)
@@ -70,13 +72,9 @@ struct PaneHeader: View {
             .opacity(focused && tab.hasSplits || hovering ? 1 : 0)
             .animation(.easeOut(duration: 0.12), value: hovering)
         }
-        .padding(.leading, 10)
+        .padding(.leading, 12)
         .padding(.trailing, 6)
         .frame(height: Self.height)
-        .background(Color.primary.opacity(lit ? 0.055 : 0.025))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
-        }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture { actions.focusPane(pane.id) }
