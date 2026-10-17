@@ -29,8 +29,8 @@ struct PaneCard: View {
 
     /// A hairline edge; in a split tab the focused pane's edge is brighter so it stands out.
     private var borderOpacity: Double {
-        guard tab.hasSplits, focused else { return 0.10 }
-        return chrome.panelIsDark ? 0.35 : 0.30
+        guard tab.hasSplits, focused else { return 0.08 }
+        return chrome.panelIsDark ? 0.24 : 0.22
     }
 
     var body: some View {
