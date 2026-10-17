@@ -107,6 +107,21 @@ enum PaneTitle {
         if !own.isEmpty, own != folder, own != pane.workingDirectory { return own }
         return program?.name ?? folder
     }
+
+    /// What a pane header or a strip pill shows: the title, and the folder beside it unless the
+    /// title is the folder. A shell at its prompt says which shell ("zsh ~/api"), as Rex's do.
+    static func titleAndFolder(pane: Pane, program: Program?, customTitle: String? = nil) -> (title: String, folder: String?) {
+        let folder = WorkspaceModel.Tab.abbreviate(pane.workingDirectory)
+        if let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty { return (custom, folder) }
+        let named = title(pane: pane, program: program, folder: folder)
+        if named == folder { return program == nil ? (shellName, folder) : (named, nil) }
+        return (named, folder)
+    }
+
+    static let shellName: String = {
+        let name = (ShellIntegration.loginShell as NSString).lastPathComponent
+        return name.isEmpty ? "Shell" : name
+    }()
 }
 
 /// A small borderless icon button (a block's copy buttons).

@@ -16,15 +16,11 @@ struct PaneHeader: View {
     @State private var hovering = false
 
     static let height: CGFloat = 30
-    private static let shellName = (ShellIntegration.loginShell as NSString).lastPathComponent.nilIfEmpty ?? "Shell"
 
     var body: some View {
         // Read here: only the header redraws as the program changes.
         let activity = actions.activity(for: pane.id)
-        let folder = WorkspaceModel.Tab.abbreviate(pane.workingDirectory)
-        let named = PaneTitle.title(pane: pane, program: activity.program, folder: folder)
-        // A shell at its prompt says which shell, with the folder beside it ("zsh ~/api"), as Rex's do.
-        let title = named == folder && activity.program == nil ? Self.shellName : named
+        let (title, folder) = PaneTitle.titleAndFolder(pane: pane, program: activity.program)
         let lit = focused || !tab.hasSplits
         HStack(spacing: 8) {
             ProgramTile(program: activity.program)
@@ -34,7 +30,7 @@ struct PaneHeader: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .layoutPriority(1)
-            if title != folder {
+            if let folder {
                 Text(folder)
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
@@ -89,7 +85,7 @@ struct PaneHeader: View {
             return DragPayload.provider(DragPayload.pane, id: pane.id.rawValue)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel([title, pane.label, folder == title ? nil : folder].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityLabel([title, pane.label, folder].compactMap { $0 }.joined(separator: ", "))
     }
 }
 
@@ -103,8 +99,4 @@ extension EnvironmentValues {
         get { self[PaneHeadersKey.self] }
         set { self[PaneHeadersKey.self] = newValue }
     }
-}
-
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

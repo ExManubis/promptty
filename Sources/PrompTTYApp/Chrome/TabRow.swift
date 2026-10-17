@@ -179,6 +179,23 @@ struct TabRow: View {
                         .onSubmit(commitRename)
                         .onExitCommand(perform: cancelRename)
                         .onChange(of: fieldFocused) { _, focused in if !focused, renaming { commitRename() } }
+                } else if style == .compact {
+                    // A strip pill, as Rex's tabs read: "Python ~/api", the folder dimmed.
+                    let (title, folder) = PaneTitle.titleAndFolder(pane: tab.focusedPane, program: actions.activity(for: tab.focusedPaneID).program,
+                                                                   customTitle: tab.customTitle)
+                    HStack(spacing: 5) {
+                        Text(title)
+                            .font(.system(size: 12.5, weight: selected ? .semibold : .regular))
+                            .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.8))
+                            .layoutPriority(1)
+                        if let folder {
+                            Text(folder)
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(.tertiary)
+                                .truncationMode(.head)
+                        }
+                    }
+                    .lineLimit(1)
                 } else {
                     Text(tab.listTitle)
                         .font(.system(size: 13, weight: selected ? .medium : .regular))
