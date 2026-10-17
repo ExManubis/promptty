@@ -55,7 +55,12 @@ struct TabRow: View {
     var body: some View {
         content
             .background {
-                RowBackground(selected: selected, hovering: hovering, dropTarget: paneDropTarget, resting: style == .tile)
+                // The strip draws its pills' segments itself (`TabStripView`); a drop still shows.
+                if style != .compact || paneDropTarget {
+                    RowBackground(selected: selected, hovering: hovering, dropTarget: paneDropTarget, resting: style == .tile)
+                } else if hovering, !selected {
+                    RoundedRectangle(cornerRadius: ChromeMetrics.rowCornerRadius, style: .continuous).fill(Color.primary.opacity(0.05))
+                }
             }
             .contentShape(Rectangle())
             .help(tooltip)
