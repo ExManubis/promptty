@@ -29,7 +29,12 @@ struct PaneCard: View {
     private var surface: some View {
         let shape = RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
         if translucent {
-            Color.clear.glassEffect(.clear.tint(Color(nsColor: chrome.panelColor).opacity(Self.glassTint(dark: chrome.panelIsDark, lit: focused || !tab.hasSplits))), in: shape)
+            let lit = focused || !tab.hasSplits
+            Color.clear.glassEffect(.clear.tint(Color(nsColor: chrome.panelColor).opacity(Self.glassTint(dark: chrome.panelIsDark, lit: lit))), in: shape)
+                // Smoked: a thin dark layer in the glass, so the desktop's color shows through the
+                // pane, darkened, as through tinted glass (less theme color alone would let the
+                // brighter desktop lighten the pane).
+                .overlay(shape.fill(Color.black.opacity(Self.smoke(dark: chrome.panelIsDark, lit: lit))))
                 // Rex's edges. The glass lights its own top and bottom edges: in dark, as bright along
                 // the top as Rex's, and brighter along the bottom, so the bottom is shaded back down a
                 // little. A faint line, added to the color under it so it keeps the hue, traces the
@@ -75,13 +80,29 @@ struct PaneCard: View {
         #endif
     }
 
+    /// How dark the glass's smoke is; more on the unfocused panes of a split.
+    static func smoke(dark: Bool, lit: Bool) -> Double {
+        guard dark else { return 0 }
+        let base = debugValue("PROMPTTY_GLASS_SMOKE") ?? 0.35
+        let dim = debugValue("PROMPTTY_GLASS_SMOKE_DIM") ?? 0.08
+        return lit ? base : base + dim
+    }
+
+    private static func debugValue(_ name: String) -> Double? {
+        #if DEBUG
+        ProcessInfo.processInfo.environment[name].flatMap(Double.init)
+        #else
+        nil
+        #endif
+    }
+
     /// How much of the theme's background tints the glass.
     static func glassTint(dark: Bool, lit: Bool) -> Double {
-        let base = tintOverride ?? (dark ? 0.36 : 0.28)
+        let base = tintOverride ?? (dark ? 0.16 : 0.28)
         #if DEBUG
-        let dim = ProcessInfo.processInfo.environment["PROMPTTY_GLASS_DIM"].flatMap(Double.init) ?? (dark ? 0.12 : 0.08)
+        let dim = ProcessInfo.processInfo.environment["PROMPTTY_GLASS_DIM"].flatMap(Double.init) ?? (dark ? 0 : 0.08)
         #else
-        let dim = dark ? 0.12 : 0.08
+        let dim = dark ? 0 : 0.08
         #endif
         return lit ? base : base + dim
     }
