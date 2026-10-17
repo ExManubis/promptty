@@ -15,7 +15,7 @@ public enum ShortcutGroup: String, CaseIterable, Sendable {
 
 /// Every app command that has an editable shortcut.
 public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
-    case newWindow, closeWindow
+    case newWindow, closeWindow, commandPalette
     case newTab, closeTab, nextTab, previousTab
     case gotoTab1, gotoTab2, gotoTab3, gotoTab4, gotoTab5, gotoTab6, gotoTab7, gotoTab8, gotoTab9
     case toggleSidebar, toggleTabLayout
@@ -30,6 +30,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         switch self {
         case .newWindow: return "New Window"
         case .closeWindow: return "Close Window"
+        case .commandPalette: return "Command Palette"
         case .newTab: return "New Tab"
         case .closeTab: return "Close Tab"
         case .nextTab: return "Next Tab"
@@ -70,7 +71,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
 
     public var group: ShortcutGroup {
         switch self {
-        case .newWindow, .closeWindow: return .window
+        case .newWindow, .closeWindow, .commandPalette: return .window
         case .newTab, .closeTab, .nextTab, .previousTab, .toggleSidebar, .toggleTabLayout,
              .gotoTab1, .gotoTab2, .gotoTab3, .gotoTab4, .gotoTab5, .gotoTab6, .gotoTab7, .gotoTab8, .gotoTab9:
             return .tabs
@@ -98,6 +99,7 @@ public struct ShortcutMap: Equatable, Sendable {
     public static let defaults: [ShortcutAction: Shortcut] = [
         .newWindow: s("cmd+n"),
         .closeWindow: s("shift+cmd+w"),
+        .commandPalette: s("shift+cmd+p"),
         .newTab: s("cmd+t"),
         .closeTab: s("opt+cmd+w"),
         .nextTab: s("shift+cmd+]"),

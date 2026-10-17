@@ -39,6 +39,7 @@ enum MainMenu {
         static let selectNextFailed = #selector(TerminalWindowController.selectNextFailedCommand(_:))
         static let copyCommandMarkdown = #selector(TerminalWindowController.copyCommandMarkdown(_:))
         static let rerunCommand = #selector(TerminalWindowController.rerunCommand(_:))
+        static let togglePalette = #selector(TerminalWindowController.togglePalette(_:))
         static let find = #selector(TerminalWindowController.find(_:))
         static let findNext = #selector(TerminalWindowController.findNext(_:))
         static let findPrevious = #selector(TerminalWindowController.findPrevious(_:))
@@ -116,6 +117,8 @@ enum MainMenu {
         menu.addItem(submenu: edit, title: "Edit")
 
         let view = NSMenu(title: "View")
+        view.addItem(item("Command Palette", Action.togglePalette, .commandPalette))
+        view.addItem(.separator())
         view.addItem(item("Bigger", Action.biggerFont, .biggerFont))
         view.addItem(item("Smaller", Action.smallerFont, .smallerFont))
         view.addItem(item("Actual Size", Action.actualSizeFont, .actualSizeFont))

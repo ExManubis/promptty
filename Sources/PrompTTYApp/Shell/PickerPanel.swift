@@ -21,6 +21,7 @@ struct PickerPanel<Rows: View>: View {
     let onCommand: (PickerField.Command) -> Bool
     /// ⌃R in the filter field, for the pickers that take it (history search).
     var onControlR: (() -> Void)?
+    var width: CGFloat = 320
     @ViewBuilder let rows: () -> Rows
 
     static var rowHeight: CGFloat { 24 }
@@ -90,7 +91,7 @@ struct PickerPanel<Rows: View>: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
         }
-        .frame(width: 320)
+        .frame(width: width)
     }
 }
 

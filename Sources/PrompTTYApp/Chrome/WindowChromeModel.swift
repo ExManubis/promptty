@@ -47,6 +47,8 @@ final class WindowChromeModel {
     var forcedPeek = false
     /// A split divider is being dragged: panes follow it without animating.
     var resizingSplit = false
+    /// The open command palette.
+    var palette: PaletteModel?
     /// Panes just closed whose terminals stay alive while their cards shrink away.
     var closingPanes: [PaneID: ClosingPane] = [:]
 
