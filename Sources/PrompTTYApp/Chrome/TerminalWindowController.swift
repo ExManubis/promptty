@@ -171,7 +171,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         let shell = PaneShell(pane: pane.id, directory: pane.workingDirectory, integrated: integrated,
                               startupCommand: integrated ? startup : nil, startupBlockID: integrated ? startupBlock : nil)
         shell.surface = view
-        shell.onCommandFinished = { [weak self] record in self?.coordinator.commandFinished(record) }
+        shell.onCommandFinished = { [weak self] record in self?.coordinator.controlCommands.finished(record) }
         shell.onUserCommand = { [weak self] command in self?.broadcastCommand(command, from: pane.id) }
         shells[pane.id] = shell
         bind(view, to: pane.id)

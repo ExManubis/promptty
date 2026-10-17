@@ -197,7 +197,7 @@ extension WorkspaceCoordinator {
         let command = ShellWords.join(request.arguments)
         let cmd = command.isEmpty ? nil : CommandLog.newID()
         let pane = newTab(in: state, running: command.isEmpty ? nil : command, workingDirectory: folder(for: request), commandID: cmd)
-        if let cmd { pendingCommands[cmd] = (pane, command) }
+        if let cmd { controlCommands.handedOut(cmd, pane: pane, command: command) }
         if let label = request.options["label"] { setLabel(label, of: pane) }
         return created(pane, cmd: cmd, json: request.wantsJSON)
     }
@@ -214,7 +214,7 @@ extension WorkspaceCoordinator {
         let cmd = command.isEmpty ? nil : CommandLog.newID()
         guard let pane = split(source, direction: direction, workingDirectory: request.options["cwd"] != nil ? folder(for: request) : nil,
                                command: command.isEmpty ? nil : command, commandID: cmd) else { return .failed("could not split") }
-        if let cmd { pendingCommands[cmd] = (pane, command) }
+        if let cmd { controlCommands.handedOut(cmd, pane: pane, command: command) }
         if let label = request.options["label"] { setLabel(label, of: pane) }
         return created(pane, cmd: cmd, json: request.wantsJSON)
     }
@@ -247,7 +247,7 @@ extension WorkspaceCoordinator {
         if enter, let shell, let id = shell.runFromControl(text) {
             // Run as if from the bar: now at a prompt, or at the one on its way.
             cmd = id
-            pendingCommands[id] = (pane, text)
+            controlCommands.handedOut(id, pane: pane, command: text)
         } else if !enter, let shell, shell.bar == .active {
             // At a prompt: into the bar.
             shell.editor.textView.setCommand(text)
@@ -287,14 +287,14 @@ extension WorkspaceCoordinator {
             }
         }
         // Handed out, not started yet; forgotten once started or once their pane is gone.
-        for (id, pending) in pendingCommands {
+        for (id, pending) in controlCommands.pending {
             if found.contains(where: { $0.record.id == id }) {
-                pendingCommands[id] = nil
+                controlCommands.forget(id)
             } else if let controller = controller(containing: pending.pane) {
                 found.append((CommandRecord.pending(id: id, command: pending.command), pending.pane, controller))
                 candidates.append(.init(id: id, label: nil))
             } else {
-                pendingCommands[id] = nil
+                controlCommands.forget(id)
             }
         }
         var wanted = query.lowercased()
@@ -379,7 +379,7 @@ extension WorkspaceCoordinator {
             case .failure(let response): return reply(response)
             }
             let shell = controller(containing: pane)?.shell(for: pane)
-            if let pending = pendingCommands.first(where: { $0.value.pane == pane }), shell?.commands.record(pending.key) == nil {
+            if let pending = controlCommands.pending.first(where: { $0.value.pane == pane }), shell?.commands.record(pending.key) == nil {
                 record = CommandRecord.pending(id: pending.key, command: pending.value.command)
             } else if let last = shell?.commands.records.last {
                 record = last
@@ -398,7 +398,7 @@ extension WorkspaceCoordinator {
             once.done = true
             reply(response)
         }
-        let token = commandWaiters.add(id, pane: pane) { outcome in
+        let token = controlCommands.wait(for: id, in: pane) { outcome in
             switch outcome {
             case .finished(let finished): answer(Self.ended(finished, json: json))
             case .paneClosed: answer(.failed("\(id) did not finish: its pane closed"))
@@ -407,26 +407,10 @@ extension WorkspaceCoordinator {
         if let seconds = request.options["timeout"].flatMap(Double.init) {
             DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
                 MainActor.assumeIsolated {
-                    self?.commandWaiters.cancel(token)
+                    self?.controlCommands.cancel(token)
                     answer(ControlResponse(status: .timedOut, text: "\(id) is still running"))
                 }
             }
-        }
-    }
-
-    /// A command ended: its waiters get their answer.
-    func commandFinished(_ record: CommandRecord) {
-        pendingCommands[record.id] = nil
-        for answer in commandWaiters.finished(record) { answer() }
-    }
-
-    /// Panes closed (or their shells stopped): a command there will never report its end, so whoever
-    /// waits for one is answered now, and the ids handed out for commands they had not run yet are
-    /// forgotten.
-    func panesClosed(_ panes: some Sequence<PaneID>) {
-        for pane in panes {
-            pendingCommands = pendingCommands.filter { $0.value.pane != pane }
-            for answer in commandWaiters.paneClosed(pane) { answer() }
         }
     }
 
