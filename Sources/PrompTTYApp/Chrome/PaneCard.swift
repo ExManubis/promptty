@@ -77,11 +77,11 @@ struct PaneCard: View {
 
     /// How much of the theme's background tints the glass.
     static func glassTint(dark: Bool, lit: Bool) -> Double {
-        let base = tintOverride ?? (dark ? 0.48 : 0.35)
+        let base = tintOverride ?? (dark ? 0.36 : 0.28)
         #if DEBUG
-        let dim = ProcessInfo.processInfo.environment["PROMPTTY_GLASS_DIM"].flatMap(Double.init) ?? (dark ? 0.14 : 0.08)
+        let dim = ProcessInfo.processInfo.environment["PROMPTTY_GLASS_DIM"].flatMap(Double.init) ?? (dark ? 0.12 : 0.08)
         #else
-        let dim = dark ? 0.14 : 0.08
+        let dim = dark ? 0.12 : 0.08
         #endif
         return lit ? base : base + dim
     }
