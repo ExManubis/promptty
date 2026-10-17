@@ -4,7 +4,7 @@ import XCTest
 final class SettingsTests: XCTestCase {
     func testDefaultsMatchTheSpec() {
         let s = Settings()
-        XCTAssertEqual(s.version, 2)
+        XCTAssertEqual(s.version, 3)
         XCTAssertEqual(s.fontFamily, "SF Mono")
         XCTAssertEqual(s.fontSize, 13)
         XCTAssertTrue(s.followSystemAppearance)
@@ -13,7 +13,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(s.theme, "Flexoki Dark")
         XCTAssertEqual(s.cursorStyle, .block)
         XCTAssertTrue(s.cursorBlink)
-        XCTAssertEqual(s.tintStrength, 0, "Dia-style neutral frame by default")
+        XCTAssertEqual(s.tintStrength, 1, "the frame follows the theme by default")
         XCTAssertEqual(s.tabLayout, .sidebar)
         XCTAssertEqual(s.sidebarWidth, 220)
         XCTAssertFalse(s.tabListHidden)
@@ -151,11 +151,23 @@ final class SettingsTests: XCTestCase {
     }
 
     /// Version 1 files saved every value, defaults included, so the old Frame color default (0.5)
-    /// was frozen into them. It moves to the new neutral default; a value the user chose stays.
-    func testVersion1FileWithOldFrameDefaultMovesToNeutral() throws {
+    /// was frozen into them. It moved to version 2's neutral default, and from there to version
+    /// 3's theme-colored one; a value the user chose stays.
+    func testVersion1FileWithOldFrameDefaultMovesToTheCurrentDefault() throws {
         let decoded = try JSONDecoder().decode(Settings.self, from: Data(#"{"version": 1, "tintStrength": 0.5}"#.utf8))
-        XCTAssertEqual(decoded.tintStrength, 0)
+        XCTAssertEqual(decoded.tintStrength, 1)
         XCTAssertEqual(decoded.version, Settings.currentVersion)
+    }
+
+    /// Version 2 saved its neutral default (0) into every file; it moves to the theme-colored one.
+    func testVersion2FileWithNeutralFrameMovesToTheme() throws {
+        let decoded = try JSONDecoder().decode(Settings.self, from: Data(#"{"version": 2, "tintStrength": 0}"#.utf8))
+        XCTAssertEqual(decoded.tintStrength, 1)
+    }
+
+    func testCurrentVersionFileKeepsNeutralFrame() throws {
+        let decoded = try JSONDecoder().decode(Settings.self, from: Data(#"{"version": 3, "tintStrength": 0}"#.utf8))
+        XCTAssertEqual(decoded.tintStrength, 0)
     }
 
     func testVersion1FileWithChosenFrameColorKeepsIt() throws {

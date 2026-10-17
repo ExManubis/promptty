@@ -44,7 +44,7 @@ public struct SavedCommand: Codable, Equatable, Identifiable, Sendable {
 /// values and out-of-range numbers: each falls back to its default or is clamped.
 public struct Settings: Equatable, Sendable {
     /// 2: Frame color default moved from 0.5 to 0 (neutral, Dia-style).
-    public static let currentVersion = 2
+    public static let currentVersion = 3
     public static let fontSizeRange: ClosedRange<Double> = 6...72
     public static let sidebarWidthRange: ClosedRange<Double> = 180...320
 
@@ -64,9 +64,9 @@ public struct Settings: Equatable, Sendable {
     /// Keeps a ProMotion display at its full refresh rate while a PrompTTY window is in front,
     /// so a keystroke's frame shows within one 120 Hz refresh. Off by default: battery.
     public var fullRefreshRate = false
-    /// 0…1: how strongly the window backdrop follows the theme background. 0 is the system's
-    /// neutral window color (the Dia-style default).
-    public var tintStrength: Double = 0
+    /// 0…1: how strongly the window frame takes the selected theme's color. 1 (the default) is
+    /// the theme's own hue; 0 is a neutral gray frame.
+    public var tintStrength: Double = 1
     public var paneHeaders = PaneHeaders.always
     /// Panes show the blurred desktop faintly through them, as Rex's do: the card draws the
     /// terminal's background, see-through, and the terminal draws none.
@@ -195,6 +195,9 @@ extension Settings: Codable {
         // keeps its version so the store can reject it.
         if s.version < Self.currentVersion {
             if s.version < 2, s.tintStrength == 0.5 { s.tintStrength = 0 }
+            // The frame follows the theme by default since version 3; the old neutral default
+            // (0) was saved into every file, so it moves to the new one.
+            if s.version < 3, s.tintStrength == 0 { s.tintStrength = 1 }
             s.version = Self.currentVersion
         }
         self = s.normalized()
