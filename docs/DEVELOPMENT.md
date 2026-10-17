@@ -41,6 +41,17 @@ only shortcuts that contain ⌘, plus the vim-style navigation keys.
 PrompTTY loads its zsh integration through `ZDOTDIR` and then the user's own files. Other shells
 get a plain terminal, without the input bar.
 
+## The promptty command
+
+`Sources/promptty` (with `Sources/RemoteControl`) is bundled at `Contents/Resources/bin/promptty`,
+not beside the app's own binary, which on a case-insensitive disk it would clash with. Every pane
+starts with that folder first on its `PATH` and `PROMPTTY_CONTROL`, the control socket
+(`control.sock` in the data folder, mode 0600, the user's own processes only; same fallbacks as the
+hook socket). `promptty` sends one JSON `ControlRequest` line and reads one `ControlResponse` line;
+the app answers on the main thread (`WorkspaceCoordinator+Control.swift`). Panes are found by full
+id, then label, then id suffix (`PaneTarget`). Settings › Tabs › Command line turns answering off
+(status 4).
+
 ## Restored output
 
 With **Settings › Tabs › Keep each tab's output when quitting** on (and session restore on), the

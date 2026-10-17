@@ -33,6 +33,16 @@ enum AppPaths {
     /// the data folder's is too long for a socket (see `HookSocket`).
     static let hookSocket = HookSocket.path(dataFolder: support.path, temporaryDirectory: NSTemporaryDirectory())
 
+    /// Where `promptty` reaches the app (`PROMPTTY_CONTROL` in every pane).
+    static let controlSocket = HookSocket.path(named: "control", dataFolder: support.path, temporaryDirectory: NSTemporaryDirectory())
+
+    /// The folder holding `promptty`, put first on every pane's PATH; nil when the bundle has none.
+    static var commandLineFolder: URL? {
+        guard let folder = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
+              FileManager.default.isExecutableFile(atPath: folder.appendingPathComponent("promptty").path) else { return nil }
+        return folder
+    }
+
     /// Claude Code's user settings, where Settings › Agents installs the hooks. A debug run uses
     /// `<dir>/home/.claude/settings.json`, never the real one.
     static let claudeSettings: URL = {

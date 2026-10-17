@@ -3,6 +3,7 @@ import AppKit
 import CommandEditing
 import GhosttyBridge
 import PaneActivity
+import RemoteControl
 import Preferences
 import SwiftUI
 import WorkspaceModel
@@ -136,7 +137,14 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         }
         pane.restoredScrollback = nil
         // Every pane, whatever its shell: where an agent's hooks report, and for which pane.
-        let hookEnvironment = HookEnvironment.variables(pane: pane.id.rawValue, socket: AppPaths.hookSocket)
+        var hookEnvironment = HookEnvironment.variables(pane: pane.id.rawValue, socket: AppPaths.hookSocket)
+        // `promptty`: the control socket, and the command first on the PATH (zsh's path_helper
+        // and most shell files add to the PATH they find, keeping it).
+        hookEnvironment[ControlEnvironment.socketVariable] = AppPaths.controlSocket
+        if let bin = AppPaths.commandLineFolder {
+            let inherited = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            hookEnvironment["PATH"] = bin.path + ":" + inherited
+        }
         // A pinned tab's command: run from the bar at the first prompt, or typed ahead into a
         // shell without the integration.
         let startup = pane.startupCommand
@@ -244,6 +252,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         (view.overlay as? BlockOverlayView)?.onRerun = { [weak self] command in
             self?.shells[pane]?.rerun(command) ?? false
         }
+        (view.overlay as? BlockOverlayView)?.onSave = { [weak self] command in self?.saveCommand(command) }
         guard let shell = shells[pane] else { return }
         // At a prompt the bar takes the keys, even after a click into the terminal's output
         // (which still selects text there).
@@ -519,6 +528,58 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         }
     }
 
+    /// Asks for a name and saves `command` for the palette.
+    func saveCommand(_ command: String) {
+        guard let window, window.attachedSheet == nil else { return }
+        let alert = NSAlert()
+        alert.messageText = "Save Command"
+        alert.informativeText = "Run it again from ⌘K by its name:\n\(command.count > 120 ? String(command.prefix(120)) + "…" : command)"
+        let firstLine = command.split(separator: "\n").first.map(String.init) ?? command
+        let field = NSTextField(string: String(firstLine.prefix(40)))
+        field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { [weak self] response in
+            if response == .alertFirstButtonReturn {
+                let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                self?.coordinator.preferences.update {
+                    $0.savedCommands.append(SavedCommand(name: name.isEmpty ? String(firstLine.prefix(40)) : name, command: command))
+                }
+            }
+            self?.focusSelectedPane()
+        }
+    }
+
+    /// Runs a saved command in the focused pane at its prompt, else in a new tab.
+    func runSaved(_ command: String, newTab: Bool) {
+        if !newTab, let pane = state.selectedTab?.focusedPaneID, let shell = shell(for: pane), shell.bar == .active {
+            shell.receiveBroadcast(command)
+        } else {
+            coordinator.newTab(in: state, running: command, workingDirectory: state.selectedTab?.workingDirectory)
+        }
+    }
+
+    /// Asks for the focused pane's label (empty: none).
+    @objc func labelPane(_ sender: Any?) {
+        guard let window, window.attachedSheet == nil, let pane = state.selectedTab?.focusedPane else { return }
+        let alert = NSAlert()
+        alert.messageText = "Label Pane"
+        alert.informativeText = "A short name shown on the pane, like \"server\" or \"logs\". `promptty -p NAME` finds it by it."
+        let field = NSTextField(string: pane.label ?? "")
+        field.placeholderString = "No label"
+        field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Label")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { [weak self] response in
+            if response == .alertFirstButtonReturn { self?.coordinator.setLabel(field.stringValue, of: pane.id) }
+            self?.focusSelectedPane()
+        }
+    }
+
     var projects: [Project] { coordinator.workspace.projects }
 
     func newTab(inProject project: ProjectID?) {
@@ -718,6 +779,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             let tab = state.selectedTab
             item.state = tab.map { chrome.broadcastTabs.contains($0.id) } == true ? .on : .off
             return tab?.hasSplits ?? false
+        case #selector(labelPane(_:)):
+            item.title = state.selectedTab?.focusedPane.label == nil ? "Label Pane…" : "Rename Pane Label…"
+            return state.selectedTab != nil
         case #selector(reopenClosedTab(_:)):
             return coordinator.canReopenClosedTab
         case #selector(togglePinTab(_:)):

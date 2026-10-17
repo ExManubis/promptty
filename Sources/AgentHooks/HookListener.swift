@@ -187,7 +187,7 @@ extension HookSocket {
     }
 
     /// `body` with the address as the `sockaddr` and length that `bind` and `connect` take.
-    static func withSockaddr<R>(_ address: sockaddr_un, _ body: (UnsafePointer<sockaddr>, socklen_t) -> R) -> R {
+    public static func withSockaddr<R>(_ address: sockaddr_un, _ body: (UnsafePointer<sockaddr>, socklen_t) -> R) -> R {
         withUnsafePointer(to: address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { body($0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }

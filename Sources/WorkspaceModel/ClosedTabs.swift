@@ -2,13 +2,13 @@ import Foundation
 
 /// A closed tab's panes as they were laid out: each pane's folder, and which one had focus.
 public indirect enum ClosedLayout: Equatable, Sendable {
-    case pane(workingDirectory: String, focused: Bool)
+    case pane(workingDirectory: String, focused: Bool, label: String? = nil)
     case split(axis: SplitAxis, ratio: Double, first: ClosedLayout, second: ClosedLayout)
 
     /// The panes' folders in reading order.
     public var directories: [String] {
         switch self {
-        case .pane(let dir, _): return [dir]
+        case .pane(let dir, _, _): return [dir]
         case .split(_, _, let a, let b): return a.directories + b.directories
         }
     }

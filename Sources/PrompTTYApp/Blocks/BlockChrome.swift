@@ -53,13 +53,15 @@ struct StickyHeader: View {
     }
 }
 
-/// On the block under the pointer: copy its output, its command, or both as Markdown; rerun it.
+/// On the block under the pointer: copy its output, its command, or both as Markdown; rerun it;
+/// save it for the palette.
 struct BlockButtons: View {
     struct Actions {
         var copyOutput: () -> Void = {}
         var copyCommand: () -> Void = {}
         var copyMarkdown: () -> Void = {}
         var rerun: () -> Void = {}
+        var save: () -> Void = {}
     }
 
     let actions: Actions
@@ -70,9 +72,34 @@ struct BlockButtons: View {
             HeaderButton(symbol: "chevron.forward.square", help: "Copy Command", action: actions.copyCommand)
             HeaderButton(symbol: "text.badge.checkmark", help: "Copy as Markdown", action: actions.copyMarkdown)
             HeaderButton(symbol: "arrow.clockwise", help: "Rerun in the input bar", action: actions.rerun)
+            HeaderButton(symbol: "bookmark", help: "Save Command to the palette", action: actions.save)
         }
         .padding(.horizontal, 3)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(FlatSurface(cornerRadius: 7))
     }
+}
+
+/// Over a scrolled-back terminal that printed more below: how much, and a way down to it.
+struct NewOutputPill: View {
+    let count: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(Self.label(count), systemImage: "arrow.down")
+                .font(.system(size: 12, weight: .medium))
+                .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: Capsule())
+        .help("Scroll to the newest output")
+        .accessibilityLabel("\(Self.label(count)) below. Scroll to the newest output.")
+    }
+
+    static func label(_ count: Int) -> String { count == 1 ? "1 new line" : "\(count) new lines" }
 }

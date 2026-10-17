@@ -15,6 +15,29 @@ struct PaletteEntry: Identifiable {
     /// Other words it is found by.
     var keywords = ""
     let run: () -> Void
+    /// ⌘Return: the other thing it can do (a folder: open a new tab there).
+    var alternate: (() -> Void)?
+
+    /// The same entry doing its alternate, for running it.
+    func alternated() -> PaletteEntry {
+        guard let alternate else { return self }
+        return PaletteEntry(id: id, icon: icon, title: title, subtitle: subtitle, shortcut: shortcut, keywords: keywords, run: alternate)
+    }
+}
+
+/// What a palette is for, as it says it: the command palette, or Go to Folder.
+struct PaletteKind {
+    var title = "Command Palette"
+    var icon = "command"
+    var placeholder = "Search tabs, commands and hosts…"
+    var runLabel = "Run"
+    /// The ⌘Return hint; nil when entries have no alternate.
+    var alternateLabel: String?
+    var empty = "No results"
+
+    static let commands = PaletteKind(alternateLabel: "New Tab")
+    static let folders = PaletteKind(title: "Go to Folder", icon: "folder", placeholder: "Jump to a folder…", runLabel: "Go",
+                                     alternateLabel: "New Tab", empty: "No folders yet: they come from the commands you run")
 }
 
 /// The command palette (⌘K): every tab in every window, every menu command and a few more
@@ -30,7 +53,10 @@ final class PaletteModel {
     @ObservationIgnored private let entries: [PaletteEntry]
     @ObservationIgnored private let ranking: [PaletteRanking.Entry]
 
-    init(entries: [PaletteEntry]) {
+    let kind: PaletteKind
+
+    init(entries: [PaletteEntry], kind: PaletteKind = .commands) {
+        self.kind = kind
         self.entries = entries
         ranking = entries.map { PaletteRanking.Entry(title: $0.title, keywords: [$0.subtitle ?? "", $0.keywords].joined(separator: " ")) }
         refresh()
@@ -67,7 +93,7 @@ struct CommandPaletteView: View {
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(.secondary)
                 PickerField(text: Binding(get: { model.query }, set: { model.query = $0 }),
-                            placeholder: "Search tabs, commands and hosts…", onCommand: handle,
+                            placeholder: model.kind.placeholder, onCommand: handle,
                             font: .systemFont(ofSize: 18))
                     .frame(height: 28)
             }
@@ -84,7 +110,7 @@ struct CommandPaletteView: View {
                                 .id(entry.id)
                         }
                         if model.results.isEmpty {
-                            Text("No results")
+                            Text(model.kind.empty)
                                 .font(.system(size: 14))
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, minHeight: Self.rowHeight * 2)
@@ -102,11 +128,13 @@ struct CommandPaletteView: View {
             Divider().opacity(0.5)
 
             HStack(spacing: 14) {
-                Label("Command Palette", systemImage: "command")
+                Label(model.kind.title, systemImage: model.kind.icon)
                     .labelStyle(.titleAndIcon)
                 Spacer()
                 PaletteHint(keys: "↑↓", label: "Select")
-                PaletteHint(keys: "↩", label: "Run")
+                PaletteHint(keys: "↩", label: model.kind.runLabel)
+                // Only for a selected entry that has a second choice (a folder, a saved command).
+                if let alternate = model.kind.alternateLabel, model.choice?.alternate != nil { PaletteHint(keys: "⌘↩", label: alternate) }
                 PaletteHint(keys: "esc", label: "Close")
             }
             .font(.system(size: 12))
@@ -120,7 +148,7 @@ struct CommandPaletteView: View {
         .glassEffect(.regular, in: Self.shape)
         .environment(\.colorScheme, .dark)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Command Palette")
+        .accessibilityLabel(model.kind.title)
     }
 
     private func handle(_ command: PickerField.Command) -> Bool {
@@ -128,7 +156,10 @@ struct CommandPaletteView: View {
         case .up: model.moveSelection(by: -1)
         case .down: model.moveSelection(by: 1)
         case .left, .right: return false
-        case .enter: if let choice = model.choice { run(choice) }
+        case .enter:
+            if let choice = model.choice { run(choice) }
+        case .commandEnter:
+            if let choice = model.choice { run(choice.alternated()) }
         case .escape: cancel()
         }
         return true

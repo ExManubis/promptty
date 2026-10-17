@@ -238,3 +238,28 @@ public enum BlockMarkdown {
         return "\(fence)console\n\(lines.joined(separator: "\n"))\n\(fence)"
     }
 }
+
+/// Whether output arrived below while the screen is scrolled back, and how many lines: what the
+/// "new output" pill says. The rows at the bottom when the user scrolled away are remembered; more
+/// rows since are new.
+public struct NewOutputTracker: Equatable, Sendable {
+    /// The total rows when the screen was last at the newest output.
+    private var anchor: Int?
+
+    public init() {}
+
+    /// The lines added since the screen left the newest output, or nil when it is there (or nothing
+    /// was added).
+    public mutating func update(_ viewport: BlockViewport) -> Int? {
+        guard !viewport.atBottom else {
+            anchor = viewport.totalRows
+            return nil
+        }
+        let start = anchor ?? viewport.totalRows
+        anchor = start
+        // A clear can shrink the scrollback below where it was.
+        if viewport.totalRows < start { anchor = viewport.totalRows }
+        let added = viewport.totalRows - (anchor ?? viewport.totalRows)
+        return added > 0 ? added : nil
+    }
+}

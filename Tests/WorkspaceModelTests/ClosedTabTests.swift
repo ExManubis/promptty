@@ -24,6 +24,7 @@ final class ClosedTabTests: XCTestCase {
         let right = tab.split(tab.focusedPaneID, direction: .right, workingDirectory: "/b/web")
         tab.split(right.id, direction: .down, workingDirectory: "/b/api")
         tab.focus(right.id)
+        right.label = "web"
         let closed = try XCTUnwrap(window.closedTab(tab))
         XCTAssertEqual(closed.index, 1)
         window.closeTab(id: tab.id)
@@ -34,6 +35,7 @@ final class ClosedTabTests: XCTestCase {
         XCTAssertEqual(reopened.customTitle, "server")
         XCTAssertEqual(reopened.orderedPanes.map(\.workingDirectory), ["/b", "/b/web", "/b/api"])
         XCTAssertEqual(reopened.focusedPane.workingDirectory, "/b/web")
+        XCTAssertEqual(reopened.focusedPane.label, "web")
         XCTAssertEqual(reopened.closedLayout, closed.layout)
     }
 
@@ -47,5 +49,24 @@ final class ClosedTabTests: XCTestCase {
         XCTAssertEqual(tab.orderedPanes.map(\.workingDirectory), ["/home", "/here"])
         XCTAssertEqual(tab.workingDirectory, "/here")
         XCTAssertEqual(window.tabs.count, 1)
+    }
+}
+
+@MainActor
+final class PaneLabelTests: XCTestCase {
+    func testLabelsAreOneShortLineOrNothing() {
+        XCTAssertEqual(Pane.label("  server  "), "server")
+        XCTAssertEqual(Pane.label("a\nb"), "a b")
+        XCTAssertNil(Pane.label("   "))
+        XCTAssertEqual(Pane.label(String(repeating: "x", count: 50))?.count, 32)
+    }
+
+    func testTheFocusedPanesLabelSurvivesTheSession() throws {
+        let ws = Workspace()
+        let tab = ws.addWindow().addTab(title: "", workingDirectory: "/tmp")
+        tab.focusedPane.label = "logs"
+        let data = try JSONEncoder().encode(ws.snapshot())
+        let restored = Workspace.restore(from: try JSONDecoder().decode(SessionSnapshot.self, from: data), directoryExists: { _ in true })
+        XCTAssertEqual(restored.windows[0].tabs[0].focusedPane.label, "logs")
     }
 }

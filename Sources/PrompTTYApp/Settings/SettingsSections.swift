@@ -129,6 +129,44 @@ struct TabsSection: View {
             }
 
             Section {
+                if model.settings.savedCommands.isEmpty {
+                    Text("None yet. Save a command from its block (the bookmark button, or right-click it).")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach($model.settings.savedCommands) { $saved in
+                    HStack {
+                        TextField("Name", text: $saved.name)
+                            .frame(maxWidth: 160)
+                        Text(saved.command)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer()
+                        Button {
+                            model.settings.savedCommands.removeAll { $0.id == saved.id }
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Delete \(saved.name)")
+                    }
+                }
+            } header: {
+                Text("Saved commands")
+            } footer: {
+                Text("In ⌘K by name: Return runs one in the focused pane, ⌘Return in a new tab.")
+            }
+
+            Section {
+                Toggle("Allow the promptty command to control the app", isOn: $model.settings.remoteControl)
+            } header: {
+                Text("Command line")
+            } footer: {
+                Text("Every terminal has `promptty` on its PATH: list tabs, open and split panes, type into them and read them from scripts and agents. Run `promptty help` in a pane.")
+            }
+
+            Section {
                 Toggle("Mark tabs that printed while you looked elsewhere", isOn: $model.settings.markUnseenOutput)
                 Toggle("Notify when a long command finishes", isOn: $model.settings.notifyCommands)
                 Picker("Long means at least", selection: $model.settings.notifyAfterSeconds) {

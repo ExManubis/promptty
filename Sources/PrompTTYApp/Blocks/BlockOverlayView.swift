@@ -25,6 +25,10 @@ final class BlockOverlayView: NSView {
     private let header = NSHostingView(rootView: StickyHeader(model: .init()))
     private let buttons = NSHostingView(rootView: BlockButtons(actions: .init()))
     private var headerModel = StickyHeader.Model()
+    /// "↓ 12 new lines": output arrived while the screen is scrolled back.
+    private let newOutputPill = NSHostingView(rootView: NewOutputPill(count: 0, action: {}))
+    private var newOutput = NewOutputTracker()
+    private var newOutputCount: Int?
 
     private var refreshQueued = false
     /// A refresh was skipped while hidden (another tab, or behind a zoom): one comes when shown.
@@ -42,6 +46,8 @@ final class BlockOverlayView: NSView {
     private var headerCommand: (block: BlockSelection, row: Int, text: String)?
     /// Puts a command in the pane's input bar; false when the pane is not at a prompt.
     var onRerun: ((String) -> Bool)?
+    /// Saves a command for the palette (asks for its name).
+    var onSave: ((String) -> Void)?
 
     init(surface: TerminalSurfaceView) {
         self.surface = surface
@@ -58,10 +64,12 @@ final class BlockOverlayView: NSView {
         selectionBar.cornerRadius = 1
         flash.opacity = 0
         for sub in [dividers, failures, selectionFill, selectionBar, flash] { layer?.addSublayer(sub) }
-        for view in [header, buttons] as [NSView] {
+        for view in [header, buttons, newOutputPill] as [NSView] {
             view.isHidden = true
             addSubview(view)
         }
+        newOutputPill.sizingOptions = []
+        newOutputPill.safeAreaRegions = []
         // Laid out here; and near the top of a window with a see-through titlebar, SwiftUI would
         // otherwise push their contents down out of the titlebar's way.
         header.sizingOptions = []
@@ -72,7 +80,8 @@ final class BlockOverlayView: NSView {
             copyOutput: { [weak self] in self?.copyHovered(.output) },
             copyCommand: { [weak self] in self?.copyHovered(.command) },
             copyMarkdown: { [weak self] in self?.copyHovered(.markdown) },
-            rerun: { [weak self] in self?.rerunHovered() }
+            rerun: { [weak self] in self?.rerunHovered() },
+            save: { [weak self] in self?.saveHovered() }
         ))
         surface.overlay = self
         surface.contextMenu = { [weak self] event in self?.contextMenu(for: event) }
@@ -339,11 +348,15 @@ final class BlockOverlayView: NSView {
         render()
         let menu = NSMenu()
         for (title, action) in [("Copy Command", #selector(menuCopyCommand)), ("Copy Output", #selector(menuCopyOutput)),
-                                ("Copy as Markdown", #selector(menuCopyMarkdown)), ("Rerun", #selector(menuRerun))] {
+                                ("Copy as Markdown", #selector(menuCopyMarkdown)), ("Rerun", #selector(menuRerun)),
+                                ("Save Command…", #selector(menuSave))] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
             menu.addItem(item)
         }
+        menu.addItem(.separator())
+        // Through the responder chain, to the window.
+        menu.addItem(NSMenuItem(title: "Label Pane…", action: #selector(TerminalWindowController.labelPane(_:)), keyEquivalent: ""))
         return menu
     }
 
@@ -351,6 +364,24 @@ final class BlockOverlayView: NSView {
     @objc private func menuCopyOutput() { copy(.output) }
     @objc private func menuCopyMarkdown() { copy(.markdown) }
     @objc private func menuRerun() { rerun() }
+    @objc private func menuSave() {
+        guard let snapshot, let index = selection?.index(in: snapshot) else { return }
+        save(index)
+    }
+
+    private func saveHovered() {
+        guard let snapshot, let index = hovered?.index(in: snapshot) ?? selection?.index(in: snapshot) else { return }
+        save(index)
+    }
+
+    private func save(_ index: Int) {
+        guard let snapshot, let block = snapshot.blocks[safe: index],
+              let command = surface?.blockText(row: block.row, part: .command), !command.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        onSave?(command)
+    }
 
     // MARK: Pointer
 
@@ -392,6 +423,7 @@ final class BlockOverlayView: NSView {
         )
         guard state != rendered else { return }
         rendered = state
+        layoutNewOutputPill(snapshot?.viewport)
         guard let snapshot, !snapshot.blocks.isEmpty, bounds.height > 0 else {
             hideAll()
             return
@@ -487,7 +519,7 @@ final class BlockOverlayView: NSView {
             return
         }
         buttonsIndex = index
-        let size = CGSize(width: 6 + 24 * 4, height: 24)
+        let size = CGSize(width: 6 + 24 * 5, height: 24)
         let top = header.isHidden ? 4 : header.frame.maxY + 4
         // At the block's top right, kept on screen while the block is.
         let y = min(max(frame.minY + 3, top), max(top, frame.maxY - size.height - 3))
@@ -498,6 +530,28 @@ final class BlockOverlayView: NSView {
             buttons.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         }
         buttons.isHidden = false
+    }
+
+    /// At the bottom center while lines arrived below a scrolled-back screen; a click goes to them.
+    private func layoutNewOutputPill(_ viewport: BlockViewport?) {
+        let count = viewport.flatMap { newOutput.update($0) }
+        guard let count else {
+            newOutputPill.isHidden = true
+            newOutputCount = nil
+            return
+        }
+        if count != newOutputCount {
+            newOutputCount = count
+            newOutputPill.rootView = NewOutputPill(count: count) { [weak self] in self?.surface?.scrollToBottom() }
+        }
+        // Laid out here (sizing off, as for the header): the label's width, the arrow and padding.
+        let label = NewOutputPill.label(count) as NSString
+        let textWidth = label.size(withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium)]).width
+        let size = CGSize(width: (textWidth + 50).rounded(.up), height: 28)
+        newOutputPill.frame = CGRect(x: ((bounds.width - size.width) / 2).rounded(), y: bounds.height - size.height - 14,
+                                     width: size.width, height: size.height)
+        newOutputPill.appearance = NSAppearance(named: Self.isDark ? .darkAqua : .aqua)
+        newOutputPill.isHidden = false
     }
 
     private func hideAll() {

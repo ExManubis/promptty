@@ -24,7 +24,7 @@ struct PickerPanel<Rows: View>: View {
     var width: CGFloat = 320
     @ViewBuilder let rows: () -> Rows
 
-    static var rowHeight: CGFloat { 24 }
+    static var rowHeight: CGFloat { 28 }
     private static var maxRows: Int { 10 }
 
     var body: some View {
@@ -47,7 +47,7 @@ struct PickerPanel<Rows: View>: View {
             .padding(.horizontal, 10)
             .padding(.top, 10)
 
-            PickerField(text: $query, placeholder: placeholder, onCommand: onCommand, onControlR: onControlR)
+            PickerField(text: $query, placeholder: placeholder, onCommand: onCommand, onControlR: onControlR, font: .systemFont(ofSize: 14))
                 .frame(height: 22)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
@@ -77,19 +77,24 @@ struct PickerPanel<Rows: View>: View {
 
             Divider()
 
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 ForEach(Array(hints.enumerated()), id: \.offset) { index, hint in
                     if index == hints.count - 1 { Spacer(minLength: 0) }
-                    HStack(spacing: 3) {
-                        Text(hint.key).fontWeight(.semibold)
+                    // Keycaps, as the command palette shows its keys.
+                    HStack(spacing: 4) {
+                        Text(hint.key)
+                            .font(.system(size: 10, weight: .medium))
+                            .padding(.horizontal, 4)
+                            .frame(minHeight: 16)
+                            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                         Text(hint.label)
                     }
                 }
             }
-            .font(.system(size: 10))
+            .font(.system(size: 11))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.vertical, 8)
         }
         .frame(width: width)
     }
@@ -125,7 +130,7 @@ struct PickerRow<Accessory: View>: View {
                     Image(systemName: icon)
                         .imageScale(.small)
                         .frame(width: 16)
-                        .foregroundStyle(selected ? Color.white.opacity(0.9) : Color.secondary)
+                        .foregroundStyle(.secondary)
                     Text(title)
                         .font(.system(size: 13))
                         .lineLimit(1)
@@ -143,17 +148,18 @@ struct PickerRow<Accessory: View>: View {
             .accessibilityHint(accessibilityHint)
             .accessibilityAddTraits(selected ? .isSelected : [])
             accessory(hovering)
-                .foregroundStyle(selected ? Color.white.opacity(0.9) : Color.secondary)
+                .foregroundStyle(.secondary)
         }
         .padding(.trailing, 2)
         .frame(maxWidth: .infinity, minHeight: PickerPanel<EmptyView>.rowHeight, maxHeight: PickerPanel<EmptyView>.rowHeight)
-        .foregroundStyle(selected ? Color.white : Color.primary)
+        .foregroundStyle(Color.primary)
+        // A quiet highlight, as the command palette's.
         .background {
-            let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+            let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
             if selected {
-                shape.fill(Color.accentColor.opacity(0.85))
+                shape.fill(Color.primary.opacity(0.12))
             } else if hovering {
-                shape.fill(Color.primary.opacity(0.06))
+                shape.fill(Color.primary.opacity(0.05))
             }
         }
         .onHover { hovering = $0 }
@@ -164,7 +170,8 @@ struct PickerRow<Accessory: View>: View {
 /// A picker's filter field. The arrows, ⏎ and ⎋ drive the list instead of the text, except ←
 /// and → when the picker has nothing to do with them.
 struct PickerField: NSViewRepresentable {
-    enum Command { case up, down, left, right, enter, escape }
+    /// `commandEnter`: ⌘Return, which pickers without a second choice treat as Return.
+    enum Command { case up, down, left, right, enter, commandEnter, escape }
 
     @Binding var text: String
     let placeholder: String
@@ -188,6 +195,7 @@ struct PickerField: NSViewRepresentable {
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
         (field as? FocusingTextField)?.onControlR = onControlR
+        (field as? FocusingTextField)?.onCommandReturn = { _ = context.coordinator.parent.onCommand(.commandEnter) }
         if field.stringValue != text { field.stringValue = text }
     }
 
@@ -223,6 +231,7 @@ struct PickerField: NSViewRepresentable {
 /// loop: a field made first responder before its first layout draws its placeholder as text.
 private final class FocusingTextField: NSTextField {
     var onControlR: (() -> Void)?
+    var onCommandReturn: (() -> Void)?
 
     /// ⌃R has no text-editing meaning, so it never reaches `doCommandBy`: seen here, before the
     /// field editor gets the key.
@@ -230,6 +239,11 @@ private final class FocusingTextField: NSTextField {
         let mods = event.modifierFlags.intersection([.shift, .control, .option, .command])
         if let onControlR, mods == .control, event.charactersIgnoringModifiers?.lowercased() == "r" {
             onControlR()
+            return true
+        }
+        // ⌘Return is a key equivalent, never a newline for the field.
+        if let onCommandReturn, mods == .command, event.keyCode == 36 || event.keyCode == 76 {
+            onCommandReturn()
             return true
         }
         return super.performKeyEquivalent(with: event)

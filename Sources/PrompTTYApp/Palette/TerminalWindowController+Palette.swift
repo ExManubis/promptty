@@ -11,6 +11,51 @@ extension TerminalWindowController {
         chrome.palette = PaletteModel(entries: paletteEntries())
     }
 
+    /// Go to Folder (⌘J): the folders worked in, best first, and the open tabs' folders. Return
+    /// changes the focused pane's folder (at a prompt; else a new tab opens there), ⌘Return opens a
+    /// new tab there.
+    @objc func goToFolder(_ sender: Any?) {
+        if chrome.palette != nil { return closePalette(running: nil) }
+        chrome.palette = PaletteModel(entries: folderEntries(), kind: .folders)
+    }
+
+    private func folderEntries() -> [PaletteEntry] {
+        let fm = FileManager.default
+        let open = Set(coordinator.workspace.windows.flatMap { $0.tabs.flatMap { $0.orderedPanes.map(\.workingDirectory) } })
+        var seen = Set<String>()
+        var entries: [PaletteEntry] = []
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        func add(_ directory: String, subtitle: String?) {
+            var isDirectory: ObjCBool = false
+            guard seen.insert(directory).inserted, fm.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else { return }
+            entries.append(PaletteEntry(
+                id: "folder:\(directory)", icon: open.contains(directory) ? "folder.fill" : "folder",
+                title: Tab.abbreviate(directory), subtitle: subtitle, keywords: (directory as NSString).lastPathComponent,
+                run: { [weak self] in self?.changeFolder(to: directory) },
+                alternate: { [weak self] in
+                    guard let self else { return }
+                    self.coordinator.newTab(in: self.state, running: nil, workingDirectory: directory)
+                }
+            ))
+        }
+        for visited in FolderHistoryStore.shared.frecentFolders() {
+            let commands = visited.commands == 1 ? "1 command" : "\(visited.commands) commands"
+            add(visited.directory, subtitle: "\(commands) · \(formatter.localizedString(for: visited.last, relativeTo: Date()))")
+        }
+        for directory in open.sorted() { add(directory, subtitle: "open") }
+        return entries
+    }
+
+    /// `cd` in the focused pane at its prompt; with a program running there, a new tab instead.
+    private func changeFolder(to directory: String) {
+        guard let pane = state.selectedTab?.focusedPaneID, let shell = shell(for: pane), shell.bar == .active else {
+            coordinator.newTab(in: state, running: nil, workingDirectory: directory)
+            return
+        }
+        shell.changeDirectory(to: directory)
+    }
+
     func closePalette(running entry: PaletteEntry?) {
         guard chrome.palette != nil else { return }
         chrome.palette = nil
@@ -29,7 +74,7 @@ extension TerminalWindowController {
                 .map { shortcuts.shortcut(for: $0).displayString }
         }
         let app = commands.filter { $0.subtitle == "PrompTTY" }
-        return tabEntries() + projectEntries() + commands.filter { $0.subtitle != "PrompTTY" } + sshEntries() + app
+        return tabEntries() + savedEntries() + projectEntries() + commands.filter { $0.subtitle != "PrompTTY" } + sshEntries() + app
     }
 
     /// Every tab in every window, this window's first, the selected one last (it is where you are).
@@ -43,20 +88,33 @@ extension TerminalWindowController {
                 let pane = tab.focusedPaneID
                 let agent = coordinator.agentList.summary(for: tab.id)
                 let current = window.id == state.id && tab.id == state.selectedTabID
-                var subtitle = [tab.listSubtitle, agent.map { _ in "agent" }]
+                let labels = tab.orderedPanes.compactMap(\.label)
+                var subtitle = [labels.isEmpty ? nil : labels.joined(separator: ", "), tab.listSubtitle, agent.map { _ in "agent" }]
                 subtitle.append(current ? "this tab" : number > 0 ? "tab in another window" : "tab")
                 let entry = PaletteEntry(
                     id: "tab:\(tab.id)",
                     icon: agent != nil ? "sparkle" : tab.pin != nil ? "pin" : "terminal",
                     title: tab.listTitle,
                     subtitle: subtitle.compactMap { $0 }.joined(separator: " · "),
-                    keywords: "tab \(tab.workingDirectory) \(tab.customTitle ?? "")",
+                    keywords: "tab \(tab.workingDirectory) \(tab.customTitle ?? "") \(labels.joined(separator: " "))",
                     run: { [weak self] in self?.coordinator.reveal(pane) }
                 )
                 if current { selected = entry } else { entries.append(entry) }
             }
         }
         return entries + [selected].compactMap { $0 }
+    }
+
+    /// The saved commands: Return runs one in the focused pane, ⌘Return in a new tab.
+    private func savedEntries() -> [PaletteEntry] {
+        coordinator.preferences.settings.savedCommands.map { saved in
+            PaletteEntry(
+                id: "saved:\(saved.id)", icon: "play.fill", title: saved.name,
+                subtitle: saved.command.replacingOccurrences(of: "\n", with: " ↵ "), keywords: "saved command run",
+                run: { [weak self] in self?.runSaved(saved.command, newTab: false) },
+                alternate: { [weak self] in self?.runSaved(saved.command, newTab: true) }
+            )
+        }
     }
 
     /// A new tab connected to each host in `~/.ssh/config`.

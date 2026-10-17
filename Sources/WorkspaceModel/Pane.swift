@@ -15,17 +15,29 @@ public final class Pane {
     public var title: String
     /// Last working directory reported via OSC 7 (Ghostty `pwd`), or the launch directory.
     public var workingDirectory: String
+    /// The user's name for the pane ("server", "logs"): shown on it, and what `promptty -p`
+    /// finds it by. Nil when it has none.
+    public var label: String?
     /// Run at the shell's first prompt (a pinned tab's command), then cleared.
     @ObservationIgnored public var startupCommand: String?
     /// The name of the file holding what the pane showed before the app quit (`ScrollbackArchive`),
     /// printed above its first prompt, then cleared.
     @ObservationIgnored public var restoredScrollback: String?
 
-    public init(id: PaneID = PaneID(), title: String = "", workingDirectory: String, startupCommand: String? = nil) {
+    public init(id: PaneID = PaneID(), title: String = "", workingDirectory: String, startupCommand: String? = nil, label: String? = nil) {
         self.id = id
+        self.label = label
         self.title = title
         self.workingDirectory = workingDirectory
         self.startupCommand = startupCommand
+    }
+
+    /// A label as the user typed it, made safe and short: one line, at most 32 characters, nil when
+    /// nothing is left.
+    public static func label(_ text: String) -> String? {
+        let clean = Tab.sanitize(text).trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty else { return nil }
+        return String(clean.prefix(32))
     }
 
     /// A title as a program set it, without the spinner it may animate in front ("✳ Claude

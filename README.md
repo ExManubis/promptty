@@ -28,17 +28,23 @@
   Tab completion, syntax coloring, vi mode and fuzzy history search (⌃R).
 - **Command blocks.** Every command and its output is a block you can jump between, copy, copy
   as Markdown or rerun. ⌃⌘↑ jumps straight to the last failure. ⌘F finds anything in the
-  scrollback, every match highlighted.
+  scrollback, every match highlighted. Scrolled back while a command keeps printing, a pill says
+  how many new lines are below; click it to jump down.
 - **Pick up where you left off.** Quit and reopen PrompTTY: every tab comes back in its folder
   with what it printed before, colors included, above a fresh prompt (zsh).
 - **Projects and pinned tabs.** Group tabs into projects. Pin a tab running `claude` or
   `npm run dev` and it comes back, still running, the next time you open PrompTTY.
+- **Jump to a folder.** ⌘J lists the folders you work in, most used and most recent first:
+  Return goes there, ⌘Return opens a new tab there.
 - **Quick terminal.** ⌥↩ from any app drops a terminal down from the top of the screen; the
   same keys (or clicking elsewhere) put it away, its shell still running. Change the keys or turn
   it off in Settings › Keyboard.
 - **Command palette.** ⌘K finds any tab in any window and runs any command by name, with its
-  shortcut beside it.
-- **Splits.** Split right or down, drag to resize, zoom one pane to fill the tab.
+  shortcut beside it. Save a command you run often from its block (the bookmark button) and it
+  is in ⌘K by name: Return runs it here, ⌘Return in a new tab.
+- **Splits.** Split right or down, drag to resize, zoom one pane to fill the tab. Name a pane
+  ("server", "logs") with **Window › Label Pane…**; the label sits on the pane and is kept with
+  the session.
 - **Type into every pane at once.** ⌥⇧⌘I broadcasts what you type to all panes of a tab (handy
   for the same command on several servers); each pane wears an orange border while it's on.
 - **Undo a closed tab.** ⇧⌘T brings back the last ten closed tabs, splits and folders included.
@@ -49,6 +55,25 @@
 
 Download the latest `.dmg` from [Releases](https://github.com/ExManubis/promptty/releases) and
 drag PrompTTY to Applications. Requires an Apple silicon Mac with macOS 26.
+
+## Script it
+
+Every PrompTTY terminal has a `promptty` command, so scripts, editors and agents can drive the
+app:
+
+```sh
+promptty ls                                # windows, tabs and panes (--json for scripts)
+promptty split right -- npm run dev        # a pane beside this one, running the dev server
+promptty new-tab --cwd ~/api -- make test  # a new tab
+promptty -p logs send 'tail -f app.log' --enter
+promptty -p logs capture                   # what that pane shows (--all: its scrollback too)
+promptty label server                      # name this pane
+promptty notify "Deploy done"
+```
+
+`-p` names a pane by its label, its id or the end of its id. Exit status: 0 ok, 1 failed,
+2 usage, 3 no such pane (or more than one), 4 PrompTTY not reachable. Turn it off in
+**Settings › Tabs › Command line**.
 
 ## Connect your agents
 
@@ -74,6 +99,7 @@ included), and Option works as Alt. Every shortcut can be changed in **Settings 
 | New window / close window | ⌘N / ⇧⌘W |
 | New tab / close tab | ⌘T / ⌥⌘W |
 | Reopen the last closed tab | ⇧⌘T |
+| Go to a folder | ⌘J |
 | Next / previous tab, go to tab 1–9 | ⇧⌘] / ⇧⌘[, ⌘1…⌘9 |
 | Toggle sidebar / sidebar or strip | ⌘B / ⌃⌘S |
 | Split right / split down | ⌘D / ⇧⌘D |

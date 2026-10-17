@@ -60,6 +60,32 @@ public struct FolderHistory: Sendable {
         return ranked
     }
 
+    /// A folder worked in, for jumping back to it (⌘J).
+    public struct Visited: Equatable, Sendable {
+        public let directory: String
+        public let commands: Int
+        public let last: Date
+    }
+
+    /// The folders commands ran in, most used and most recent first, as zoxide ranks them: each
+    /// command counts more the newer it is (4× in the last hour, 2× today, ½× this week, ¼× before).
+    public func frecentFolders(now: Date, limit: Int = 200) -> [Visited] {
+        var score: [String: Double] = [:]
+        var count: [String: Int] = [:]
+        var last: [String: Date] = [:]
+        for entry in entries {
+            let age = now.timeIntervalSince(entry.date)
+            let weight: Double = age < 3600 ? 4 : age < 86400 ? 2 : age < 604_800 ? 0.5 : 0.25
+            score[entry.directory, default: 0] += weight
+            count[entry.directory, default: 0] += 1
+            if last[entry.directory].map({ entry.date > $0 }) ?? true { last[entry.directory] = entry.date }
+        }
+        return score.keys
+            .sorted { a, b in score[a]! != score[b]! ? score[a]! > score[b]! : last[a]! > last[b]! }
+            .prefix(limit)
+            .map { Visited(directory: $0, commands: count[$0]!, last: last[$0]!) }
+    }
+
     /// One entry as a line of JSON, for appending to the history file.
     public static func line(for entry: Entry) -> Data {
         let encoder = JSONEncoder()

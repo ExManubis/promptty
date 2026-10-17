@@ -547,6 +547,25 @@ enum DebugHooks {
             coordinator.showTransientBanner(args.joined(separator: " "))
             return ""
         }
+        // eval label <text> — labels the key window's focused pane (empty: none).
+        driver.hooks["label"] = { args in
+            guard let pane = coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true })?.state.selectedTab?.focusedPaneID
+                    ?? coordinator.allControllers.first?.state.selectedTab?.focusedPaneID else { return "error: no pane" }
+            coordinator.setLabel(args.joined(separator: " "), of: pane)
+            return ""
+        }
+        // eval savecommand <name> <command…> — saves a command for the palette, as its block's button does.
+        driver.hooks["savecommand"] = { args in
+            guard args.count >= 2 else { return "error: savecommand name command" }
+            coordinator.preferences.update { $0.savedCommands.append(SavedCommand(name: args[0], command: args.dropFirst().joined(separator: " "))) }
+            return ""
+        }
+        // eval binding <action> — runs a libghostty binding action (scroll_page_up, …) in the
+        // first window's focused terminal.
+        driver.hooks["binding"] = { args in
+            guard let surface = coordinator.allControllers.first?.focusedSurface, let action = args.first else { return "error: binding action" }
+            return surface.performBindingAction(action) ? "" : "error: not performed"
+        }
         // eval quick — the quick terminal's state.
         driver.hooks["quick"] = { _ in coordinator.quickTerminal?.debugState ?? "no quick terminal" }
         driver.hooks["settings"] = { args in
