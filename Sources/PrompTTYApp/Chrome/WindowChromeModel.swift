@@ -46,8 +46,6 @@ final class WindowChromeModel {
     var draggingPane: PaneID?
     /// A tab is being dragged: the pinned tabs' drop zone shows even with none pinned.
     var draggingTab: TabID?
-    /// Debug driver: the tab whose preview shows without hovering.
-    var forcedPreview: TabID?
     /// Debug driver: the collapsed sidebar peeks in without hovering.
     var forcedPeek = false
     /// A split divider is being dragged: panes follow it without animating.

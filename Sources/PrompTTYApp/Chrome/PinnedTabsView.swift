@@ -13,8 +13,6 @@ struct PinnedTabsGrid: View {
     static let maxColumns = 4
 
     @State private var dropTargeted = false
-    /// The grid's right edge in the window, where the tiles' previews go.
-    @State private var trailingEdge: CGFloat = 0
 
     var body: some View {
         let pinned = Array(state.tabs.prefix(state.pinnedCount))
@@ -26,7 +24,7 @@ struct PinnedTabsGrid: View {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Self.spacing), count: columns), spacing: Self.spacing) {
                     ForEach(Array(pinned.enumerated()), id: \.element.id) { index, tab in
                         TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .tile,
-                               chrome: chrome, actions: actions, previewEdge: trailingEdge + ChromeMetrics.sidebarHorizontalPadding)
+                               chrome: chrome, actions: actions, largeTile: true)
                             .frame(height: Self.tileHeight)
                     }
                     if dragging {
@@ -40,7 +38,6 @@ struct PinnedTabsGrid: View {
                     .padding(.horizontal, 4)
             }
             .padding(.bottom, 6)
-            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxX } action: { trailingEdge = $0 }
             // Dropped between or past the tiles: pinned after the others.
             .onDrop(of: [DragPayload.tab], isTargeted: $dropTargeted) { providers in
                 chrome.draggingTab = nil
