@@ -193,7 +193,7 @@ final class CompletionSnapshotTests: XCTestCase {
 
     func testCdOffersFoldersOnlyStartingThenContainingThenLettersInOrder() {
         let c = folders("cd f|")
-        XCTAssertEqual(c?.candidates, ["Firefox/", "fixtures/", "graphics/", "lefty/"])
+        XCTAssertEqual(c?.candidates, ["Firefox/", "fixtures/", "lefty/"])
         XCTAssertEqual(c?.folders, true)
         XCTAssertEqual(folders("cd fx|")?.candidates, ["Firefox/", "fixtures/"])
     }
