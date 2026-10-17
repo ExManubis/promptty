@@ -53,7 +53,12 @@ struct PaneCard: View {
     /// How much of the theme's background tints the glass.
     static func glassTint(dark: Bool, lit: Bool) -> Double {
         let base = tintOverride ?? (dark ? 0.30 : 0.35)
-        return lit ? base : base + 0.08
+        #if DEBUG
+        let dim = ProcessInfo.processInfo.environment["PROMPTTY_GLASS_DIM"].flatMap(Double.init) ?? (dark ? 0.16 : 0.08)
+        #else
+        let dim = dark ? 0.16 : 0.08
+        #endif
+        return lit ? base : base + dim
     }
 
     /// The card's edge: opaque cards keep a plain hairline.
