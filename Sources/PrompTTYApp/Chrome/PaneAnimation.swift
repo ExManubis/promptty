@@ -11,9 +11,16 @@ enum PaneAnimation {
     /// A new pane grows out of, and a closing pane shrinks into, this fraction of its frame.
     static let popScale: CGFloat = 0.85
     static let closeDuration: TimeInterval = 0.2
-    /// Tabs only fade: moving a whole terminal reads as scrolling it.
-    static let tabCurve = UnitCurve.easeOut
-    static let tabDuration: TimeInterval = 0.2
+    /// Tabs only fade, through: the old one out, then the new one in (see
+    /// `PaneMotion.tabFadeOpacity`, which eases each half). Moving a whole terminal reads as
+    /// scrolling it.
+    static let tabCurve = UnitCurve.linear
+    static let tabDuration: TimeInterval = {
+        #if DEBUG
+        if let slow = ProcessInfo.processInfo.environment["PROMPTTY_TAB_FADE"].flatMap(Double.init) { return slow }
+        #endif
+        return 0.25
+    }()
     static let focusFade = Animation.easeOut(duration: 0.18)
     /// The sidebar collapsing or expanding. No overshoot: the panes resize with the sidebar.
     static let sidebarSpring = Spring(duration: 0.3, bounce: 0)
