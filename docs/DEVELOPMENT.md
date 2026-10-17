@@ -107,3 +107,9 @@ is checked in automated runs:
     ./script/drive stop /tmp/ptty
 
 See `Sources/PrompTTYApp/Debug/DebugDriver.swift` for the command list.
+
+A driven run keeps to its folder: settings and session in `<dir>/support`, Claude Code's settings
+and ssh config in `<dir>/home`. Its panes still load your own `.zshrc`, but from the first prompt
+on their history file is `<dir>/home/.zsh_history`, whatever `.zshrc` sets `HISTFILE` to: the
+commands a run types never reach your real `~/.zsh_history`, and ⌃R shows only that folder's
+history.

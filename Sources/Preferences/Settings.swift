@@ -13,6 +13,11 @@ public enum ClipboardAccess: String, Codable, CaseIterable, Sendable {
     case ask, allow, deny
 }
 
+/// When panes show a header (program, title, folder, buttons), as Rex's do.
+public enum PaneHeaders: String, Codable, CaseIterable, Sendable {
+    case always, splits, never
+}
+
 public enum NewTabDirectory: String, Codable, CaseIterable, Sendable {
     case currentPane, home
 }
@@ -62,6 +67,10 @@ public struct Settings: Equatable, Sendable {
     /// 0…1: how strongly the window backdrop follows the theme background. 0 is the system's
     /// neutral window color (the Dia-style default).
     public var tintStrength: Double = 0
+    public var paneHeaders = PaneHeaders.always
+    /// Panes show the blurred desktop faintly through them, as Rex's do: the card draws the
+    /// terminal's background, see-through, and the terminal draws none.
+    public var translucentPanes = true
 
     // Tabs & windows
     public var tabLayout = TabLayoutSetting.sidebar
@@ -135,7 +144,7 @@ extension Settings: Codable {
         case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, tabLayout, sidebarWidth, tabListHidden
         case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, secureKeyboardEntry, shortcuts
         case clipboardRead, clipboardWrite, clipboardReadPrograms, clipboardWritePrograms
-        case notifyCommands, notifyAfterSeconds, restoreScrollback, markUnseenOutput, quickTerminal, remoteControl, savedCommands
+        case notifyCommands, notifyAfterSeconds, restoreScrollback, markUnseenOutput, quickTerminal, remoteControl, savedCommands, paneHeaders, translucentPanes
     }
 
     public init(from decoder: Decoder) throws {
@@ -169,6 +178,8 @@ extension Settings: Codable {
         s.quickTerminal = value(.quickTerminal, s.quickTerminal)
         s.remoteControl = value(.remoteControl, s.remoteControl)
         s.savedCommands = value(.savedCommands, s.savedCommands)
+        s.paneHeaders = value(.paneHeaders, s.paneHeaders)
+        s.translucentPanes = value(.translucentPanes, s.translucentPanes)
         s.optionAsAlt = value(.optionAsAlt, s.optionAsAlt)
         s.vimNavigation = value(.vimNavigation, s.vimNavigation)
         s.secureKeyboardEntry = value(.secureKeyboardEntry, s.secureKeyboardEntry)
@@ -216,6 +227,8 @@ extension Settings: Codable {
         try c.encode(quickTerminal, forKey: .quickTerminal)
         try c.encode(remoteControl, forKey: .remoteControl)
         try c.encode(savedCommands, forKey: .savedCommands)
+        try c.encode(paneHeaders, forKey: .paneHeaders)
+        try c.encode(translucentPanes, forKey: .translucentPanes)
         try c.encode(optionAsAlt, forKey: .optionAsAlt)
         try c.encode(vimNavigation, forKey: .vimNavigation)
         try c.encode(secureKeyboardEntry, forKey: .secureKeyboardEntry)

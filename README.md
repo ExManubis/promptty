@@ -42,7 +42,9 @@
 - **Command palette.** ⌘K finds any tab in any window and runs any command by name, with its
   shortcut beside it. Save a command you run often from its block (the bookmark button) and it
   is in ⌘K by name: Return runs it here, ⌘Return in a new tab.
-- **Splits.** Split right or down, drag to resize, zoom one pane to fill the tab. Name a pane
+- **Splits.** Split right or down, drag to resize, zoom one pane to fill the tab. Each pane has a
+  header with its program, title and folder; its buttons split, zoom and close, and dragging it
+  moves the pane (Settings › Appearance › Pane headers). Name a pane
   ("server", "logs") with **Window › Label Pane…**; the label sits on the pane and is kept with
   the session.
 - **Type into every pane at once.** ⌥⇧⌘I broadcasts what you type to all panes of a tab (handy

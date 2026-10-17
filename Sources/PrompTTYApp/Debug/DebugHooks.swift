@@ -566,6 +566,12 @@ enum DebugHooks {
             guard let surface = coordinator.allControllers.first?.focusedSurface, let action = args.first else { return "error: binding action" }
             return surface.performBindingAction(action) ? "" : "error: not performed"
         }
+        // eval backdrop on|off — a colorful wallpaper window behind the first terminal window (in
+        // this process, so a `composite` snapshot shows it through see-through chrome).
+        driver.hooks["backdrop"] = { args in
+            DebugBackdrop.shared.set(args.first == "on", behind: coordinator.allControllers.first?.window)
+            return ""
+        }
         // eval quick — the quick terminal's state.
         driver.hooks["quick"] = { _ in coordinator.quickTerminal?.debugState ?? "no quick terminal" }
         driver.hooks["settings"] = { args in
@@ -680,6 +686,45 @@ final class FrameCounter: NSObject {
         func pct(_ p: Double) -> String { gaps.isEmpty ? "-" : String(format: "%.1f", gaps[min(gaps.count - 1, Int(Double(gaps.count) * p))]) }
         return String(format: "frames=%d in %.1fs (%.1f fps) gap ms p50=%@ p90=%@ p99=%@ max=%@", frames.count, elapsed, Double(frames.count) / elapsed,
                       pct(0.5), pct(0.9), pct(0.99), gaps.last.map { String(format: "%.1f", $0) } ?? "-")
+    }
+}
+#endif
+
+#if DEBUG
+/// A Rex-like wallpaper (purple above, warm brown below, a few blurred blobs) for checking
+/// translucency in driven runs.
+@MainActor
+final class DebugBackdrop {
+    static let shared = DebugBackdrop()
+    private var window: NSWindow?
+
+    func set(_ on: Bool, behind target: NSWindow?) {
+        window?.orderOut(nil)
+        window = nil
+        guard on, let target else { return }
+        let frame = target.frame.insetBy(dx: -40, dy: -40)
+        let w = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        let v = NSView(frame: CGRect(origin: .zero, size: frame.size))
+        v.wantsLayer = true
+        let g = CAGradientLayer()
+        g.frame = v.bounds
+        g.colors = [NSColor(srgbRed: 0.42, green: 0.30, blue: 0.42, alpha: 1).cgColor,
+                    NSColor(srgbRed: 0.55, green: 0.33, blue: 0.20, alpha: 1).cgColor,
+                    NSColor(srgbRed: 0.33, green: 0.21, blue: 0.13, alpha: 1).cgColor]
+        g.startPoint = CGPoint(x: 0.5, y: 1)
+        g.endPoint = CGPoint(x: 0.5, y: 0)
+        v.layer!.addSublayer(g)
+        for (x, y, c) in [(0.25, 0.7, NSColor.systemPink), (0.7, 0.45, NSColor.systemOrange), (0.45, 0.15, NSColor.systemPurple)] {
+            let b = CALayer()
+            b.frame = CGRect(x: frame.width * x - 180, y: frame.height * y - 180, width: 360, height: 360)
+            b.cornerRadius = 180
+            b.backgroundColor = c.withAlphaComponent(0.6).cgColor
+            v.layer!.addSublayer(b)
+        }
+        w.contentView = v
+        w.order(.below, relativeTo: target.windowNumber)
+        window = w
     }
 }
 #endif

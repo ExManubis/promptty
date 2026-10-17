@@ -17,16 +17,103 @@ struct PaneCard: View {
 
     private var focused: Bool { tab.focusedPaneID == pane.id }
     private var broadcasting: Bool { chrome.broadcastTabs.contains(tab.id) }
+    @Environment(\.paneHeaders) private var headerSetting
+    @Environment(\.translucentPanes) private var translucent
+
+    /// The card's surface. Opaque, the theme's background. See-through, Liquid Glass as Rex's panes
+    /// look: tinted lightly toward the theme, so the wallpaper's color comes through rich rather
+    /// than washed out, and the glass's own edges catch light and take on the color behind them.
+    /// The focused pane of a split is tinted a little less, so it reads a touch brighter (Rex shows
+    /// focus that way, dimming nothing).
+    @ViewBuilder
+    private var surface: some View {
+        let shape = RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
+        if translucent {
+            Color.clear.glassEffect(.clear.tint(Color(nsColor: chrome.panelColor).opacity(Self.glassTint(dark: chrome.panelIsDark, lit: focused || !tab.hasSplits))), in: shape)
+                // Rex's edges. The glass lights its own top and bottom edges: in dark, as bright along
+                // the top as Rex's, and brighter along the bottom, so the bottom is shaded back down a
+                // little. A faint line, added to the color under it so it keeps the hue, traces the
+                // sides, which the glass leaves unlit.
+                .overlay(shape.strokeBorder(LinearGradient(stops: [
+                    .init(color: .white.opacity(chrome.panelIsDark ? 0.04 : 0.45), location: 0),
+                    .init(color: .white.opacity(chrome.panelIsDark ? 0.05 : 0.2), location: 0.03),
+                    .init(color: .white.opacity(chrome.panelIsDark ? 0.05 : 0.1), location: 0.97),
+                    .init(color: .white.opacity(chrome.panelIsDark ? 0 : 0.1), location: 1),
+                ], startPoint: .top, endPoint: .bottom), lineWidth: 0.75).blendMode(.plusLighter))
+                .overlay(shape.strokeBorder(LinearGradient(stops: [
+                    .init(color: .clear, location: 0.985),
+                    .init(color: Color(nsColor: chrome.panelColor).opacity(chrome.panelIsDark ? Self.bottomShade : 0), location: 1),
+                ], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                .overlay {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        LinearGradient(colors: [.clear, .white.opacity(chrome.panelIsDark ? 0.05 : 0.08)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 5)
+                    }
+                    .clipShape(shape)
+                    .blendMode(.plusLighter)
+                    .allowsHitTesting(false)
+                }
+        } else {
+            shape.fill(Color(nsColor: chrome.panelColor))
+        }
+    }
+
+    static var tintOverride: Double? {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["PROMPTTY_GLASS_TINT"].flatMap(Double.init)
+        #else
+        nil
+        #endif
+    }
+
+    static var bottomShade: Double {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["PROMPTTY_GLASS_SHADE"].flatMap(Double.init) ?? 0.45
+        #else
+        0.45
+        #endif
+    }
+
+    /// How much of the theme's background tints the glass.
+    static func glassTint(dark: Bool, lit: Bool) -> Double {
+        let base = tintOverride ?? (dark ? 0.48 : 0.35)
+        #if DEBUG
+        let dim = ProcessInfo.processInfo.environment["PROMPTTY_GLASS_DIM"].flatMap(Double.init) ?? (dark ? 0.14 : 0.08)
+        #else
+        let dim = dark ? 0.14 : 0.08
+        #endif
+        return lit ? base : base + dim
+    }
+
+    /// The card's edge: opaque cards keep a plain hairline.
+    private var rim: AnyShapeStyle {
+        guard translucent else { return AnyShapeStyle(Color.primary.opacity(borderOpacity)) }
+        // The glass draws its own edge (see `surface`); only the focused pane of a split gets a
+        // faint line more.
+        return AnyShapeStyle(Color.white.opacity(focused && tab.hasSplits ? 0.10 : 0))
+    }
+
+    private var showsHeader: Bool {
+        switch headerSetting {
+        case .always: true
+        case .splits: tab.hasSplits
+        case .never: false
+        }
+    }
 
     /// A hairline edge; in a split tab the focused pane's edge is brighter so it stands out.
     private var borderOpacity: Double {
-        guard tab.hasSplits, focused else { return 0.10 }
-        return chrome.panelIsDark ? 0.35 : 0.30
+        guard tab.hasSplits, focused else { return 0.08 }
+        return chrome.panelIsDark ? 0.24 : 0.22
     }
 
     var body: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
+                if showsHeader {
+                    PaneHeader(pane: pane, tab: tab, focused: focused, zoomed: zoomed, chrome: chrome, actions: actions)
+                }
                 if let surface = actions.surfaceView(for: pane) {
                     PaneHost(surface: surface, visible: visible, holdSize: hidden)
                 }
@@ -40,19 +127,23 @@ struct PaneCard: View {
             // card's own shape so the dimming stays inside its rounded corners.
             RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
                 .fill(Color(nsColor: chrome.panelColor).opacity(0.38))
-                .opacity(tab.hasSplits && !focused ? 1 : 0)
+                .opacity(tab.hasSplits && !focused && !translucent ? 1 : 0)
                 .animation(PaneAnimation.focusFade, value: focused)
                 .allowsHitTesting(false)
 
-            ClipboardBanner(pane: pane.id, actions: actions)
-            LinkPreview(pane: pane.id, actions: actions)
-            SecureLock(pane: pane.id, actions: actions)
-            FindBar(pane: pane.id, actions: actions)
-            if let label = pane.label, actions.findState(for: pane.id) == nil {
-                PaneLabelChip(label: label, besideBadge: actions.isSecure(pane.id))
+            // Over the terminal, below the header (which shows the label and the zoom itself).
+            Group {
+                ClipboardBanner(pane: pane.id, actions: actions)
+                LinkPreview(pane: pane.id, actions: actions)
+                SecureLock(pane: pane.id, actions: actions)
+                FindBar(pane: pane.id, actions: actions)
+                if !showsHeader, let label = pane.label, actions.findState(for: pane.id) == nil {
+                    PaneLabelChip(label: label, besideBadge: actions.isSecure(pane.id))
+                }
+                if zoomed, !showsHeader { ZoomBadge() }
+                if broadcasting { BroadcastBadge() }
             }
-            if zoomed { ZoomBadge() }
-            if broadcasting { BroadcastBadge() }
+            .padding(.top, showsHeader ? PaneHeader.height : 0)
 
             if let code = chrome.exitedPanes[pane.id] {
                 // A pinned tab's last pane is restarted, not closed.
@@ -63,14 +154,15 @@ struct PaneCard: View {
         .background {
             // The card: the terminal theme's color, a hairline edge and a soft shadow, so each
             // pane stands apart from the window background and from its neighbours.
-            let shape = RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
-            shape.fill(Color(nsColor: chrome.panelColor))
-                .shadow(color: .black.opacity(chrome.panelIsDark ? 0.25 : 0.08), radius: 2.5, y: 1)
+            surface
+                .shadow(color: .black.opacity(chrome.panelIsDark ? (translucent ? 0.22 : 0.25) : (translucent ? 0.06 : 0.08)),
+                        radius: translucent ? 8 : 2.5, y: translucent ? 2 : 1)
+                .animation(PaneAnimation.focusFade, value: focused)
         }
         .overlay {
             RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
-                .strokeBorder(broadcasting ? Color.orange.opacity(focused ? 0.95 : 0.6) : Color.primary.opacity(borderOpacity),
-                              lineWidth: broadcasting ? 2 : 1)
+                .strokeBorder(broadcasting ? AnyShapeStyle(Color.orange.opacity(focused ? 0.95 : 0.6)) : rim,
+                              lineWidth: broadcasting ? 2 : (translucent ? 0.75 : 1))
                 .animation(PaneAnimation.focusFade, value: borderOpacity)
                 .animation(PaneAnimation.focusFade, value: broadcasting)
                 .allowsHitTesting(false)
@@ -91,6 +183,21 @@ enum PaneTitle {
         if !own.isEmpty, own != folder, own != pane.workingDirectory { return own }
         return program?.name ?? folder
     }
+
+    /// What a pane header or a strip pill shows: the title, and the folder beside it unless the
+    /// title is the folder. A shell at its prompt says which shell ("zsh ~/api"), as Rex's do.
+    static func titleAndFolder(pane: Pane, program: Program?, customTitle: String? = nil) -> (title: String, folder: String?) {
+        let folder = WorkspaceModel.Tab.abbreviate(pane.workingDirectory)
+        if let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty { return (custom, folder) }
+        let named = title(pane: pane, program: program, folder: folder)
+        if named == folder { return program == nil ? (shellName, folder) : (named, nil) }
+        return (named, folder)
+    }
+
+    static let shellName: String = {
+        let name = (ShellIntegration.loginShell as NSString).lastPathComponent
+        return name.isEmpty ? "Shell" : name
+    }()
 }
 
 /// A small borderless icon button (a block's copy buttons).

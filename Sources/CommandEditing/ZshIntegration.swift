@@ -23,10 +23,13 @@ public enum ZshIntegration {
     }
 
     /// The variables a zsh pane starts with. `userZDOTDIR` is the app's own `ZDOTDIR`, if any,
-    /// which the script restores before loading the user's files.
-    public static func environment(integrationDirectory: URL, stateFile: URL, userZDOTDIR: String?) -> [String: String] {
+    /// which the script restores before loading the user's files. `historyFile` replaces the
+    /// user's history file from the first prompt on (a driven debug run's own, so its commands
+    /// never reach the user's real history).
+    public static func environment(integrationDirectory: URL, stateFile: URL, userZDOTDIR: String?, historyFile: URL? = nil) -> [String: String] {
         var env = ["ZDOTDIR": integrationDirectory.path, "PROMPTTY_STATE": stateFile.path]
         if let userZDOTDIR, !userZDOTDIR.isEmpty { env["PROMPTTY_ZDOTDIR"] = userZDOTDIR }
+        if let historyFile { env["PROMPTTY_HISTFILE"] = historyFile.path }
         return env
     }
 
@@ -151,6 +154,14 @@ public enum ZshIntegration {
             preexec_functions=(${preexec_functions:#_promptty_preexec} _promptty_preexec)
             # The bar cannot show a line zsh loads back for confirmation, so `!!` runs directly.
             'builtin' 'unsetopt' hist_verify
+            # A history file of PrompTTY's instead of the one .zshrc set up (a driven debug run's):
+            # a new history list on it, after forgetting the user's file so that zsh never writes
+            # the list it read from there back to it on exit.
+            if [[ -n "${PROMPTTY_HISTFILE-}" ]]; then
+                'builtin' 'unset' 'HISTFILE'
+                'builtin' 'fc' -p -- "$PROMPTTY_HISTFILE"
+                'builtin' 'unset' 'PROMPTTY_HISTFILE'
+            fi
             'builtin' 'autoload' -Uz add-zle-hook-widget && add-zle-hook-widget line-init _promptty_line_init
             _promptty_precmd
         }

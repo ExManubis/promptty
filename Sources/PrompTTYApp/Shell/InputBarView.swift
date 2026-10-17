@@ -2,8 +2,9 @@ import CommandEditing
 import SwiftUI
 import WorkspaceModel
 
-/// The input bar at the bottom of a pane at a prompt: a Liquid Glass box, inset from the card's
-/// edges, holding a header in place of the shell prompt and the editor below it.
+/// The input bar at the bottom of a pane at a prompt: on the pane's own surface below a hairline
+/// (no card of its own, as Rex's panes have none), a header in place of the shell prompt and the
+/// editor below it.
 struct InputBarView: View {
     let shell: PaneShell
     let dark: Bool
@@ -11,14 +12,14 @@ struct InputBarView: View {
     static let cornerRadius: CGFloat = 12
     /// From the card's edges to the box.
     static let inset: CGFloat = 8
-    static let minHeight: CGFloat = 88
+    static let minHeight: CGFloat = 72
 
     var body: some View {
         // The header sits near the top edge; the input is centered in the space below it.
         VStack(alignment: .leading, spacing: 0) {
             ShellHeaderView(shell: shell)
-                .padding(.top, 9)
-            Spacer(minLength: 6)
+                .padding(.top, 8)
+            Spacer(minLength: 4)
             LongLivedViewHost(view: shell.editor, dark: dark)
                 .frame(height: shell.editorHeight)
                 .opacity(shell.bar == .active ? 1 : 0.45)
@@ -29,16 +30,16 @@ struct InputBarView: View {
                                           cancel: { shell.closeHistorySearch(returningKeys: true) })
                     }
                 }
-            Spacer(minLength: 12)
+            Spacer(minLength: 9)
         }
         .padding(.horizontal, 14)
-        // 88 pt for a one-line command; longer commands grow the box.
+        // 72 pt for a one-line command; longer commands grow the box.
         .frame(maxWidth: .infinity, minHeight: Self.minHeight, alignment: .leading)
         // Its own height, not a share of the pane: the spacers only divide the box's inside.
         .fixedSize(horizontal: false, vertical: true)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
-        .padding([.horizontal, .bottom], Self.inset)
-        .padding(.top, 2)
+        .overlay(alignment: .top) {
+            Rectangle().fill(Color.primary.opacity(0.09)).frame(height: 1).padding(.horizontal, 10)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Command input")
     }

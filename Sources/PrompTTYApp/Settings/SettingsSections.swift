@@ -45,6 +45,16 @@ struct AppearanceSection: View {
                 }
             }
 
+            Section("Panes") {
+                Toggle("Translucent panes", isOn: $model.settings.translucentPanes)
+                    .help("The desktop shows faintly through the panes, as through the rest of the window.")
+                Picker("Pane headers", selection: $model.settings.paneHeaders) {
+                    Text("Always").tag(PaneHeaders.always)
+                    Text("In split tabs").tag(PaneHeaders.splits)
+                    Text("Never").tag(PaneHeaders.never)
+                }
+            }
+
             Section("Cursor") {
                 Picker("Style", selection: $model.settings.cursorStyle) {
                     Label("Block", systemImage: "rectangle.fill").tag(CursorStyle.block)

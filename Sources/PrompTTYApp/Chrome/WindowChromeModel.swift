@@ -74,6 +74,24 @@ final class WindowChromeModel {
         }
     }
 
+    @ObservationIgnored private var paneDragWatch: Task<Void, Never>?
+
+    /// A pane drag started (from its header); it ends like a tab drag (`beginTabDrag`).
+    func beginPaneDrag(_ pane: PaneID) {
+        draggingPane = pane
+        paneDragWatch?.cancel()
+        paneDragWatch = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard let self else { return }
+                guard self.draggingPane == nil || NSEvent.pressedMouseButtons == 0 else { continue }
+                try? await Task.sleep(for: .milliseconds(50))
+                self.draggingPane = nil
+                return
+            }
+        }
+    }
+
     @ObservationIgnored private var projectDragWatch: Task<Void, Never>?
 
     /// A project header drag started; it ends like a tab drag (`beginTabDrag`).

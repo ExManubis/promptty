@@ -56,6 +56,10 @@ extension TerminalWindowController {
         shell.changeDirectory(to: directory)
     }
 
+    func openPalette() {
+        if chrome.palette == nil { togglePalette(nil) }
+    }
+
     func closePalette(running entry: PaletteEntry?) {
         guard chrome.palette != nil else { return }
         chrome.palette = nil

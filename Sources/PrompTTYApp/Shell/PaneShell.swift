@@ -25,6 +25,9 @@ enum ShellIntegration {
             // Files of panes from earlier runs (closed by quitting) are stale.
             try? FileManager.default.removeItem(at: stateDirectory)
             try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+            if let history = AppPaths.debugHistoryFile {
+                try FileManager.default.createDirectory(at: history.deletingLastPathComponent(), withIntermediateDirectories: true)
+            }
         } catch {
             zshDirectory = nil
         }
@@ -46,7 +49,8 @@ enum ShellIntegration {
         return ZshIntegration.environment(
             integrationDirectory: zshDirectory,
             stateFile: stateFile(for: pane),
-            userZDOTDIR: ProcessInfo.processInfo.environment["ZDOTDIR"]
+            userZDOTDIR: ProcessInfo.processInfo.environment["ZDOTDIR"],
+            historyFile: AppPaths.debugHistoryFile
         )
     }
 }

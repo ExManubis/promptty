@@ -48,6 +48,13 @@ final class ZshIntegrationTests: XCTestCase {
         XCTAssertEqual(env["PROMPTTY_ZDOTDIR"], "/Users/me/.config/zsh")
     }
 
+    func testEnvironmentCarriesAHistoryFileOnlyWhenGiven() {
+        let plain = ZshIntegration.environment(integrationDirectory: URL(fileURLWithPath: "/x/zsh"), stateFile: URL(fileURLWithPath: "/x/s"), userZDOTDIR: nil)
+        XCTAssertNil(plain["PROMPTTY_HISTFILE"])
+        let driven = ZshIntegration.environment(integrationDirectory: URL(fileURLWithPath: "/x/zsh"), stateFile: URL(fileURLWithPath: "/x/s"), userZDOTDIR: nil, historyFile: URL(fileURLWithPath: "/x/home/.zsh_history"))
+        XCTAssertEqual(driven["PROMPTTY_HISTFILE"], "/x/home/.zsh_history")
+    }
+
     func testReadyReportsAreToldApartFromDirectoryReports() {
         XCTAssertEqual(ZshIntegration.readyDirectory(fromReportedPath: "/.promptty-ready/Users/me/x"), "/Users/me/x")
         XCTAssertEqual(ZshIntegration.readyDirectory(fromReportedPath: "/.promptty-ready/"), "/")
@@ -177,6 +184,37 @@ final class ZshIntegrationTests: XCTestCase {
         XCTAssertTrue(parsed.builtins.contains("cd"))
         XCTAssertTrue(parsed.reserved.contains("if"))
         XCTAssertTrue(parsed.exports.contains("HOME"))
+    }
+    /// A driven run's history file replaces the one .zshrc sets up: the shell reports it, and the
+    /// user's file is neither read into the new list nor written back to on exit.
+    func testAHistoryFileOfPrompTTYsReplacesTheUsersOwn() throws {
+        try XCTSkipUnless(FileManager.default.isExecutableFile(atPath: "/bin/zsh"))
+        let home = dir.appendingPathComponent("home-hist", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try "HISTFILE=$HOME/.zsh_history\nHISTSIZE=100 SAVEHIST=100\nsetopt extended_history\n".write(to: home.appendingPathComponent(".zshrc"), atomically: true, encoding: .utf8)
+        let real = home.appendingPathComponent(".zsh_history")
+        let realHistory = ": 1:0;real-one\n: 2:0;real-two\n"
+        try realHistory.write(to: real, atomically: true, encoding: .utf8)
+        let own = dir.appendingPathComponent("own-history")
+        let installed = try ZshIntegration.install(in: dir.appendingPathComponent("zsh"))
+        let state = dir.appendingPathComponent("state-hist")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = ["-i", "-c", "_promptty_init; print -s 'echo driven'; fc -ln 1; fc -W"]
+        var env = ZshIntegration.environment(integrationDirectory: installed, stateFile: state, userZDOTDIR: nil, historyFile: own)
+        env["HOME"] = home.path
+        env["PATH"] = "/usr/bin:/bin"
+        p.environment = env
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = Pipe()
+        try p.run()
+        p.waitUntilExit()
+        let output = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        XCTAssertFalse(output.contains("real-"), output.debugDescription)
+        XCTAssertEqual(ShellStateFile.parse(try String(contentsOf: state, encoding: .utf8)).historyFile, own.path)
+        XCTAssertTrue(try String(contentsOf: own, encoding: .utf8).contains("echo driven"))
+        XCTAssertEqual(try String(contentsOf: real, encoding: .utf8), realHistory)
     }
 }
 
