@@ -82,6 +82,8 @@ struct EditorColors {
     var branch: NSColor = .systemPurple
     /// The ❯ before the input: the theme's green, as Starship's prompt.
     var prompt: NSColor = .systemGreen
+    /// The completion list's selected row and folder icons: the theme's blue.
+    var accent: NSColor = .controlAccentColor
 }
 
 /// The editor font (the terminal's family and size, so typed commands look like terminal text)
@@ -112,6 +114,7 @@ enum EditorStyle {
             colors.folder = color(palette[6])
             colors.branch = color(palette[5])
             colors.prompt = color(palette[2])
+            colors.accent = color(palette[4])
         }
         self.colors = colors
     }

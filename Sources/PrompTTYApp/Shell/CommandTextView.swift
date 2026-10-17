@@ -85,6 +85,10 @@ final class CommandTextView: NSTextView {
     private var completionRequest = 0
     /// Fetches under way, so a keystroke while one runs waits for it instead of listing again.
     private var fetches: [CompletionNeed: Task<Void, Never>] = [:]
+    /// The open list is `cd`'s folder picker, which opens by itself as the folder is typed.
+    private var folderPickerOpen = false
+    /// Escape closed the folder picker: it stays closed until the caret leaves `cd`'s folder.
+    private var folderPickerDismissed = false
     /// Each bar keeps its own undo history; the window's is shared by every pane.
     private let ownUndoManager = UndoManager()
     /// Set while the app itself inserts text (completions, suggestions), which normal mode must
@@ -119,8 +123,16 @@ final class CommandTextView: NSTextView {
         writingToolsBehavior = .none
         mathExpressionCompletionType = .no
         popup.onClose = { [weak self] in
-            self?.popupSnapshot = nil
-            self?.completionRequest += 1
+            guard let self else { return }
+            popupSnapshot = nil
+            completionRequest += 1
+            if folderPickerOpen {
+                folderPickerOpen = false
+                suggestion = nil
+                lastSuggestionKey = nil
+                needsDisplay = true
+                updateSuggestion()
+            }
         }
     }
 
@@ -183,7 +195,28 @@ final class CommandTextView: NSTextView {
             super.keyDown(with: event)
             return
         }
-        if popup.isVisible {
+        if popup.isVisible, folderPickerOpen {
+            // `cd`'s folder picker, best match at the bottom: ↑ goes to the next match, Tab or →
+            // goes into the folder chosen, Return changes to it.
+            switch (event.keyCode, mods) {
+            case (126, []), (48, .shift): popup.move(by: 1); syncPickerGhost(); return
+            case (125, []): popup.move(by: -1); syncPickerGhost(); return
+            case (48, []), (124, []):
+                acceptCompletion()
+                updateFolderPicker()
+                return
+            case (36, []), (76, []):
+                acceptCompletion()
+                onSubmit?(string)
+                return
+            case (53, []):
+                folderPickerDismissed = true
+                popup.close()
+                return
+            default:
+                break
+            }
+        } else if popup.isVisible {
             switch (event.keyCode, mods) {
             case (48, []), (125, []): popup.move(by: 1); return
             case (48, .shift), (126, []): popup.move(by: -1); return
@@ -225,7 +258,7 @@ final class CommandTextView: NSTextView {
             return
         }
         super.keyDown(with: event)
-        if popup.isVisible { refilterCompletions() }
+        updateFolderPicker()
     }
 
     private var isOnFirstLine: Bool {
@@ -391,7 +424,7 @@ final class CommandTextView: NSTextView {
 
     /// Fetches what the text needs that the snapshot lacks, then runs `action`, unless the user
     /// typed, moved the caret, or closed the list meanwhile (the next keystroke asks again).
-    private func whenFetched(thenDo action: @escaping (CommandTextView) -> Void) {
+    private func whenFetched(quiet: Bool = false, thenDo action: @escaping (CommandTextView) -> Void) {
         guard let context = popupSnapshot else { return }
         let caret = selectedRange().location
         guard let need = CompletionEngine.need(text: string, cursor: caret, directory: context.directory, home: NSHomeDirectory()),
@@ -419,7 +452,7 @@ final class CommandTextView: NSTextView {
             guard let self, request == completionRequest else { return }
             guard string == text, selectedRange() == NSRange(location: caret, length: 0) else {
                 // Typing moved on while the list loaded; a refilter has its own request.
-                if popup.isVisible == false { NSSound.beep() }
+                if popup.isVisible == false, !quiet { NSSound.beep() }
                 return
             }
             action(self)
@@ -439,7 +472,8 @@ final class CommandTextView: NSTextView {
             return
         }
         let typed = (string as NSString).substring(with: range)
-        if (completion.commonPrefix as NSString).length > (typed as NSString).length {
+        // Loose matches (`cd`'s folders) may share less than was typed, or something else.
+        if (completion.commonPrefix as NSString).length > (typed as NSString).length, completion.commonPrefix.hasPrefix(typed) {
             insertProgrammatically(completion.commonPrefix, replacing: range)
         }
         guard let window else { return }
@@ -449,7 +483,7 @@ final class CommandTextView: NSTextView {
 
     private func refilterCompletions() {
         completionRequest += 1
-        whenFetched(thenDo: { $0.applyRefilter() })
+        whenFetched(quiet: folderPickerOpen, thenDo: { $0.applyRefilter() })
     }
 
     private func applyRefilter() {
@@ -458,6 +492,60 @@ final class CommandTextView: NSTextView {
             return
         }
         popup.update(completion.candidates)
+        if folderPickerOpen { syncPickerGhost() }
+    }
+
+    // MARK: cd's folder picker
+
+    /// After a keystroke: in `cd`'s folder the picker opens (or follows the typing) without Tab;
+    /// elsewhere it closes. Other lists follow the typing as before.
+    private func updateFolderPicker() {
+        let caret = selectedRange()
+        guard caret.length == 0, vi.mode == .insert, !hasMarkedText(),
+              CompletionEngine.picksFolder(text: string, cursor: caret.location) else {
+            folderPickerDismissed = false
+            if folderPickerOpen {
+                popup.close()
+            } else if popup.isVisible {
+                refilterCompletions()
+            }
+            return
+        }
+        if popup.isVisible {
+            refilterCompletions()
+        } else if !folderPickerDismissed, let directory = completionDirectory(), let names = completionNames() {
+            popupSnapshot = (names, directory)
+            completionRequest += 1
+            whenFetched(quiet: true, thenDo: { $0.showFolderPicker() })
+        }
+    }
+
+    private func showFolderPicker() {
+        guard let completion = currentCompletion(), completion.folders, completion.candidates.count <= 500, let window else {
+            popupSnapshot = nil
+            return
+        }
+        let anchor = firstRect(forCharacterRange: NSRange(location: completion.replacement.lowerBound, length: 0), actualRange: nil)
+        popup.show(completion.candidates, anchor: anchor, in: window, font: font ?? EditorStyle.font, bottomUp: true)
+        folderPickerOpen = true
+        syncPickerGhost()
+    }
+
+    /// The rest of the chosen folder's name after the caret, in ghost text, when it continues what
+    /// was typed ("config/ae" shows "rc/").
+    private func syncPickerGhost() {
+        var ghost: String?
+        if let item = popup.selectedItem, let completion = currentCompletion() {
+            let range = NSRange(location: completion.replacement.lowerBound, length: completion.replacement.count)
+            let typed = (string as NSString).substring(with: range)
+            if item.hasPrefix(typed), item.count > typed.count, selectedRange().location == (string as NSString).length {
+                ghost = String(item.dropFirst(typed.count))
+            }
+        }
+        if ghost != suggestion {
+            suggestion = ghost
+            needsDisplay = true
+        }
     }
 
     private func acceptCompletion() {
@@ -472,6 +560,11 @@ final class CommandTextView: NSTextView {
     // MARK: Suggestions
 
     private func updateSuggestion() {
+        // The folder picker shows its own ghost text: the chosen folder's name.
+        if folderPickerOpen {
+            syncPickerGhost()
+            return
+        }
         let text = string
         let range = selectedRange()
         let atEnd = range.length == 0 && range.location == (text as NSString).length

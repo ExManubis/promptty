@@ -192,16 +192,6 @@ enum DebugHooks {
             }
             return ""
         }
-        // eval preview <tab>|off — show a tab's sidebar preview without hovering.
-        driver.hooks["preview"] = { args in
-            guard let c = coordinator.allControllers.first else { return "error: no window" }
-            if let i = args.first.flatMap(Int.init), c.state.tabs.indices.contains(i) {
-                c.chrome.forcedPreview = c.state.tabs[i].id
-            } else {
-                c.chrome.forcedPreview = nil
-            }
-            return ""
-        }
         // eval peek on|off — the collapsed sidebar peeks in without hovering.
         driver.hooks["peek"] = { args in
             for c in coordinator.allControllers { c.chrome.forcedPeek = args.first == "on" }

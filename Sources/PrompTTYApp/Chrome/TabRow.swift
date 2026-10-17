@@ -13,17 +13,10 @@ struct TabRow: View {
     let style: Style
     let chrome: WindowChromeModel
     let actions: ChromeActions
-    /// Tiles: where their preview goes (the sidebar's right edge, in window coordinates); nil
-    /// shows none.
-    var previewEdge: CGFloat?
+    /// Tiles: the sidebar's, drawn larger than the strip's.
+    var largeTile = false
 
     @State private var hovering = false
-    /// The pointer has rested on the row: its preview shows.
-    @State private var previewing = false
-    @State private var previewTimer: Task<Void, Never>?
-    /// The row's frame in the window, for placing its preview; known while the pointer is on the
-    /// row, `.zero` otherwise.
-    @State private var rowFrame: CGRect = .zero
     @State private var draft = ""
     @State private var lastTap: Date?
     @FocusState private var fieldFocused: Bool
@@ -31,7 +24,6 @@ struct TabRow: View {
 
     private var renaming: Bool { chrome.renamingTab == tab.id }
     private var paneDropTarget: Bool { chrome.dropTargetTab == tab.id }
-    private var previewShown: Bool { previewing || chrome.forcedPreview == tab.id }
 
     /// The tab's most urgent pane, for its activity dot and VoiceOver.
     private var display: PaneActivity.Display {
@@ -64,39 +56,7 @@ struct TabRow: View {
             }
             .contentShape(Rectangle())
             .help(tooltip)
-            .onHover { inside in
-                hovering = inside
-                updatePreview()
-            }
-            .background {
-                // The frame matters only for a preview, which needs the pointer on the row:
-                // tracked only then, not for every row on every frame of a scroll.
-                if hovering || chrome.forcedPreview == tab.id {
-                    Color.clear
-                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
-                            let first = rowFrame == .zero
-                            rowFrame = frame
-                            // A preview asked for before the frame was known goes beside the row now.
-                            if first, previewShown { actions.showPreview(of: tab.id, beside: previewAnchor, titled: style == .tile) }
-                        }
-                        .onDisappear { rowFrame = .zero }
-                }
-            }
-            .onChange(of: previewShown) { _, shown in
-                // Without the frame yet, the preview shows once it is known.
-                if !shown {
-                    actions.hidePreview(of: tab.id)
-                } else if rowFrame != .zero {
-                    actions.showPreview(of: tab.id, beside: previewAnchor, titled: style == .tile)
-                }
-            }
-            .onChange(of: selected) { _, isSelected in
-                if isSelected {
-                    previewing = false
-                    if chrome.forcedPreview == tab.id { chrome.forcedPreview = nil }
-                }
-            }
-            .onDisappear { actions.hidePreview(of: tab.id) }
+            .onHover { hovering = $0 }
             // One tap recognizer that tells a double click from a single one itself. A separate
             // count-2 recognizer makes SwiftUI hold every single click until the double-click
             // interval has passed (0.5s by default) before the tab is selected.
@@ -213,8 +173,8 @@ struct TabRow: View {
     /// its own.
     private var tileContent: some View {
         tileIcon
-            // Larger in the sidebar's tiles (the ones that preview) than in the strip's pills.
-            .scaleEffect(style == .tile && previewEdge != nil ? 1.25 : 1)
+            // Larger in the sidebar's tiles than in the strip's pills.
+            .scaleEffect(style == .tile && largeTile ? 1.25 : 1)
             .popover(isPresented: Binding(get: { chrome.iconPickerTab == tab.id && !outOfSight },
                                           set: { if !$0, chrome.iconPickerTab == tab.id { chrome.iconPickerTab = nil } }),
                      arrowEdge: .bottom) {
@@ -353,29 +313,6 @@ struct TabRow: View {
 
     private func togglePin() {
         if tab.pin == nil { actions.pinTab(tab.id, at: nil) } else { actions.unpinTab(tab.id, at: nil) }
-    }
-
-    /// A row's preview goes beside it; a tile's beside the sidebar, past the other tiles.
-    private var previewAnchor: CGRect {
-        guard style == .tile, let previewEdge else { return rowFrame }
-        return CGRect(x: rowFrame.minX, y: rowFrame.minY, width: max(previewEdge - rowFrame.minX, rowFrame.width), height: rowFrame.height)
-    }
-
-    /// Another tab of the sidebar, after the pointer has rested on it for half a second (not
-    /// while something is dragged).
-    private func updatePreview() {
-        previewTimer?.cancel()
-        let previews = style == .full || (style == .tile && previewEdge != nil)
-        guard hovering, previews, !selected, !renaming, chrome.draggingPane == nil, chrome.draggingTab == nil else {
-            previewing = false
-            return
-        }
-        previewTimer = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled, hovering, !selected, !renaming, chrome.draggingPane == nil, chrome.draggingTab == nil,
-                  NSEvent.pressedMouseButtons == 0 else { return }
-            previewing = true
-        }
     }
 
     private func beginRename() {

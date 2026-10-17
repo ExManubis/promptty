@@ -39,13 +39,6 @@ protocol ChromeActions: AnyObject {
     var agentList: AgentList { get }
     /// Brings a pane forward, in whichever window it is.
     func reveal(_ pane: PaneID)
-    /// Shows a tab's preview beside its sidebar row (`row` in the window's top-left coordinates),
-    /// `titled` for a pinned tile, which shows no title itself.
-    func showPreview(of tab: TabID, beside row: CGRect, titled: Bool)
-    func hidePreview(of tab: TabID)
-    /// A pane's visible text, from its terminal if it has one already (a preview never starts a
-    /// shell).
-    func screenText(for pane: PaneID) -> String?
     func selectTab(_ id: TabID)
     func requestCloseTab(_ id: TabID)
     func newTab()
