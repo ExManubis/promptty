@@ -8,9 +8,9 @@ public struct ControlRequest: Codable, Equatable, Sendable {
     /// `-p`: the pane to act on, by id, id suffix or label; nil acts on the caller.
     public var target: String?
     public var arguments: [String]
-    /// `--json`, `--enter`, `--all`, `--keep-open`, `--command`, `--markdown`.
+    /// `--json`, `--enter`, `--all`, `--keep-open`, `--command-line`, `--markdown`.
     public var flags: Set<String>
-    /// `--cwd DIR`, `--label NAME`, `--block ID`, `--timeout S`.
+    /// `--cwd DIR`, `--label NAME`, `--cmd ID`, `--timeout S`.
     public var options: [String: String]
 
     public init(command: String, caller: String? = nil, target: String? = nil, arguments: [String] = [],
@@ -61,6 +61,12 @@ public enum ControlEnvironment {
     public static let socketVariable = "PROMPTTY_CONTROL"
     /// The pane, shared with the agent hooks.
     public static let paneVariable = "PROMPTTY_PANE_ID"
+    /// The pane as Rex names its panes ("blocks"): `block:` and its id.
+    public static let blockVariable = "PROMPTTY_BLOCK"
+    public static let blockPrefix = "block:"
+
+    /// A pane's id as Rex writes a block's: `block:` and the id, lowercase.
+    public static func blockID(pane: UUID) -> String { blockPrefix + pane.uuidString.lowercased() }
 }
 
 extension JSONEncoder {

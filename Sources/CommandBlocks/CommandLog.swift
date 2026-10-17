@@ -3,7 +3,7 @@ import Foundation
 /// A command run in a pane, as `promptty` reports it: an id that stays the same while the
 /// scrollback moves (the terminal only knows its blocks by row), what was run, and how it ended.
 public struct CommandRecord: Equatable, Sendable {
-    /// `block:` and a UUID.
+    /// `cmd:` and a UUID.
     public let id: String
     public let command: String
     public let started: Date
@@ -30,7 +30,7 @@ public struct CommandLog: Equatable, Sendable {
     /// How many commands the pane has run, the forgotten ones included.
     public private(set) var count = 0
     public static let limit = 100
-    public static let prefix = "block:"
+    public static let prefix = "cmd:"
 
     public init() {}
 

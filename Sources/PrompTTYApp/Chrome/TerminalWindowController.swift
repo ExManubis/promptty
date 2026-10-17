@@ -141,6 +141,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         // `promptty`: the control socket, and the command first on the PATH (zsh's path_helper
         // and most shell files add to the PATH they find, keeping it).
         hookEnvironment[ControlEnvironment.socketVariable] = AppPaths.controlSocket
+        hookEnvironment[ControlEnvironment.blockVariable] = ControlEnvironment.blockID(pane: pane.id.rawValue)
         // Which terminal this is, for programs and agents that ask (`promptty` is on the PATH).
         hookEnvironment["TERM_PROGRAM"] = "PrompTTY"
         hookEnvironment["TERM_PROGRAM_VERSION"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1"

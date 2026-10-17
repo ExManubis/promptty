@@ -101,10 +101,10 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     }
 
     private var controlServer: ControlServer?
-    /// `promptty wait -b`: replies waiting for a command to end, by its id.
-    var blockWaiters: [String: [(CommandRecord) -> Void]] = [:]
-    /// Ids handed out for a new pane's command before its shell runs it, and that pane.
-    var pendingBlocks: [String: (pane: PaneID, command: String)] = [:]
+    /// `promptty wait`: replies waiting for a command to end, by its id.
+    var commandWaiters: [String: [(CommandRecord) -> Void]] = [:]
+    /// Ids handed out for a command before its pane's shell runs it, and that pane.
+    var pendingCommands: [String: (pane: PaneID, command: String)] = [:]
 
     /// Listens for `promptty`. Requests are answered on the main thread.
     func startControl() {

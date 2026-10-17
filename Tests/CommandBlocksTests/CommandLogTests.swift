@@ -5,7 +5,7 @@ import Testing
 @Test func aCommandGetsAnIdAndEndsWithItsExitCode() {
     var log = CommandLog()
     let id = log.start("make test")
-    #expect(id.hasPrefix("block:"))
+    #expect(id.hasPrefix("cmd:"))
     #expect(log.record(id)?.running == true)
     let finished = log.finish(code: 2)
     #expect(finished?.id == id)
