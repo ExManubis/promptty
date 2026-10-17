@@ -416,6 +416,16 @@ enum DebugHooks {
             }
             return FrameCounter.shared.stop()
         }
+        // eval mainframes start | mainframes stop — the key window's display link on the main
+        // thread: a frame it misses is a frame the main thread was too busy to draw (a hitch).
+        driver.hooks["mainframes"] = { args in
+            guard let view = (coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true }) ?? coordinator.allControllers.first)?.window?.contentView else { return "error: no window" }
+            if args.first == "start" {
+                MainFrameTimer.shared.start(on: view)
+                return ""
+            }
+            return MainFrameTimer.shared.stop()
+        }
         driver.hooks["resizes"] = { _ in
             defer { TerminalSurfaceView.sentSizes = [] }
             return "resizes=\(TerminalSurfaceView.sentSizes.count) \(TerminalSurfaceView.sentSizes.joined(separator: " "))"
@@ -655,6 +665,43 @@ private struct LogoGallery: View {
         .environment(\.colorScheme, .dark)
     }
 }
+
+/// The key window's display link, timed: the frames the main thread had time for.
+@MainActor final class MainFrameTimer: NSObject {
+    static let shared = MainFrameTimer()
+    private var link: CADisplayLink?
+    private var frames: [CFTimeInterval] = []
+    private var interval: CFTimeInterval = 1.0 / 60
+
+    func start(on view: NSView) {
+        frames = []
+        link?.invalidate()
+        let link = view.displayLink(target: self, selector: #selector(tick(_:)))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        interval = link.duration > 0 ? link.duration : interval
+        frames.append(link.timestamp)
+    }
+
+    func stop() -> String {
+        link?.invalidate()
+        link = nil
+        if let dir = ProcessInfo.processInfo.environment["PROMPTTY_DEBUG_DIR"] {
+            try? frames.map { String(format: "%.6f", $0) }.joined(separator: "\n")
+                .write(toFile: dir + "/mainframes.txt", atomically: true, encoding: .utf8)
+        }
+        let gaps = zip(frames.dropFirst(), frames).map { $0 - $1 }
+        // Frames the link should have delivered in each gap, less the one it did.
+        let missed = gaps.reduce(0) { $0 + max(0, Int(($1 / interval).rounded()) - 1) }
+        let worst = (gaps.max() ?? 0) * 1000
+        return String(format: "frames=%d missed=%d (%.0f%%) worst=%.1fms interval=%.1fms", frames.count, missed,
+                      Double(missed) * 100 / Double(max(1, frames.count + missed)), worst, interval * 1000)
+    }
+}
+
 /// Counts a layer's `contents` changes: the frames the terminal presents.
 @MainActor
 final class FrameCounter: NSObject {
