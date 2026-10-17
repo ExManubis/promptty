@@ -20,39 +20,48 @@ struct PaneCard: View {
     @Environment(\.paneHeaders) private var headerSetting
     @Environment(\.translucentPanes) private var translucent
 
-    /// The card's surface. Opaque, the theme's background. See-through, frosted glass as Rex's: a
-    /// little of the theme's background for its hue, and a light lift that sets the pane a few levels
-    /// above the frame, with the wallpaper's color coming through both; the focused pane of a split
-    /// a touch brighter than the others (Rex shows focus that way, dimming nothing).
+    /// The card's surface. Opaque, the theme's background. See-through, Liquid Glass as Rex's panes
+    /// look: tinted lightly toward the theme, so the wallpaper's color comes through rich rather
+    /// than washed out, and the glass's own edges catch light and take on the color behind them.
+    /// The focused pane of a split is tinted a little less, so it reads a touch brighter (Rex shows
+    /// focus that way, dimming nothing).
     @ViewBuilder
     private var surface: some View {
         let shape = RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
         if translucent {
-            let dark = chrome.panelIsDark
-            let lit = focused || !tab.hasSplits
-            shape.fill(Color(nsColor: chrome.panelColor).opacity(dark ? 0.22 : 0.38))
-                .overlay(shape.fill(Color.white.opacity(dark ? (lit ? 0.065 : 0.04) : (lit ? 0.32 : 0.2))))
-                // The sheen: light catching the top of the glass, fading over its first lines.
-                .overlay(shape.fill(LinearGradient(colors: [Color.white.opacity(dark ? 0.06 : 0.25), .clear],
-                                                   startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.08))))
+            Color.clear.glassEffect(.clear.tint(Color(nsColor: chrome.panelColor).opacity(Self.glassTint(dark: chrome.panelIsDark, lit: focused || !tab.hasSplits))), in: shape)
+                // Rex's bright top edge, added to the color under it (it keeps the hue) rather than
+                // laid over it in white.
+                .overlay(shape.strokeBorder(LinearGradient(stops: [
+                    .init(color: .white.opacity(chrome.panelIsDark ? 0.55 : 0.6), location: 0),
+                    .init(color: .white.opacity(chrome.panelIsDark ? 0.10 : 0.2), location: 0.03),
+                    .init(color: .white.opacity(chrome.panelIsDark ? 0.05 : 0.1), location: 1),
+                ], startPoint: .top, endPoint: .bottom), lineWidth: 0.75).blendMode(.plusLighter))
         } else {
             shape.fill(Color(nsColor: chrome.panelColor))
         }
     }
 
-    /// The glass's edge: brightest along the top (Rex's is a bright line there), faint down the
-    /// sides. Opaque cards keep a plain hairline.
+    static var tintOverride: Double? {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["PROMPTTY_GLASS_TINT"].flatMap(Double.init)
+        #else
+        nil
+        #endif
+    }
+
+    /// How much of the theme's background tints the glass.
+    static func glassTint(dark: Bool, lit: Bool) -> Double {
+        let base = tintOverride ?? (dark ? 0.30 : 0.35)
+        return lit ? base : base + 0.08
+    }
+
+    /// The card's edge: opaque cards keep a plain hairline.
     private var rim: AnyShapeStyle {
         guard translucent else { return AnyShapeStyle(Color.primary.opacity(borderOpacity)) }
-        let lit = focused && tab.hasSplits
-        let top = chrome.panelIsDark ? (lit ? 0.62 : 0.45) : 0.95
-        let side = chrome.panelIsDark ? (lit ? 0.12 : 0.07) : 0.12
-        let sideColor = chrome.panelIsDark ? Color.white : Color.black
-        return AnyShapeStyle(LinearGradient(stops: [
-            .init(color: Color.white.opacity(top), location: 0),
-            .init(color: sideColor.opacity(side), location: 0.04),
-            .init(color: sideColor.opacity(side * 0.7), location: 1),
-        ], startPoint: .top, endPoint: .bottom))
+        // The glass draws its own edge (see `surface`); only the focused pane of a split gets a
+        // faint line more.
+        return AnyShapeStyle(Color.white.opacity(focused && tab.hasSplits ? 0.10 : 0))
     }
 
     private var showsHeader: Bool {
