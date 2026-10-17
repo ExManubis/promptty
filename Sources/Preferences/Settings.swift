@@ -67,6 +67,9 @@ public struct Settings: Equatable, Sendable {
     /// 0…1: how strongly the window frame takes the selected theme's color. 1 (the default) is
     /// the theme's own hue; 0 is a neutral gray frame.
     public var tintStrength: Double = 1
+    /// How opaque the window frame is over the blurred desktop (Settings › Window).
+    public var windowOpacity: Double = 0.55
+    public static let windowOpacityRange: ClosedRange<Double> = 0.2...0.95
     public var paneHeaders = PaneHeaders.always
     /// Panes show the blurred desktop faintly through them, as Rex's do: the card draws the
     /// terminal's background, see-through, and the terminal draws none.
@@ -125,6 +128,7 @@ public struct Settings: Equatable, Sendable {
         s.fontSize = min(Self.fontSizeRange.upperBound, max(Self.fontSizeRange.lowerBound, fontSize))
         s.sidebarWidth = min(Self.sidebarWidthRange.upperBound, max(Self.sidebarWidthRange.lowerBound, sidebarWidth))
         s.tintStrength = min(1, max(0, tintStrength))
+        s.windowOpacity = min(Self.windowOpacityRange.upperBound, max(Self.windowOpacityRange.lowerBound, windowOpacity))
         s.notifyAfterSeconds = min(Self.notifyAfterRange.upperBound, max(Self.notifyAfterRange.lowerBound, notifyAfterSeconds))
         return s
     }
@@ -141,7 +145,7 @@ public struct Settings: Equatable, Sendable {
 extension Settings: Codable {
     enum CodingKeys: String, CodingKey {
         case version, fontFamily, fontSize, followSystemAppearance, lightTheme, darkTheme, theme
-        case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, tabLayout, sidebarWidth, tabListHidden
+        case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, windowOpacity, tabLayout, sidebarWidth, tabListHidden
         case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, secureKeyboardEntry, shortcuts
         case clipboardRead, clipboardWrite, clipboardReadPrograms, clipboardWritePrograms
         case notifyCommands, notifyAfterSeconds, restoreScrollback, markUnseenOutput, quickTerminal, remoteControl, savedCommands, paneHeaders, translucentPanes
@@ -165,6 +169,7 @@ extension Settings: Codable {
         s.cursorColor = value(.cursorColor, String?.none).flatMap(CursorColor.init(stringValue:)) ?? s.cursorColor
         s.fullRefreshRate = value(.fullRefreshRate, s.fullRefreshRate)
         s.tintStrength = value(.tintStrength, s.tintStrength)
+        s.windowOpacity = value(.windowOpacity, s.windowOpacity)
         s.tabLayout = value(.tabLayout, s.tabLayout)
         s.sidebarWidth = value(.sidebarWidth, s.sidebarWidth)
         s.tabListHidden = value(.tabListHidden, s.tabListHidden)
@@ -217,6 +222,7 @@ extension Settings: Codable {
         try c.encode(cursorColor.stringValue, forKey: .cursorColor)
         try c.encode(fullRefreshRate, forKey: .fullRefreshRate)
         try c.encode(tintStrength, forKey: .tintStrength)
+        try c.encode(windowOpacity, forKey: .windowOpacity)
         try c.encode(tabLayout, forKey: .tabLayout)
         try c.encode(sidebarWidth, forKey: .sidebarWidth)
         try c.encode(tabListHidden, forKey: .tabListHidden)

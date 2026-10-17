@@ -383,8 +383,9 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             secureInput.global = settings.secureKeyboardEntry
             refreshSecureIndicators()
         }
-        if lastTintStrength != settings.tintStrength {
+        if lastTintStrength != settings.tintStrength || ChromeTint.opacity != CGFloat(settings.windowOpacity) {
             lastTintStrength = settings.tintStrength
+            ChromeTint.opacity = CGFloat(settings.windowOpacity)
             configDidReload()
         }
         for c in controllers.values {

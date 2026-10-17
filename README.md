@@ -82,6 +82,7 @@ promptty split right --label tests --json -- make test   # {"block": "block:…"
 promptty wait -b tests --timeout 600                      # waits for make; exits with its status
 promptty capture -c <cmd>                                 # that command's output, nothing else
 promptty -b tests send --enter --json make lint           # another command, another cmd id
+promptty close -b tests                                   # done with the pane
 promptty ls --json                                        # each pane's recent commands and exit codes
 ```
 

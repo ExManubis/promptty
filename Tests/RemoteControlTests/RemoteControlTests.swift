@@ -48,6 +48,11 @@ final class ControlCommandLineTests: XCTestCase {
         XCTAssertEqual(ControlCommandLine.replyTimeout(for: try request(["ls"])), 15)
     }
 
+    func testCloseNeedsANamedPane() throws {
+        XCTAssertThrowsError(try ControlCommandLine.parse(["close"], caller: "C"))
+        XCTAssertEqual(try request(["close", "-b", "tests"]).target, "tests")
+    }
+
     func testUsageErrors() {
         XCTAssertThrowsError(try ControlCommandLine.parse(["frobnicate"], caller: nil))
         XCTAssertThrowsError(try ControlCommandLine.parse(["split", "sideways"], caller: nil))

@@ -6,19 +6,27 @@ enum ChromeTint {
     /// Dia's neutral frame, laid over the behind-window blur: near-black in dark mode, a soft
     /// gray in light mode (so white selected rows stand out). Partly transparent, so the
     /// blurred desktop tints it slightly.
-    static let fallback = NSColor(name: "PrompTTYFrame") { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(srgbRed: frameDark, green: frameDark, blue: frameDark, alpha: frameAlphaDark)
-            : NSColor(srgbRed: frameLight, green: frameLight, blue: frameLight + 0.006, alpha: frameAlphaLight)
+    static var fallback: NSColor {
+        let dark = frameAlphaDark, light = frameAlphaLight
+        // A new color for each opacity, so the window redraws when it changes.
+        return NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(srgbRed: frameDark, green: frameDark, blue: frameDark, alpha: dark)
+                : NSColor(srgbRed: frameLight, green: frameLight, blue: frameLight + 0.006, alpha: light)
+        }
     }
+
+    /// Settings › Window › Opacity: how opaque a theme's dark frame is over the blur; the neutral
+    /// and light frames are as much lighter as they were tuned to be.
+    nonisolated(unsafe) static var opacity: CGFloat = 0.55
 
     // The tint over the blurred desktop: frosted glass, as Rex's, dark enough for the panes on it to
     // read while the wallpaper's color comes through the frame and, fainter, the panes.
     static let frameDark: CGFloat = 0.09
     static let frameLight: CGFloat = 0.93
     /// How opaque the tint over the blur is; the rest is blurred desktop.
-    static let frameAlphaDark: CGFloat = 0.36
-    static let frameAlphaLight: CGFloat = 0.24
+    static var frameAlphaDark: CGFloat { opacity * 0.8 }
+    static var frameAlphaLight: CGFloat { opacity * 0.53 }
 
     /// A theme-tinted frame over the blur, with the same transparency as the neutral one.
     static func overBlur(_ color: NSColor) -> NSColor {
@@ -27,7 +35,7 @@ enum ChromeTint {
 
     /// A theme's frame is more opaque than the neutral one, so the theme's hue holds against the
     /// desktop behind it.
-    static var themeAlphaDark: CGFloat { debugValue("PROMPTTY_FRAME_ALPHA") ?? 0.45 }
+    static var themeAlphaDark: CGFloat { debugValue("PROMPTTY_FRAME_ALPHA") ?? opacity }
     static var themeAlphaLight: CGFloat { debugValue("PROMPTTY_FRAME_ALPHA_LIGHT") ?? frameAlphaLight }
     /// How much more saturated than the theme background the frame is.
     static var themeSaturation: CGFloat { debugValue("PROMPTTY_FRAME_SAT") ?? 1.6 }

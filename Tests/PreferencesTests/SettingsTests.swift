@@ -14,6 +14,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(s.cursorStyle, .block)
         XCTAssertTrue(s.cursorBlink)
         XCTAssertEqual(s.tintStrength, 1, "the frame follows the theme by default")
+        XCTAssertEqual(s.windowOpacity, 0.55)
         XCTAssertEqual(s.tabLayout, .sidebar)
         XCTAssertEqual(s.sidebarWidth, 220)
         XCTAssertFalse(s.tabListHidden)
@@ -144,10 +145,12 @@ final class SettingsTests: XCTestCase {
         s.fontSize = 1
         s.sidebarWidth = 900
         s.tintStrength = -1
+        s.windowOpacity = 5
         let n = s.normalized()
         XCTAssertEqual(n.fontSize, 6)
         XCTAssertEqual(n.sidebarWidth, 320)
         XCTAssertEqual(n.tintStrength, 0)
+        XCTAssertEqual(n.windowOpacity, Settings.windowOpacityRange.upperBound)
     }
 
     /// Version 1 files saved every value, defaults included, so the old Frame color default (0.5)

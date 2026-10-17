@@ -26,7 +26,7 @@ extension WorkspaceCoordinator {
         case "new-tab": return newTab(request)
         case "split": return split(request)
         case "capture" where request.options["cmd"] != nil: return captureCommand(request)
-        case "send", "capture", "focus", "label", "notify": break
+        case "send", "capture", "focus", "close", "label", "notify": break
         default: return ControlResponse(status: .usage, text: "unknown command \(request.command)")
         }
         // The rest act on a pane: the one named, else the caller's.
@@ -40,6 +40,13 @@ extension WorkspaceCoordinator {
         case "capture": return capture(pane, all: request.flags.contains("all"))
         case "focus":
             reveal(pane)
+            return .ok()
+        case "close":
+            // Without the confirmation a click gets: whoever scripts this asked for it.
+            if let (_, tab) = workspace.tab(containing: pane), tab.pin != nil, !tab.hasSplits {
+                return .failed("that is a pinned tab's only pane; unpin the tab first")
+            }
+            closePane(pane)
             return .ok()
         case "label":
             setLabel(request.arguments.joined(separator: " "), of: pane)
