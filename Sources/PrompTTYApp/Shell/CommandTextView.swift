@@ -114,6 +114,10 @@ final class CommandTextView: NSTextView {
         // macOS's inline predictions (grey text and their panel) would compete with the bar's own
         // history suggestions.
         inlinePredictionType = .no
+        // Apple Intelligence's Writing Tools (the button that shows beside a selection or the
+        // caret) and math results ("2+2=" offering 4) mean nothing for a command.
+        writingToolsBehavior = .none
+        mathExpressionCompletionType = .no
         popup.onClose = { [weak self] in
             self?.popupSnapshot = nil
             self?.completionRequest += 1
