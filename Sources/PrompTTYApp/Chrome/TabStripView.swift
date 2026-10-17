@@ -148,13 +148,25 @@ enum MacModel {
 /// keeps the regular glass.
 struct SmokedGlass<S: Shape>: ViewModifier {
     let shape: S
-    let chrome: WindowChromeModel
+    /// The theme's background, which tints the glass a little.
+    let tint: NSColor
+    let dark: Bool
+
+    init(shape: S, tint: NSColor, dark: Bool) {
+        self.shape = shape
+        self.tint = tint
+        self.dark = dark
+    }
+
+    init(shape: S, chrome: WindowChromeModel) {
+        self.init(shape: shape, tint: chrome.panelColor, dark: chrome.panelIsDark)
+    }
 
     func body(content: Content) -> some View {
-        if chrome.panelIsDark {
+        if dark {
             content
                 .background(shape.fill(Color.black.opacity(PaneCard.smoke(dark: true, lit: true))))
-                .glassEffect(.clear.tint(Color(nsColor: chrome.panelColor).opacity(PaneCard.glassTint(dark: true, lit: true))), in: shape)
+                .glassEffect(.clear.tint(Color(nsColor: tint).opacity(PaneCard.glassTint(dark: true, lit: true))), in: shape)
         } else {
             content.glassEffect(.regular, in: shape)
         }

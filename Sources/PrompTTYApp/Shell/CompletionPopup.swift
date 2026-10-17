@@ -27,6 +27,8 @@ final class CompletionList {
     var onAccent: Color = .white
     /// Light or dark as the pane's window is (its theme's), not as the system is.
     var dark = true
+    /// The theme's background, for the smoked glass.
+    var tint: NSColor = .black
 }
 
 /// The list of completions above the caret, in a borderless child window of the pane's window.
@@ -54,6 +56,10 @@ final class CompletionPopup {
         self.panel = panel
         panel.appearance = window.effectiveAppearance
         list.dark = window.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        if let chrome = (window.windowController as? TerminalWindowController)?.chrome {
+            list.dark = chrome.panelIsDark
+            list.tint = chrome.panelColor
+        }
         let rows = min(items.count, Self.maxRows)
         let width = min(520, max(220, items.map { (CompletionListView.name(of: $0) as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0) + 56)
         let height = CGFloat(rows) * Self.rowHeight + 10
@@ -122,7 +128,8 @@ private struct CompletionListView: View {
             .defaultScrollAnchor(list.bottomUp ? .bottom : .top)
             .onChange(of: list.selected) { _, new in proxy.scrollTo(new) }
         }
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // Smoked glass, as the panes and the tab bar.
+        .modifier(SmokedGlass(shape: RoundedRectangle(cornerRadius: 12, style: .continuous), tint: list.tint, dark: list.dark))
         .environment(\.colorScheme, list.dark ? .dark : .light)
     }
 
