@@ -215,6 +215,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     private func bind(_ view: TerminalSurfaceView, to pane: PaneID) {
         view.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
+        view.onCopy = { [weak self] in self?.chrome.copyShines[pane, default: 0] += 1 }
         view.onFocusChange = { [weak self] focused in self?.coordinator.secureInput.setFocused(pane, focused) }
         coordinator.refreshSecureIndicators()
         view.onAttachedToWindow = { [weak self] in self?.surfaceAttached(pane) }
@@ -632,6 +633,14 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     }
 
     func toggleSidebar() { coordinator.toggleTabListHidden() }
+    func toggleActivity() {
+        // Activity lives in the sidebar: turning it on brings the sidebar out.
+        if !chrome.showsActivity {
+            if coordinator.workspace.tabLayout != .sidebar { coordinator.toggleTabLayout() }
+            if coordinator.preferences.settings.tabListHidden { coordinator.toggleTabListHidden() }
+        }
+        withAnimation(.easeOut(duration: 0.15)) { chrome.showsActivity.toggle() }
+    }
     func split(_ pane: PaneID, direction: SplitDirection) { coordinator.split(pane, direction: direction) }
     func toggleZoom(_ pane: PaneID) {
         guard let tab = state.tab(containing: pane) else { return }
@@ -668,6 +677,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     // MARK: Menu actions (responder chain)
 
     @objc func newTab(_ sender: Any?) { newTab() }
+    @objc func toggleActivity(_ sender: Any?) { toggleActivity() }
     @objc func newProject(_ sender: Any?) { newProject(adding: state.selectedTabID) }
 
     @objc func closeTab(_ sender: Any?) {
@@ -793,6 +803,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         case #selector(togglePinTab(_:)):
             item.title = state.selectedTab?.pin == nil ? "Pin Tab" : "Unpin Tab"
             return state.selectedTab != nil
+        case #selector(toggleActivity(_:)):
+            item.state = chrome.showsActivity ? .on : .off
+            return true
         default:
             return true
         }

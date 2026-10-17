@@ -22,6 +22,9 @@ struct SidebarView: View {
                 Color.clear.frame(width: ChromeMetrics.trafficLightsWidth - (collapsed ? ChromeMetrics.inset : 0))
                 ChromeIconButton(symbol: "sidebar.left", help: collapsed ? "Keep Sidebar Open" : "Hide Sidebar", action: actions.toggleSidebar)
                 Spacer(minLength: 0)
+                // Rex's eye: the tabs running agents, and what each does (⌘.).
+                ActivityButton(on: chrome.showsActivity, badge: agentNews, action: actions.toggleActivity)
+                    .padding(.trailing, ChromeMetrics.sidebarHorizontalPadding)
             }
             .frame(height: ChromeMetrics.titlebarHeight - (collapsed ? 2 * ChromeMetrics.inset : 0))
             // Above the tab list, whose scroll view reaches up under the titlebar and would take
@@ -30,18 +33,12 @@ struct SidebarView: View {
 
             ScrollView(.vertical) {
                 LazyVStack(spacing: 2) {
-                    PinnedTabsGrid(state: state, chrome: chrome, actions: actions)
-                    // The other tabs, after the pinned ones (their indexes are the window's): each
-                    // project's, then those in none.
-                    let others = Array(Array(state.tabs.enumerated()).dropFirst(state.pinnedCount))
-                    ForEach(workspace.projects, id: \.id) { project in
-                        ProjectSection(project: project, tabs: others.filter { state.project(of: $0.element) == project.id },
-                                       state: state, chrome: chrome, actions: actions)
+                    MachineHeader()
+                    if chrome.showsActivity {
+                        ActivityList(state: state, workspace: workspace, chrome: chrome, actions: actions)
+                    } else {
+                        tabList
                     }
-                    ForEach(others.filter { state.project(of: $0.element) == nil }, id: \.element.id) { index, tab in
-                        TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .full, chrome: chrome, actions: actions)
-                    }
-                    NewTabRow(action: { actions.newTab(inProject: nil) }, newProject: { actions.newProject(adding: nil) })
                 }
                 .padding(.horizontal, ChromeMetrics.sidebarHorizontalPadding)
                 .padding(.bottom, 8)
@@ -49,12 +46,36 @@ struct SidebarView: View {
             .scrollIndicators(.never)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Tabs")
+        .accessibilityLabel(chrome.showsActivity ? "Activity" : "Tabs")
+    }
+
+    /// An agent's tab out of sight has something new: a dot on the eye.
+    private var agentNews: Bool {
+        state.tabs.contains { tab in
+            tab.id != state.selectedTabID && actions.agentList.summary(for: tab.id) != nil
+                && TabActivityMarks(tab: tab, selected: false, actions: actions).badge
+        }
+    }
+
+    @ViewBuilder
+    private var tabList: some View {
+        PinnedTabsGrid(state: state, chrome: chrome, actions: actions)
+        // The other tabs, after the pinned ones (their indexes are the window's): each
+        // project's, then those in none.
+        let others = Array(Array(state.tabs.enumerated()).dropFirst(state.pinnedCount))
+        ForEach(workspace.projects, id: \.id) { project in
+            ProjectSection(project: project, tabs: others.filter { state.project(of: $0.element) == project.id },
+                           state: state, chrome: chrome, actions: actions)
+        }
+        ForEach(others.filter { state.project(of: $0.element) == nil }, id: \.element.id) { index, tab in
+            TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .full, chrome: chrome, actions: actions)
+        }
+        NewTabRow(action: { actions.newTab(inProject: nil) }, newProject: { actions.newProject(adding: nil) })
     }
 }
 
 /// A project in the tab list: its header, then its tabs unless folded. Folded, the header shows
-/// the most urgent activity of the tabs it hides.
+/// the activity of the tabs it hides.
 private struct ProjectSection: View {
     let project: Project
     /// The project's tabs in this window, with their indexes in the window.
@@ -63,19 +84,18 @@ private struct ProjectSection: View {
     let chrome: WindowChromeModel
     let actions: ChromeActions
 
-    private var display: PaneActivity.Display {
-        tabs.flatMap { $0.element.orderedPanes.map { actions.activity(for: $0.id).display } }.max() ?? .idle
+    private var marks: TabActivityMarks {
+        .merged(tabs.map { TabActivityMarks(tab: $0.element, selected: $0.element.id == state.selectedTabID, actions: actions) })
     }
 
     var body: some View {
         let holdsSelection = tabs.contains { $0.element.id == state.selectedTabID }
-        ProjectHeader(project: project, count: tabs.count, noun: "tab", display: project.folded ? display : nil,
+        ProjectHeader(project: project, count: tabs.count, noun: "tab", marks: project.folded ? marks : nil,
                       selected: project.folded && holdsSelection, chrome: chrome, actions: actions)
             .padding(.top, 4)
         if !project.folded {
             ForEach(tabs, id: \.element.id) { index, tab in
                 TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .full, chrome: chrome, actions: actions)
-                    .padding(.leading, 8)
             }
         }
     }

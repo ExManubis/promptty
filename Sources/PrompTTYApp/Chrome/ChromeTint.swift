@@ -1,7 +1,7 @@
 import AppKit
 
-/// Window colors. By default the frame is the system's neutral window color (Dia-style); the
-/// "Frame color" setting blends in the terminal theme's background instead.
+/// Window colors. The frame takes the selected theme's background color, darker than the panes so
+/// they stand out on it; the "Frame color" setting turns it down to a neutral gray.
 enum ChromeTint {
     /// Dia's neutral frame, laid over the behind-window blur: near-black in dark mode, a soft
     /// gray in light mode (so white selected rows stand out). Partly transparent, so the
@@ -22,7 +22,22 @@ enum ChromeTint {
 
     /// A theme-tinted frame over the blur, with the same transparency as the neutral one.
     static func overBlur(_ color: NSColor) -> NSColor {
-        color.withAlphaComponent(isDark(color) ? frameAlphaDark : frameAlphaLight)
+        color.withAlphaComponent(isDark(color) ? themeAlphaDark : themeAlphaLight)
+    }
+
+    /// A theme's frame is more opaque than the neutral one, so the theme's hue holds against the
+    /// desktop behind it.
+    static var themeAlphaDark: CGFloat { debugValue("PROMPTTY_FRAME_ALPHA") ?? 0.75 }
+    static var themeAlphaLight: CGFloat { debugValue("PROMPTTY_FRAME_ALPHA_LIGHT") ?? frameAlphaLight }
+    /// How much more saturated than the theme background the frame is.
+    static var themeSaturation: CGFloat { debugValue("PROMPTTY_FRAME_SAT") ?? 1.6 }
+
+    private static func debugValue(_ name: String) -> CGFloat? {
+        #if DEBUG
+        ProcessInfo.processInfo.environment[name].flatMap(Double.init).map { CGFloat($0) }
+        #else
+        nil
+        #endif
     }
 
     /// The frame color for a theme background, or nil for the neutral system color.
@@ -32,19 +47,21 @@ enum ChromeTint {
         return tint(forTerminalBackground: bg, strength: strength)
     }
 
-    /// Dark themes get a slightly lighter frame, light themes a slightly darker one, so the
-    /// content panel always reads as inset.
+    /// The theme background's own hue, a shade darker than the panes so they stand out on it (as
+    /// Rex's do), and in dark themes never darker than the neutral frame. `strength` is how much of
+    /// the hue's saturation it keeps.
     static func tint(forTerminalBackground bg: NSColor, strength: Double = 1) -> NSColor {
         guard let rgb = bg.usingColorSpace(.sRGB) else { return fallback }
-        let dark = isDark(rgb)
-        let target: NSColor = dark ? .white : .black
-        let amount: CGFloat = dark ? 0.12 : 0.07
-        guard let shifted = rgb.blended(withFraction: amount, of: target)?.usingColorSpace(.sRGB) else { return fallback }
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        shifted.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        rgb.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
         let keep = CGFloat(min(1, max(0, strength)))
-        return NSColor(hue: h, saturation: s * keep, brightness: b, alpha: 1).usingColorSpace(.sRGB) ?? shifted
+        let brightness = isDark(rgb) ? max(frameDark, b * frameShadeDark) : b * frameShadeLight
+        return NSColor(hue: h, saturation: min(1, s * themeSaturation) * keep, brightness: brightness, alpha: 1).usingColorSpace(.sRGB) ?? fallback
     }
+
+    /// How much of a theme background's brightness the frame keeps.
+    static let frameShadeDark: CGFloat = 0.72
+    static let frameShadeLight: CGFloat = 0.96
 
     static func isDark(_ color: NSColor) -> Bool {
         guard let rgb = color.usingColorSpace(.sRGB) else { return false }

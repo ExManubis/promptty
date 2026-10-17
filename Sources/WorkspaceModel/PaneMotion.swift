@@ -68,12 +68,22 @@ public enum PaneMotion {
         }
     }
 
-    /// A tab's opacity while the selection cross-fades: the new tab fades in on top of the old
-    /// one, which stays opaque underneath (so the window behind never shows through) until the fade
-    /// ends. Other tabs are hidden.
+    /// The share of a tab switch spent fading the old tab out; the new one fades in over the rest.
+    public static let tabFadeOutShare: CGFloat = 0.4
+
+    /// A tab's opacity while the selection fades through: the old tab fades out, then the new one
+    /// fades in, so the two never show at once (through glass panes, the old tab's text would show
+    /// in the new one's). Other tabs are hidden.
     public static func tabFadeOpacity(selected: Bool, outgoing: Bool, progress: CGFloat) -> CGFloat {
-        if selected { return min(1, max(0, progress)) }
-        if outgoing { return progress < 1 ? 1 : 0 }
+        let p = min(1, max(0, progress))
+        if selected {
+            let t = max(0, p - tabFadeOutShare) / (1 - tabFadeOutShare)
+            return t * (2 - t)
+        }
+        if outgoing {
+            let t = min(1, p / tabFadeOutShare)
+            return (1 - t) * (1 - t)
+        }
         return 0
     }
 }

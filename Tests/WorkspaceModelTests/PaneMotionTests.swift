@@ -62,15 +62,27 @@ final class PaneMotionTests: XCTestCase {
 }
 
 final class TabFadeTests: XCTestCase {
-    func testNewTabFadesInOverTheOldOne() {
+    func testOldTabFadesOutFirst() {
+        XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: false, outgoing: true, progress: 0), 1)
+        XCTAssertLessThan(PaneMotion.tabFadeOpacity(selected: false, outgoing: true, progress: 0.2), 0.5)
+        XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: false, outgoing: true, progress: PaneMotion.tabFadeOutShare), 0)
+        XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: false, outgoing: true, progress: 1), 0)
+    }
+
+    func testNewTabFadesInOnceTheOldOneIsGone() {
         XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: true, outgoing: false, progress: 0), 0)
-        XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: true, outgoing: false, progress: 0.5), 0.5)
+        XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: true, outgoing: false, progress: PaneMotion.tabFadeOutShare), 0)
+        XCTAssertGreaterThan(PaneMotion.tabFadeOpacity(selected: true, outgoing: false, progress: 0.7), 0.5)
         XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: true, outgoing: false, progress: 1), 1)
     }
 
-    func testOldTabStaysOpaqueUnderneathUntilTheFadeEnds() {
-        XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: false, outgoing: true, progress: 0.9), 1)
-        XCTAssertEqual(PaneMotion.tabFadeOpacity(selected: false, outgoing: true, progress: 1), 0)
+    func testTheTwoTabsNeverShowAtOnce() {
+        for step in 0...100 {
+            let p = CGFloat(step) / 100
+            let old = PaneMotion.tabFadeOpacity(selected: false, outgoing: true, progress: p)
+            let new = PaneMotion.tabFadeOpacity(selected: true, outgoing: false, progress: p)
+            XCTAssertTrue(old == 0 || new == 0, "both show at \(p)")
+        }
     }
 
     func testOtherTabsAreHidden() {

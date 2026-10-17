@@ -25,9 +25,10 @@ struct TabStripView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The glass thumb under the selected tab, as Safari's and Rex's: it slides to the next one.
+    /// In dark, lit smoked glass on the smoked track.
     private var selectionThumb: some View {
         Capsule()
-            .fill(Color.white.opacity(chrome.panelIsDark ? 0.14 : 0.75))
+            .fill(Color.white.opacity(chrome.panelIsDark ? 0.09 : 0.75))
             .overlay(Capsule().strokeBorder(LinearGradient(colors: [Color.white.opacity(chrome.panelIsDark ? 0.35 : 0.9), Color.white.opacity(0.04)],
                                                            startPoint: .top, endPoint: .bottom), lineWidth: 0.75))
             .shadow(color: .black.opacity(chrome.panelIsDark ? 0.3 : 0.12), radius: 3, y: 1)
@@ -80,7 +81,7 @@ struct TabStripView: View {
             }
             .scrollIndicators(.never)
             .frame(maxWidth: tabsWidth > 0 ? tabsWidth : nil)
-            .glassEffect(.regular, in: Capsule())
+            .modifier(SmokedGlass(shape: Capsule(), chrome: chrome))
             .animation(reduceMotion ? nil : .spring(duration: 0.32, bounce: 0.18), value: state.selectedTabID)
             Spacer(minLength: 0)
             ChromeIconButton(symbol: "command", help: "Command Palette", action: actions.openPalette)
@@ -139,5 +140,23 @@ enum MacModel {
         if name.hasPrefix("macstudio") { return "macstudio" }
         if name.hasPrefix("macpro") { return "macpro.gen3" }
         return "desktopcomputer"
+    }
+}
+
+/// Smoked glass, as the panes are in dark (`PaneCard.smoke`): Liquid Glass with a little of the
+/// theme's color and a thin dark layer, so the desktop's color shows through, darkened. Light
+/// keeps the regular glass.
+struct SmokedGlass<S: Shape>: ViewModifier {
+    let shape: S
+    let chrome: WindowChromeModel
+
+    func body(content: Content) -> some View {
+        if chrome.panelIsDark {
+            content
+                .background(shape.fill(Color.black.opacity(PaneCard.smoke(dark: true, lit: true))))
+                .glassEffect(.clear.tint(Color(nsColor: chrome.panelColor).opacity(PaneCard.glassTint(dark: true, lit: true))), in: shape)
+        } else {
+            content.glassEffect(.regular, in: shape)
+        }
     }
 }

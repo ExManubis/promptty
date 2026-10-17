@@ -2,24 +2,18 @@ import PaneActivity
 import SwiftUI
 import WorkspaceModel
 
-/// A project's header in the sidebar, above its tabs. A click folds it; folded, it shows how many
-/// it holds and their most urgent activity. Menus, drops and the icon picker are the caller's.
+/// A project's header in the sidebar, above its tabs: a plain gray label, as Rex's. A click folds
+/// it; its arrow and "+" show under the pointer, and folded it shows how many tabs it holds and
+/// their activity. Menus, drops and the icon picker are the caller's.
 struct GroupHeader: View {
-    enum Symbol {
-        /// A project without an icon of its own.
-        case folder
-        case icon(PinIcon)
-    }
-
     let title: String
     /// The tooltip.
     let help: String
-    let symbol: Symbol
     let count: Int
     /// What "count" counts, for VoiceOver: "tab".
     let noun: String
-    /// The most urgent activity inside, shown while folded.
-    var display: PaneActivity.Display?
+    /// The activity of the tabs inside, shown while folded.
+    var marks: TabActivityMarks?
     let folded: Bool
     /// Folded over the selected tab.
     var selected = false
@@ -34,31 +28,35 @@ struct GroupHeader: View {
         HStack(spacing: 2) {
             // A tap, not a Button: a Button would swallow the drag that reorders projects.
             HStack(spacing: 5) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .bold))
-                    .rotationEffect(.degrees(folded ? 0 : 90))
-                    .frame(width: 10)
-                symbolView
                 Text(title)
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(.system(size: 11.5, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
+                if hovering || folded {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .rotationEffect(.degrees(folded ? 0 : 90))
+                        .foregroundStyle(.tertiary)
+                }
                 if folded {
                     Text("\(count)")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                         .monospacedDigit()
                 }
                 Spacer(minLength: 2)
                 // Folded, the header stands for its tabs.
-                if folded, let display { ActivityIndicator(display: display) }
+                if folded, let marks {
+                    if marks.working { WorkingDots() }
+                    if marks.badge { Circle().fill(Color.accentColor).frame(width: 7, height: 7) }
+                }
             }
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
             .onTapGesture(perform: toggle)
             .help(help)
             .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isButton)
+            .accessibilityAddTraits([.isButton, .isHeader])
             .accessibilityAction { toggle() }
             .accessibilityLabel("\(title), \(count) \(count == 1 ? noun : noun + "s")")
             .accessibilityValue(folded ? (selected ? "Collapsed, holds the selected item" : "Collapsed") : "Expanded")
@@ -77,33 +75,12 @@ struct GroupHeader: View {
                 .accessibilityLabel("New tab in \(title)")
             }
         }
-        .foregroundStyle(Color.primary.opacity(0.8))
-        .padding(.leading, 6)
+        .foregroundStyle(.secondary)
+        .padding(.leading, 8)
         .padding(.trailing, 6)
         .frame(height: 24)
-        .background { RowBackground(selected: selected, hovering: hovering, dropTarget: dropTarget) }
+        .background { RowBackground(selected: selected, hovering: false, dropTarget: dropTarget) }
         .onHover { hovering = $0 }
-    }
-
-    @ViewBuilder
-    private var symbolView: some View {
-        switch symbol {
-        case .folder:
-            Image(systemName: "folder")
-                .font(.system(size: 10.5))
-                .foregroundStyle(.secondary)
-        case .icon(let icon):
-            Image(systemName: icon.symbol)
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(icon.color == .dark ? Color.secondary : PinIconChoices.colors(for: icon.color).background)
-        }
-    }
-}
-
-extension GroupHeader.Symbol {
-    @MainActor
-    init(_ project: Project) {
-        self = project.icon.map(Self.icon) ?? .folder
     }
 }
 
@@ -115,16 +92,16 @@ struct ProjectHeader: View {
     let count: Int
     /// What `count` counts: "tab".
     let noun: String
-    /// The most urgent activity inside, shown while folded.
-    var display: PaneActivity.Display?
+    /// The activity of the tabs inside, shown while folded.
+    var marks: TabActivityMarks?
     let selected: Bool
     let chrome: WindowChromeModel
     let actions: ChromeActions
     @State private var dropTargeted = false
 
     var body: some View {
-        GroupHeader(title: project.name, help: project.name, symbol: GroupHeader.Symbol(project),
-                    count: count, noun: noun, display: display, folded: project.folded,
+        GroupHeader(title: project.name, help: project.name,
+                    count: count, noun: noun, marks: marks, folded: project.folded,
                     selected: selected, dropTarget: dropTargeted,
                     onAdd: { actions.newTab(inProject: project.id) }) {
             withAnimation(.easeOut(duration: 0.15)) { actions.setProjectFolded(project.id, !project.folded) }

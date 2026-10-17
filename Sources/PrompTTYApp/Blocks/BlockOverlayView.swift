@@ -77,9 +77,9 @@ final class BlockOverlayView: NSView {
         buttons.sizingOptions = []
         buttons.safeAreaRegions = []
         buttons.rootView = BlockButtons(actions: .init(
-            copyOutput: { [weak self] in self?.copyHovered(.output) },
-            copyCommand: { [weak self] in self?.copyHovered(.command) },
-            copyMarkdown: { [weak self] in self?.copyHovered(.markdown) },
+            copyOutput: { [weak self] in self?.copyHovered(.output) ?? false },
+            copyCommand: { [weak self] in self?.copyHovered(.command) ?? false },
+            copyMarkdown: { [weak self] in self?.copyHovered(.markdown) ?? false },
             rerun: { [weak self] in self?.rerunHovered() },
             save: { [weak self] in self?.saveHovered() }
         ))
@@ -275,9 +275,9 @@ final class BlockOverlayView: NSView {
         return rerun(index)
     }
 
-    private func copyHovered(_ part: CopyPart) {
-        guard let index = buttonsIndex else { return }
-        copy(part, of: index)
+    private func copyHovered(_ part: CopyPart) -> Bool {
+        guard let index = buttonsIndex else { return false }
+        return copy(part, of: index)
     }
 
     private func rerunHovered() {
@@ -318,8 +318,14 @@ final class BlockOverlayView: NSView {
         }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-        flashBlock(index)
+        shineBlock(index)
         return true
+    }
+
+    /// A copied block catches the light, as Rex's code cards do (`CopyShine`).
+    private func shineBlock(_ index: Int) {
+        guard let layer, let snapshot, let frame = BlockLayout.visible(snapshot).first(where: { $0.index == index }) else { return }
+        CopyShine.play(in: layer, rect: blockRect(frame).insetBy(dx: 3, dy: 0), cornerRadius: 6, dark: buttonsDark ?? true)
     }
 
     private func flashBlock(_ index: Int) {
