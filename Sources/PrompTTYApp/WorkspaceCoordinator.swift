@@ -103,8 +103,8 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     }
 
     private var controlServer: ControlServer?
-    /// `promptty wait`: replies waiting for a command to end, by its id.
-    var commandWaiters: [String: [(CommandRecord) -> Void]] = [:]
+    /// `promptty wait`: replies waiting for a command to end, or for its pane to close.
+    var commandWaiters = CommandWaiters<PaneID>()
     /// Ids handed out for a command before its pane's shell runs it, and that pane.
     var pendingCommands: [String: (pane: PaneID, command: String)] = [:]
 
@@ -461,6 +461,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         }
         if let closed = state.closedTab(tab) { closedTabs.push(closed) }
         for pane in tab.orderedPanes { controller.removeSurface(for: pane.id) }
+        panesClosed(tab.orderedPanes.map(\.id))
         state.closeTab(id: id)
         if state.isEmpty {
             controller.window?.close()
@@ -729,6 +730,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         let removed = tab.reset(workingDirectory: exists ? pin.directory : NSHomeDirectory(),
                                 startupCommand: runningCommand && exists ? pin.command : nil)
         for pane in removed { controller.removeSurface(for: pane) }
+        panesClosed(removed)
         controller.reload()
         modelDidChange()
     }
@@ -742,6 +744,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         }
         for view in controller.allSurfaces() { view.teardown() }
         controller.stopShells()
+        if let state = workspace.windows.first(where: { $0.id == id }) { panesClosed(state.paneIDs) }
         workspace.removeWindow(id: id)
         modelDidChange()
     }
@@ -788,6 +791,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             return
         }
         controller.removeSurface(for: pane, closingOutOf: tab.id)
+        panesClosed([pane])
         tab.closePane(pane)
         controller.reload()
         modelDidChange()

@@ -254,6 +254,15 @@ final class PaneShell {
         if let record = commands.finish(code: Int(code)) { onCommandFinished?(record) }
     }
 
+    /// Records a command starting. One still marked running never reported its end (the shell was
+    /// replaced): it ended too, and whoever waits for it is told.
+    @discardableResult
+    private func startCommand(_ command: String, id: String? = nil) -> String {
+        let (started, ended) = commands.start(command, id: id)
+        for record in ended { onCommandFinished?(record) }
+        return started
+    }
+
     // MARK: The bar
 
     private func makeEditor() -> CommandEditorView {
@@ -422,7 +431,7 @@ final class PaneShell {
         guard state.phase == .idle, let surface else { return nil }
         var started: String?
         if !command.isEmpty {
-            started = commands.start(command, id: id)
+            started = startCommand(command, id: id)
             surface.sendText(command)
             if recordingHistory {
                 history.add(command)
@@ -525,7 +534,7 @@ final class PaneShell {
         guard bar == .active, state.phase == .idle, let surface else { return }
         surface.sendText(command)
         history.add(command)
-        commands.start(command)
+        startCommand(command)
         lastCommand = command
         surface.sendReturn()
         keepingDraft = true

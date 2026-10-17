@@ -88,8 +88,8 @@ promptty ls --json                                        # each pane's recent c
 
 `-p`/`-b` names a pane by its label, its id (with or without `block:`) or the end of its id; `-c`
 a command by its id or the end of it. Panes set `TERM_PROGRAM=PrompTTY`. Exit status: 0 ok,
-1 failed, 2 usage, 3 no such pane or command (or more than one), 4 PrompTTY not reachable, 5 `wait`
-timed out. Turn it off in
+1 failed (also `wait` when the pane closes first), 2 usage, 3 no such pane or command (or more than
+one), 4 PrompTTY not reachable, 5 `wait` timed out. Turn it off in
 **Settings › Tabs › Command line**.
 
 ## Connect your agents

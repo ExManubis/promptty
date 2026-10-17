@@ -367,13 +367,13 @@ extension WorkspaceCoordinator {
     /// runs there. `--timeout` gives up with status 5.
     fileprivate func wait(_ request: ControlRequest, reply: @escaping (ControlResponse) -> Void) {
         let record: CommandRecord
+        let pane: PaneID
         if let query = request.options["cmd"] {
             switch findCommand(query) {
-            case .success(let found): record = found.record
+            case .success(let found): (record, pane) = (found.record, found.pane)
             case .failure(let response): return reply(response)
             }
         } else {
-            let pane: PaneID
             switch resolvePane(request) {
             case .success(let found): pane = found
             case .failure(let response): return reply(response)
@@ -398,10 +398,18 @@ extension WorkspaceCoordinator {
             once.done = true
             reply(response)
         }
-        commandWaiters[id, default: []].append { finished in answer(Self.ended(finished, json: json)) }
+        let token = commandWaiters.add(id, pane: pane) { outcome in
+            switch outcome {
+            case .finished(let finished): answer(Self.ended(finished, json: json))
+            case .paneClosed: answer(.failed("\(id) did not finish: its pane closed"))
+            }
+        }
         if let seconds = request.options["timeout"].flatMap(Double.init) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
-                answer(ControlResponse(status: .timedOut, text: "\(id) is still running"))
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.commandWaiters.cancel(token)
+                    answer(ControlResponse(status: .timedOut, text: "\(id) is still running"))
+                }
             }
         }
     }
@@ -409,8 +417,17 @@ extension WorkspaceCoordinator {
     /// A command ended: its waiters get their answer.
     func commandFinished(_ record: CommandRecord) {
         pendingCommands[record.id] = nil
-        guard let waiters = commandWaiters.removeValue(forKey: record.id) else { return }
-        for waiter in waiters { waiter(record) }
+        for answer in commandWaiters.finished(record) { answer() }
+    }
+
+    /// Panes closed (or their shells stopped): a command there will never report its end, so whoever
+    /// waits for one is answered now, and the ids handed out for commands they had not run yet are
+    /// forgotten.
+    func panesClosed(_ panes: some Sequence<PaneID>) {
+        for pane in panes {
+            pendingCommands = pendingCommands.filter { $0.value.pane != pane }
+            for answer in commandWaiters.paneClosed(pane) { answer() }
+        }
     }
 
     private static func ended(_ record: CommandRecord, json: Bool) -> ControlResponse {

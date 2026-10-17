@@ -125,6 +125,7 @@ public enum ControlCommandLine {
       promptty close -b tests                                   # done with it
 
     Exit status: 0 ok, 1 failed, 2 usage, 3 pane or command not found or ambiguous, 4 PrompTTY not
-    reachable, 5 wait timed out; `wait` otherwise exits with the command's own status.
+    reachable, 5 wait timed out; `wait` otherwise exits with the command's own status, or 1 when its
+    pane closes first.
     """
 }
