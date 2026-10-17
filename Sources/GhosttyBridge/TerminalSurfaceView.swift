@@ -26,6 +26,8 @@ public final class TerminalSurfaceView: NSView {
     public var token: AnyHashable?
     /// Called when the view becomes first responder (a click or programmatic focus).
     public var onFocus: (() -> Void)?
+    /// The selection was copied (⌘C).
+    public var onCopy: (() -> Void)?
     /// The terminal has the keyboard (its window key, it first responder) or lost it.
     public var onFocusChange: ((Bool) -> Void)?
     /// Called each time the view joins a window. Hosts that move the view between containers use
@@ -270,7 +272,11 @@ public final class TerminalSurfaceView: NSView {
     }
 
     // Standard Edit menu actions. libghostty binds no keys, so ⌘C/⌘V/⌘A arrive here from the menu.
-    @objc public func copy(_ sender: Any?) { performBindingAction("copy_to_clipboard") }
+    @objc public func copy(_ sender: Any?) {
+        let selected = hasSelection
+        performBindingAction("copy_to_clipboard")
+        if selected { onCopy?() }
+    }
     @objc public func paste(_ sender: Any?) {
         // At a prompt a paste belongs in the input bar, not in the shell's hidden line.
         if let target = keyRedirect?(), let window {

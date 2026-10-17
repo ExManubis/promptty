@@ -57,26 +57,44 @@ struct StickyHeader: View {
 /// save it for the palette.
 struct BlockButtons: View {
     struct Actions {
-        var copyOutput: () -> Void = {}
-        var copyCommand: () -> Void = {}
-        var copyMarkdown: () -> Void = {}
+        /// Each copy says whether it copied: then its button shows a ✓ for a moment.
+        var copyOutput: () -> Bool = { false }
+        var copyCommand: () -> Bool = { false }
+        var copyMarkdown: () -> Bool = { false }
         var rerun: () -> Void = {}
         var save: () -> Void = {}
     }
 
     let actions: Actions
+    /// The copy button that just copied, showing a ✓.
+    @State private var copied: String?
+    @State private var reset: Task<Void, Never>?
 
     var body: some View {
         HStack(spacing: 0) {
-            HeaderButton(symbol: "doc.on.doc", help: "Copy Output", action: actions.copyOutput)
-            HeaderButton(symbol: "chevron.forward.square", help: "Copy Command", action: actions.copyCommand)
-            HeaderButton(symbol: "text.badge.checkmark", help: "Copy as Markdown", action: actions.copyMarkdown)
+            copyButton("doc.on.doc", help: "Copy Output", action: actions.copyOutput)
+            copyButton("chevron.forward.square", help: "Copy Command", action: actions.copyCommand)
+            copyButton("text.badge.checkmark", help: "Copy as Markdown", action: actions.copyMarkdown)
             HeaderButton(symbol: "arrow.clockwise", help: "Rerun in the input bar", action: actions.rerun)
             HeaderButton(symbol: "bookmark", help: "Save Command to the palette", action: actions.save)
         }
         .padding(.horizontal, 3)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(FlatSurface(cornerRadius: 7))
+    }
+
+    private func copyButton(_ symbol: String, help: String, action: @escaping () -> Bool) -> some View {
+        HeaderButton(symbol: copied == symbol ? "checkmark" : symbol, help: help) {
+            guard action() else { return }
+            copied = symbol
+            reset?.cancel()
+            reset = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.2))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.15)) { copied = nil }
+            }
+        }
+        .contentTransition(.symbolEffect(.replace))
     }
 }
 

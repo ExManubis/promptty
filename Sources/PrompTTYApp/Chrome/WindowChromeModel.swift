@@ -26,6 +26,8 @@ final class WindowChromeModel {
     /// The sidebar lists only the tabs running agents, with what each does and since when (Rex's
     /// Activity).
     var showsActivity = false
+    /// How many times each pane's selection was copied: each copy plays its card's `CopyShine`.
+    var copyShines: [PaneID: Int] = [:]
     var banner: BannerContent?
     /// Panes whose shell exited, with the exit code, until they are closed.
     var exitedPanes: [PaneID: UInt32] = [:]

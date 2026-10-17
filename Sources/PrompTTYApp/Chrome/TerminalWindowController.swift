@@ -215,6 +215,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     private func bind(_ view: TerminalSurfaceView, to pane: PaneID) {
         view.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
+        view.onCopy = { [weak self] in self?.chrome.copyShines[pane, default: 0] += 1 }
         view.onFocusChange = { [weak self] focused in self?.coordinator.secureInput.setFocused(pane, focused) }
         coordinator.refreshSecureIndicators()
         view.onAttachedToWindow = { [weak self] in self?.surfaceAttached(pane) }

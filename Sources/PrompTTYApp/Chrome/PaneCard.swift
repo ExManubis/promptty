@@ -167,6 +167,8 @@ struct PaneCard: View {
                 .animation(PaneAnimation.focusFade, value: broadcasting)
                 .allowsHitTesting(false)
         }
+        // ⌘C: the card catches the light, as Rex's code cards do when copied.
+        .overlay { CopyShineOverlay(trigger: chrome.copyShines[pane.id] ?? 0, cornerRadius: ChromeMetrics.paneCornerRadius) }
         .environment(\.colorScheme, chrome.panelIsDark ? .dark : .light)
         .modifier(PaneDropTarget(pane: pane, chrome: chrome, actions: actions))
         .accessibilityElement(children: .contain)
