@@ -30,13 +30,30 @@ struct PaneCard: View {
         let shape = RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
         if translucent {
             Color.clear.glassEffect(.clear.tint(Color(nsColor: chrome.panelColor).opacity(Self.glassTint(dark: chrome.panelIsDark, lit: focused || !tab.hasSplits))), in: shape)
-                // Rex's bright top edge, added to the color under it (it keeps the hue) rather than
-                // laid over it in white.
+                // Rex's edges. The glass lights its own top and bottom edges: in dark, as bright along
+                // the top as Rex's, and brighter along the bottom, so the bottom is shaded back down a
+                // little. A faint line, added to the color under it so it keeps the hue, traces the
+                // sides, which the glass leaves unlit.
                 .overlay(shape.strokeBorder(LinearGradient(stops: [
-                    .init(color: .white.opacity(chrome.panelIsDark ? 0.38 : 0.45), location: 0),
-                    .init(color: .white.opacity(chrome.panelIsDark ? 0.10 : 0.2), location: 0.03),
-                    .init(color: .white.opacity(chrome.panelIsDark ? 0.05 : 0.1), location: 1),
+                    .init(color: .white.opacity(chrome.panelIsDark ? 0.04 : 0.45), location: 0),
+                    .init(color: .white.opacity(chrome.panelIsDark ? 0.05 : 0.2), location: 0.03),
+                    .init(color: .white.opacity(chrome.panelIsDark ? 0.05 : 0.1), location: 0.97),
+                    .init(color: .white.opacity(chrome.panelIsDark ? 0 : 0.1), location: 1),
                 ], startPoint: .top, endPoint: .bottom), lineWidth: 0.75).blendMode(.plusLighter))
+                .overlay(shape.strokeBorder(LinearGradient(stops: [
+                    .init(color: .clear, location: 0.985),
+                    .init(color: Color(nsColor: chrome.panelColor).opacity(chrome.panelIsDark ? Self.bottomShade : 0), location: 1),
+                ], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                .overlay {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        LinearGradient(colors: [.clear, .white.opacity(chrome.panelIsDark ? 0.05 : 0.08)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 5)
+                    }
+                    .clipShape(shape)
+                    .blendMode(.plusLighter)
+                    .allowsHitTesting(false)
+                }
         } else {
             shape.fill(Color(nsColor: chrome.panelColor))
         }
@@ -50,13 +67,21 @@ struct PaneCard: View {
         #endif
     }
 
+    static var bottomShade: Double {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["PROMPTTY_GLASS_SHADE"].flatMap(Double.init) ?? 0.45
+        #else
+        0.45
+        #endif
+    }
+
     /// How much of the theme's background tints the glass.
     static func glassTint(dark: Bool, lit: Bool) -> Double {
-        let base = tintOverride ?? (dark ? 0.30 : 0.35)
+        let base = tintOverride ?? (dark ? 0.48 : 0.35)
         #if DEBUG
-        let dim = ProcessInfo.processInfo.environment["PROMPTTY_GLASS_DIM"].flatMap(Double.init) ?? (dark ? 0.16 : 0.08)
+        let dim = ProcessInfo.processInfo.environment["PROMPTTY_GLASS_DIM"].flatMap(Double.init) ?? (dark ? 0.14 : 0.08)
         #else
-        let dim = dark ? 0.16 : 0.08
+        let dim = dark ? 0.14 : 0.08
         #endif
         return lit ? base : base + dim
     }
