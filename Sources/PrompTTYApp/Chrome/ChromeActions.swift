@@ -83,6 +83,8 @@ protocol ChromeActions: AnyObject {
     /// Removes a project after asking; its tabs stay, in no project.
     func requestRemoveProject(_ id: ProjectID)
     func toggleSidebar()
+    /// Switches the tabs between the sidebar and the strip along the top.
+    func toggleTabLayout()
     /// Opens the command palette (⌘K).
     func openPalette()
     /// Closes the command palette, then runs what was picked in it.

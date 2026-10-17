@@ -632,6 +632,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     }
 
     func toggleSidebar() { coordinator.toggleTabListHidden() }
+    func toggleTabLayout() { coordinator.toggleTabLayout() }
     func split(_ pane: PaneID, direction: SplitDirection) { coordinator.split(pane, direction: direction) }
     func toggleZoom(_ pane: PaneID) {
         guard let tab = state.tab(containing: pane) else { return }

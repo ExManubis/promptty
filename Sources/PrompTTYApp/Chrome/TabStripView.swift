@@ -34,9 +34,9 @@ struct TabStripView: View {
     var body: some View {
         HStack(spacing: 6) {
             HStack(spacing: 7) {
-                Image(systemName: "macwindow")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.secondary)
+                ChromeIconButton(symbol: "macwindow", help: "Show Tabs in the Sidebar", action: actions.toggleTabLayout)
+                    .padding(.leading, -2)
+                    .padding(.trailing, -7)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(projectName)
                         .font(.system(size: 12, weight: .semibold))
@@ -45,10 +45,10 @@ struct TabStripView: View {
                         .foregroundStyle(.secondary)
                 }
                 .lineLimit(1)
+                .accessibilityElement(children: .combine)
             }
             .frame(maxWidth: 150, alignment: .leading)
             .padding(.trailing, 6)
-            .accessibilityElement(children: .combine)
             // The tabs in one Liquid Glass track, the selected one on a glass thumb that slides, as
             // Safari's and Rex's tab bars.
             ScrollView(.horizontal) {

@@ -21,6 +21,8 @@ struct SidebarView: View {
             HStack(spacing: 0) {
                 Color.clear.frame(width: ChromeMetrics.trafficLightsWidth - (collapsed ? ChromeMetrics.inset : 0))
                 ChromeIconButton(symbol: "sidebar.left", help: collapsed ? "Keep Sidebar Open" : "Hide Sidebar", action: actions.toggleSidebar)
+                // As in the strip, the window glyph switches the tabs to the other layout.
+                ChromeIconButton(symbol: "macwindow", help: "Show Tabs Along the Top", action: actions.toggleTabLayout)
                 Spacer(minLength: 0)
             }
             .frame(height: ChromeMetrics.titlebarHeight - (collapsed ? 2 * ChromeMetrics.inset : 0))
