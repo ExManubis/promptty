@@ -5,6 +5,7 @@ import CommandEditing
 import GhosttyBridge
 import Observation
 import PaneActivity
+import RemoteControl
 import Preferences
 import UniformTypeIdentifiers
 import WorkspaceModel
@@ -66,6 +67,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         controllers.values.first?.window?.makeKeyAndOrderFront(nil)
         activity.start()
         startHooks()
+        startControl()
         refreshAgents()
     }
 
@@ -93,6 +95,25 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     func stopHooks() {
         hookListener?.stop()
         hookListener = nil
+        controlServer?.stop()
+        controlServer = nil
+    }
+
+    private var controlServer: ControlServer?
+
+    /// Listens for `promptty`. Requests are answered on the main thread.
+    func startControl() {
+        let server = ControlServer(path: AppPaths.controlSocket) { [weak self] request, reply in
+            MainActor.assumeIsolated {
+                reply(self?.handleControl(request) ?? .failed("PrompTTY is quitting"))
+            }
+        }
+        do {
+            try server.start()
+            controlServer = server
+        } catch {
+            NSLog("PrompTTY: no control socket at \(AppPaths.controlSocket): \(error)")
+        }
     }
 
     // MARK: Activity
@@ -254,6 +275,10 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     }
 
     func controller(for id: WindowID) -> TerminalWindowController? { controllers[id] }
+    /// The window a pane is in, with its controller.
+    func controller(containing pane: PaneID) -> TerminalWindowController? {
+        workspace.tab(containing: pane).flatMap { controllers[$0.0.id] }
+    }
     var allControllers: [TerminalWindowController] { Array(controllers.values) }
 
     func modelDidChange() { onModelChanged?() }
@@ -391,12 +416,14 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     /// A new tab, after the selected one, running `command` at its first prompt (typed ahead into
     /// a shell without the integration).
-    func newTab(in state: WindowState, running command: String) {
+    @discardableResult
+    func newTab(in state: WindowState, running command: String?, workingDirectory: String? = nil) -> PaneID {
         let project = state.selectedTab.flatMap(state.project(of:))
-        let tab = state.addTab(title: "", workingDirectory: NSHomeDirectory(), project: project)
+        let tab = state.addTab(title: "", workingDirectory: workingDirectory ?? NSHomeDirectory(), project: project)
         tab.focusedPane.startupCommand = command
         controllers[state.id]?.reload()
         modelDidChange()
+        return tab.focusedPaneID
     }
 
     func select(_ id: TabID) {
@@ -707,14 +734,19 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     // MARK: Panes
 
-    func split(_ pane: PaneID, direction: SplitDirection) {
+    /// Splits `pane`; the new pane opens in `workingDirectory` (else the pane's) and runs
+    /// `command` at its first prompt. Returns it.
+    @discardableResult
+    func split(_ pane: PaneID, direction: SplitDirection, workingDirectory: String? = nil, command: String? = nil) -> PaneID? {
         guard let (state, tab) = workspace.tab(containing: pane), let controller = controllers[state.id],
-              let source = tab.pane(pane) else { return }
-        let new = tab.split(pane, direction: direction, workingDirectory: source.workingDirectory)
+              let source = tab.pane(pane) else { return nil }
+        let new = tab.split(pane, direction: direction, workingDirectory: workingDirectory ?? source.workingDirectory)
+        new.startupCommand = command
         controller.prepareSplit(new.id, inheritingFrom: pane)
         state.select(id: tab.id)
         controller.reload()
         modelDidChange()
+        return new.id
     }
 
     /// Removes a pane (its surface is already closing or closed); the last pane closes its tab.

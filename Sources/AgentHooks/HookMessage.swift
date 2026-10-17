@@ -151,12 +151,19 @@ public enum HookSocket {
     /// debug run's, still has its own), or failing that in `/tmp/promptty-<uid>/`, a folder only
     /// the user may enter (`HookListener` makes and checks it).
     public static func path(dataFolder: String, temporaryDirectory: String, userID: UInt32 = getuid()) -> String {
-        let preferred = (dataFolder as NSString).appendingPathComponent("hooks.sock")
+        path(named: "hooks", dataFolder: dataFolder, temporaryDirectory: temporaryDirectory, userID: userID)
+    }
+
+    /// `<name>.sock` in the data folder, falling back as `path(dataFolder:…)` does; the hook
+    /// socket's name keeps its old fallbacks.
+    public static func path(named name: String, dataFolder: String, temporaryDirectory: String, userID: UInt32 = getuid()) -> String {
+        let preferred = (dataFolder as NSString).appendingPathComponent("\(name).sock")
         if preferred.utf8.count <= maxPathBytes { return preferred }
-        let name = "promptty-\(hash(dataFolder)).sock"
-        let temporary = (temporaryDirectory as NSString).appendingPathComponent(name)
+        let tag = name == "hooks" ? "" : "\(name)-"
+        let file = "promptty-\(tag)\(hash(dataFolder)).sock"
+        let temporary = (temporaryDirectory as NSString).appendingPathComponent(file)
         if temporary.utf8.count <= maxPathBytes { return temporary }
-        return sharedFolder(userID: userID) + "/\(hash(dataFolder)).sock"
+        return sharedFolder(userID: userID) + "/\(tag)\(hash(dataFolder)).sock"
     }
 
     /// The last resort's folder, in the world-writable `/tmp`.

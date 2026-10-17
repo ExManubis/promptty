@@ -58,6 +58,16 @@ targets:
         product: CommandBlocks
       - package: PrompTTYCore
         product: AgentHooks
+      - package: PrompTTYCore
+        product: RemoteControl
+      # `promptty`, put on every pane's PATH: in Resources/bin, not beside the app's own binary,
+      # which on a case-insensitive disk it would clash with.
+      - target: promptty-cli
+        embed: true
+        codeSign: true
+        copy:
+          destination: resources
+          subpath: bin
       # The hook helper, in Contents/MacOS beside the app (Claude Code's settings point at it).
       - target: promptty-hook
         embed: true
@@ -99,6 +109,26 @@ targets:
     settings:
       base:
         PRODUCT_NAME: promptty-hook
+        SKIP_INSTALL: YES
+      configs:
+        Release:
+          CODE_SIGN_IDENTITY: "Developer ID Application"
+          DEVELOPMENT_TEAM: RQ2CW4W282
+          ENABLE_HARDENED_RUNTIME: YES
+          OTHER_CODE_SIGN_FLAGS: "--timestamp"
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+  # `promptty` (Sources/promptty): control the app from its own terminals.
+  promptty-cli:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/promptty
+    dependencies:
+      - package: PrompTTYCore
+        product: RemoteControl
+    settings:
+      base:
+        PRODUCT_NAME: promptty
         SKIP_INSTALL: YES
       configs:
         Release:

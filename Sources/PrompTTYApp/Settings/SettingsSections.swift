@@ -129,6 +129,14 @@ struct TabsSection: View {
             }
 
             Section {
+                Toggle("Allow the promptty command to control the app", isOn: $model.settings.remoteControl)
+            } header: {
+                Text("Command line")
+            } footer: {
+                Text("Every terminal has `promptty` on its PATH: list tabs, open and split panes, type into them and read them from scripts and agents. Run `promptty help` in a pane.")
+            }
+
+            Section {
                 Toggle("Mark tabs that printed while you looked elsewhere", isOn: $model.settings.markUnseenOutput)
                 Toggle("Notify when a long command finishes", isOn: $model.settings.notifyCommands)
                 Picker("Long means at least", selection: $model.settings.notifyAfterSeconds) {

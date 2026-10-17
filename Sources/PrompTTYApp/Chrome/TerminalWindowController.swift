@@ -3,6 +3,7 @@ import AppKit
 import CommandEditing
 import GhosttyBridge
 import PaneActivity
+import RemoteControl
 import Preferences
 import SwiftUI
 import WorkspaceModel
@@ -136,7 +137,14 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         }
         pane.restoredScrollback = nil
         // Every pane, whatever its shell: where an agent's hooks report, and for which pane.
-        let hookEnvironment = HookEnvironment.variables(pane: pane.id.rawValue, socket: AppPaths.hookSocket)
+        var hookEnvironment = HookEnvironment.variables(pane: pane.id.rawValue, socket: AppPaths.hookSocket)
+        // `promptty`: the control socket, and the command first on the PATH (zsh's path_helper
+        // and most shell files add to the PATH they find, keeping it).
+        hookEnvironment[ControlEnvironment.socketVariable] = AppPaths.controlSocket
+        if let bin = AppPaths.commandLineFolder {
+            let inherited = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            hookEnvironment["PATH"] = bin.path + ":" + inherited
+        }
         // A pinned tab's command: run from the bar at the first prompt, or typed ahead into a
         // shell without the integration.
         let startup = pane.startupCommand

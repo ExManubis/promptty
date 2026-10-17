@@ -52,6 +52,25 @@
 Download the latest `.dmg` from [Releases](https://github.com/ExManubis/promptty/releases) and
 drag PrompTTY to Applications. Requires an Apple silicon Mac with macOS 26.
 
+## Script it
+
+Every PrompTTY terminal has a `promptty` command, so scripts, editors and agents can drive the
+app:
+
+```sh
+promptty ls                                # windows, tabs and panes (--json for scripts)
+promptty split right -- npm run dev        # a pane beside this one, running the dev server
+promptty new-tab --cwd ~/api -- make test  # a new tab
+promptty -p logs send 'tail -f app.log' --enter
+promptty -p logs capture                   # what that pane shows (--all: its scrollback too)
+promptty label server                      # name this pane
+promptty notify "Deploy done"
+```
+
+`-p` names a pane by its label, its id or the end of its id. Exit status: 0 ok, 1 failed,
+2 usage, 3 no such pane (or more than one), 4 PrompTTY not reachable. Turn it off in
+**Settings › Tabs › Command line**.
+
 ## Connect your agents
 
 PrompTTY can guess an agent's state from its screen, but it knows for sure with hooks:
