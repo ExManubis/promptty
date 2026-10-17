@@ -49,48 +49,73 @@ final class PaletteModel {
     }
 }
 
+/// The palette itself, Raycast-style: a large search field over the list, on Liquid Glass.
 struct CommandPaletteView: View {
     let model: PaletteModel
     let run: (PaletteEntry) -> Void
     let cancel: () -> Void
 
+    static let width: CGFloat = 640
+    static let rowHeight: CGFloat = 40
+    private static let maxRows = 9
+    private static let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+
     var body: some View {
-        PickerPanel(
-            icon: "command",
-            title: "Command Palette",
-            placeholder: "Search tabs and commands",
-            query: Binding(get: { model.query }, set: { model.query = $0 }),
-            note: model.results.isEmpty ? "Nothing matches" : nil,
-            rowCount: model.results.count,
-            selectedID: model.choice.map { AnyHashable($0.id) },
-            hints: [("↑↓", "select"), ("⏎", "run"), ("esc", "close")],
-            onCommand: handle,
-            width: 520
-        ) {
-            ForEach(Array(model.results.enumerated()), id: \.element.id) { index, entry in
-                let selected = model.selection == index
-                PickerRow(icon: entry.icon, title: entry.title, selected: selected,
-                          accessibilityHint: entry.subtitle ?? "Runs this command", open: { run(entry) }) { _ in
-                    HStack(spacing: 8) {
-                        if let subtitle = entry.subtitle {
-                            Text(subtitle)
-                                .font(.system(size: 11))
-                                .lineLimit(1)
-                                .truncationMode(.head)
-                                .opacity(0.8)
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(.secondary)
+                PickerField(text: Binding(get: { model.query }, set: { model.query = $0 }),
+                            placeholder: "Search tabs, commands and hosts…", onCommand: handle,
+                            font: .systemFont(ofSize: 20))
+                    .frame(height: 28)
+            }
+            .padding(.horizontal, 20)
+            .frame(height: 60)
+
+            Divider().opacity(0.5)
+
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    LazyVStack(spacing: 2) {
+                        ForEach(Array(model.results.enumerated()), id: \.element.id) { index, entry in
+                            PaletteRow(entry: entry, selected: model.selection == index) { run(entry) }
+                                .id(entry.id)
                         }
-                        if let shortcut = entry.shortcut {
-                            Text(shortcut)
-                                .font(.system(size: 11, weight: .medium).monospaced())
+                        if model.results.isEmpty {
+                            Text("No results")
+                                .font(.system(size: 15))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, minHeight: Self.rowHeight * 2)
                         }
                     }
-                    .padding(.trailing, 6)
+                    .padding(8)
                 }
-                .id(entry.id)
+                .scrollIndicators(.never)
+                .frame(height: CGFloat(max(2, min(model.results.count, Self.maxRows))) * (Self.rowHeight + 2) + 16)
+                .onChange(of: model.choice?.id) { _, id in
+                    if let id { proxy.scrollTo(id) }
+                }
             }
+
+            Divider().opacity(0.5)
+
+            HStack(spacing: 14) {
+                Label("Command Palette", systemImage: "command")
+                    .labelStyle(.titleAndIcon)
+                Spacer()
+                PaletteHint(keys: "↑↓", label: "Select")
+                PaletteHint(keys: "↩", label: "Run")
+                PaletteHint(keys: "esc", label: "Close")
+            }
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .frame(height: 38)
         }
-        .background(FlatSurface(cornerRadius: 12))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(width: Self.width)
+        .glassEffect(.regular, in: Self.shape)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Command Palette")
     }
@@ -107,6 +132,105 @@ struct CommandPaletteView: View {
     }
 }
 
+/// One result: its symbol in a small tile, its name, where it comes from, and its shortcut as
+/// keycaps.
+private struct PaletteRow: View {
+    let entry: PaletteEntry
+    let selected: Bool
+    let open: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 12) {
+                Image(systemName: entry.icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 26, height: 26)
+                    .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                Text(entry.title)
+                    .font(.system(size: 15))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let subtitle = entry.subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+                Spacer(minLength: 8)
+                if let shortcut = entry.shortcut {
+                    Keycaps(shortcut: shortcut)
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: CommandPaletteView.rowHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background {
+            let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+            if selected {
+                shape.fill(Color.primary.opacity(0.12))
+            } else if hovering {
+                shape.fill(Color.primary.opacity(0.05))
+            }
+        }
+        .onHover { hovering = $0 }
+        .accessibilityLabel(entry.title)
+        .accessibilityHint(entry.subtitle ?? "Runs this command")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// "⇧⌘D" as one keycap per key.
+private struct Keycaps: View {
+    let shortcut: String
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(Array(Self.keys(shortcut).enumerated()), id: \.offset) { _, key in
+                Text(key)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(minWidth: 20, minHeight: 20)
+                    .padding(.horizontal, key.count > 1 ? 4 : 0)
+                    .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            }
+        }
+        .foregroundStyle(.secondary)
+        .accessibilityLabel(shortcut)
+    }
+
+    /// Each modifier on its own cap, the key (which may be a word, "Space") on the last.
+    static func keys(_ shortcut: String) -> [String] {
+        let modifiers = Set("⌃⌥⇧⌘")
+        var out: [String] = []
+        var rest = Substring(shortcut)
+        while let first = rest.first, modifiers.contains(first) {
+            out.append(String(first))
+            rest = rest.dropFirst()
+        }
+        if !rest.isEmpty { out.append(String(rest)) }
+        return out
+    }
+}
+
+private struct PaletteHint: View {
+    let keys: String
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(keys)
+                .font(.system(size: 11, weight: .medium))
+                .padding(.horizontal, 5)
+                .frame(minHeight: 18)
+                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            Text(label)
+        }
+    }
+}
+
 /// The palette over a window: a dimmed backdrop that closes it when clicked, the palette at the
 /// top center.
 struct CommandPaletteOverlay: View {
@@ -116,14 +240,15 @@ struct CommandPaletteOverlay: View {
     var body: some View {
         if let model = chrome.palette {
             ZStack(alignment: .top) {
-                Color.black.opacity(0.12)
+                // Barely dimmed: the glass shows the terminal through it.
+                Color.black.opacity(0.06)
                     .contentShape(Rectangle())
                     .onTapGesture { actions.closePalette(running: nil) }
                     .accessibilityHidden(true)
                 CommandPaletteView(model: model, run: { actions.closePalette(running: $0) },
                                    cancel: { actions.closePalette(running: nil) })
                     .padding(.top, 72)
-                    .shadow(color: .black.opacity(0.25), radius: 18, y: 6)
+                    .shadow(color: .black.opacity(0.22), radius: 30, y: 12)
             }
             .transition(.opacity)
         }
@@ -135,14 +260,18 @@ struct CommandPaletteOverlay: View {
 enum MenuCommands {
     /// `window`: whose responders take the commands (the app may not be active, as when the
     /// palette is opened from the debug driver).
-    static func entries(in menu: NSMenu?, window: NSWindow?, path: [String] = []) -> [PaletteEntry] {
+    /// `configured`: the shortcut PrompTTY has for a command by its title, as Settings shows it. A
+    /// menu's own key equivalent is stored for the keyboard layout (⌃⌘= can read ⌃⌘` on one where
+    /// = is shifted), so it is shown only for the menu's fixed items.
+    static func entries(in menu: NSMenu?, window: NSWindow?, path: [String] = [],
+                        configured: (String) -> String? = { _ in nil }) -> [PaletteEntry] {
         guard let menu else { return [] }
         var out: [PaletteEntry] = []
         for item in menu.items where !item.isSeparatorItem && !item.isHidden {
             if let submenu = item.submenu {
                 // The palette lists tabs itself.
                 guard item.title != "Go to Tab" else { continue }
-                out += entries(in: submenu, window: window, path: path + [item.title])
+                out += entries(in: submenu, window: window, path: path + [item.title], configured: configured)
                 continue
             }
             guard let action = item.action, item.title != "Command Palette",
@@ -152,10 +281,10 @@ enum MenuCommands {
             let title = item.title.hasSuffix("…") ? String(item.title.dropLast()) : item.title
             out.append(PaletteEntry(
                 id: "menu:\(path.joined(separator: "/"))/\(item.title)",
-                icon: Self.icon(for: path.first ?? ""),
+                icon: Self.icon(forCommand: title) ?? Self.icon(for: path.first ?? ""),
                 title: title,
                 subtitle: path.joined(separator: " › ").nilIfEmpty,
-                shortcut: shortcut(of: item),
+                shortcut: configured(title) ?? shortcut(of: item),
                 keywords: path.joined(separator: " "),
                 run: { [weak target] in NSApp.sendAction(action, to: target, from: item) }
             ))
@@ -183,6 +312,31 @@ enum MenuCommands {
         #selector(NSApplication.arrangeInFront(_:)),
         #selector(NSApplication.unhideAllApplications(_:)),
     ]
+
+    /// A symbol of its own for the commands people run most.
+    private static func icon(forCommand title: String) -> String? {
+        let icons: [String: String] = [
+            "New Window": "macwindow.badge.plus", "New Tab": "plus.square.on.square", "Pin Tab": "pin",
+            "Unpin Tab": "pin.slash", "New Project": "folder.badge.plus", "Split Right": "rectangle.split.2x1",
+            "Split Down": "rectangle.split.1x2", "Close Pane": "xmark.square", "Close Tab": "xmark.square",
+            "Close Window": "xmark.rectangle", "Reopen Closed Tab": "arrow.uturn.backward.square",
+            "Copy": "doc.on.doc", "Paste": "doc.on.clipboard", "Select All": "selection.pin.in.out",
+            "Clear": "eraser", "Find": "magnifyingglass", "Find Next": "chevron.down", "Find Previous": "chevron.up",
+            "Use Selection for Find": "text.magnifyingglass", "Copy Output": "doc.on.doc",
+            "Copy Command": "chevron.forward.square", "Copy Command as Markdown": "text.badge.checkmark",
+            "Rerun Command": "arrow.clockwise", "Bigger": "textformat.size.larger", "Smaller": "textformat.size.smaller",
+            "Actual Size": "textformat.size", "Toggle Sidebar": "sidebar.left", "Toggle Tab Layout": "rectangle.topthird.inset.filled",
+            "Quick Terminal": "rectangle.tophalf.inset.filled", "Enter Full Screen": "arrow.up.left.and.arrow.down.right",
+            "Zoom Pane": "arrow.up.left.and.arrow.down.right", "Unzoom Pane": "arrow.down.right.and.arrow.up.left",
+            "Equalize Panes": "square.grid.2x2", "Broadcast Input to All Panes": "dot.radiowaves.left.and.right",
+            "Settings": "gearshape", "Secure Keyboard Entry": "lock", "Minimize": "minus.square",
+            "Quit PrompTTY": "power", "About PrompTTY": "info.circle",
+        ]
+        if let icon = icons[title] { return icon }
+        if title.hasPrefix("Focus Pane") { return "arrow.right.square" }
+        if title.hasPrefix("Select") { return "text.line.first.and.arrowtriangle.forward" }
+        return nil
+    }
 
     private static func icon(for menu: String) -> String {
         switch menu {

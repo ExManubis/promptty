@@ -1,5 +1,6 @@
 import AppKit
 import PaneActivity
+import Preferences
 import WorkspaceModel
 
 /// The command palette (⇧⌘P) over this window.
@@ -22,7 +23,11 @@ extension TerminalWindowController {
 
     private func paletteEntries() -> [PaletteEntry] {
         // The app menu's commands (About, Hide, Quit) are seldom what is looked for: last.
-        let commands = MenuCommands.entries(in: NSApp.mainMenu, window: window)
+        let shortcuts = coordinator.preferences.shortcuts
+        let commands = MenuCommands.entries(in: NSApp.mainMenu, window: window) { title in
+            ShortcutAction.allCases.first { $0.title == title && $0 != .quickTerminal }
+                .map { shortcuts.shortcut(for: $0).displayString }
+        }
         let app = commands.filter { $0.subtitle == "PrompTTY" }
         return tabEntries() + projectEntries() + commands.filter { $0.subtitle != "PrompTTY" } + sshEntries() + app
     }
