@@ -199,7 +199,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         guard let url = URL(string: "http://localhost:\(port)") else { return }
         NSWorkspace.shared.open(url)
     }
-    var agentList: AgentList { coordinator.agentList }
+    var agentList: AgentList { coordinator.agents.list }
     func reveal(_ pane: PaneID) { coordinator.reveal(pane) }
     func allShells() -> [PaneShell] { Array(shells.values) }
 

@@ -4,7 +4,6 @@ import Carbon.HIToolbox
 import CommandBlocks
 import CommandEditing
 import GhosttyBridge
-import Observation
 import PaneActivity
 import RemoteControl
 import Preferences
@@ -32,18 +31,21 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     private(set) lazy var persistence = SessionPersistence(workspace: workspace, preferences: preferences) { [weak self] in
         self?.controllers[$0]
     }
+    /// The agents of every tab, for the sidebars' tab rows, and their repositories.
+    let agents: AgentDirectory
 
     init(runtime: GhosttyRuntime, workspace: Workspace, preferences: PreferencesController) {
         self.runtime = runtime
         self.workspace = workspace
         self.preferences = preferences
+        agents = AgentDirectory(workspace: workspace, activity: activity)
         lastAppSettings = preferences.settings
         activity.panes = { [weak self] in self?.watchedPanes() ?? [] }
         activity.isSeen = { [weak self] in self?.isSeen($0) ?? false }
         activity.onNotice = { [weak self] pane, notice in self?.post(notice, for: pane) }
         activity.onSeen = { Notifications.remove(for: $0) }
         activity.allPanes = { [weak self] in Set(self?.allPaneIDs ?? []) }
-        activity.afterTick = { [weak self] in self?.lookUpRepositories() }
+        activity.afterTick = { [weak self] in self?.agents.lookUpRepositories() }
         secureInput.global = preferences.settings.secureKeyboardEntry
         activity.marksUnseenOutput = preferences.settings.markUnseenOutput
         ChromeTint.opacity = CGFloat(preferences.settings.windowOpacity)
@@ -75,7 +77,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         activity.start()
         startHooks()
         startControl()
-        refreshAgents()
+        agents.refresh()
     }
 
     /// Listens for agents' hooks (`promptty-hook`, run by Claude Code inside a pane). Without the
@@ -203,75 +205,6 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     /// Notices posted, for the debug driver.
     var postedNotices: [String] = []
     #endif
-
-    /// The agents of every tab, in every window, for the sidebars' tab rows.
-    let agentList = AgentList()
-    private var agentsScheduled = false
-    /// The folders the agents work in, as the list last found them.
-    private var agentFolders: Set<String> = []
-    private var repositories = RepositoryCache()
-
-    /// The list is worked out again on the next turn of the run loop: changes made together are
-    /// one update.
-    private func scheduleAgents() {
-        guard !agentsScheduled else { return }
-        agentsScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated { self?.refreshAgents() }
-        }
-    }
-
-    /// Works the agents out, watching what that read (the windows, tabs and panes, the panes'
-    /// folders, what runs in each), and publishes them when they changed.
-    private func refreshAgents() {
-        agentsScheduled = false
-        let tabs = withObservationTracking { agentSummaries() } onChange: { [weak self] in
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.scheduleAgents() } }
-        }
-        agentList.update(tabs, liveTabs: Set(workspace.windows.flatMap { $0.tabs.map(\.id) }))
-        lookUpRepositories()
-    }
-
-    /// Each tab's most urgent agent, and how many others it has.
-    private func agentSummaries() -> [TabID: TabAgentSummary] {
-        var folders = Set<String>()
-        var summaries: [TabID: TabAgentSummary] = [:]
-        for window in workspace.windows {
-            for tab in window.tabs {
-                let entries = tab.orderedPanes.compactMap { pane -> AgentEntry? in
-                    let status = activity.status(for: pane.id)
-                    guard let program = status.activity.program, program.isAgent else { return nil }
-                    // The agent's own folder: it may differ from the shell's (`cd x && claude`).
-                    let folder = activity.agentDirectory(for: pane.id) ?? pane.workingDirectory
-                    folders.insert(folder)
-                    return AgentEntry(pane: pane.id, display: status.activity.display,
-                                      repository: repositories.repository(for: folder) ?? Repository(root: folder, branch: nil),
-                                      status: status)
-                }
-                guard let shown = AgentListing.mostUrgent(entries.map { ($0.pane, $0.display) }, focused: tab.focusedPaneID),
-                      let entry = entries.first(where: { $0.pane == shown }) else { continue }
-                summaries[tab.id] = TabAgentSummary(entry: entry, others: entries.count - 1)
-            }
-        }
-        agentFolders = folders
-        return summaries
-    }
-
-    /// Looks up the repositories of the agents' folders off the main thread: new folders at once,
-    /// the others again every few seconds (an agent may switch branches). Called after every
-    /// activity tick too, while a window is on screen.
-    private func lookUpRepositories() {
-        for folder in repositories.due(agentFolders, at: Date()) {
-            Task.detached(priority: .utility) { [weak self] in
-                let repository = Repository.find(for: folder, in: DiskFiles())
-                await self?.found(repository, for: folder)
-            }
-        }
-    }
-
-    private func found(_ repository: Repository, for folder: String) {
-        if repositories.resolved(folder, repository, at: Date()) { scheduleAgents() }
-    }
 
     /// A notification was clicked: its pane comes forward, focused.
     func reveal(_ pane: PaneID) {

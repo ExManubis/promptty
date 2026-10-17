@@ -115,7 +115,7 @@ extension TerminalWindowController {
         for (number, window) in ordered.enumerated() {
             for tab in window.tabs {
                 let pane = tab.focusedPaneID
-                let agent = coordinator.agentList.summary(for: tab.id)
+                let agent = coordinator.agents.list.summary(for: tab.id)
                 let current = window.id == state.id && tab.id == state.selectedTabID
                 let labels = tab.orderedPanes.compactMap(\.label)
                 var subtitle = [labels.isEmpty ? nil : labels.joined(separator: ", "), tab.listSubtitle, agent.map { _ in "agent" }]
