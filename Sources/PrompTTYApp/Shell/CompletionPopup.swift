@@ -22,6 +22,11 @@ final class CompletionList {
     var selected = 0
     /// Best match at the bottom, next to the caret, as Rex's path picker lists them.
     var bottomUp = false
+    /// The theme's accent (`EditorColors.accent`), and the text that reads on it.
+    var accent: Color = .accentColor
+    var onAccent: Color = .white
+    /// Light or dark as the pane's window is (its theme's), not as the system is.
+    var dark = true
 }
 
 /// The list of completions above the caret, in a borderless child window of the pane's window.
@@ -42,8 +47,13 @@ final class CompletionPopup {
         list.items = items
         list.selected = 0
         list.bottomUp = bottomUp
+        let accent = EditorStyle.colors.accent
+        list.accent = Color(nsColor: accent)
+        list.onAccent = ChromeTint.isDark(accent) ? .white : .black
         let panel = self.panel ?? makePanel(font: font)
         self.panel = panel
+        panel.appearance = window.effectiveAppearance
+        list.dark = window.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let rows = min(items.count, Self.maxRows)
         let width = min(520, max(220, items.map { (CompletionListView.name(of: $0) as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0) + 56)
         let height = CGFloat(rows) * Self.rowHeight + 10
@@ -113,6 +123,7 @@ private struct CompletionListView: View {
             .onChange(of: list.selected) { _, new in proxy.scrollTo(new) }
         }
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .environment(\.colorScheme, list.dark ? .dark : .light)
     }
 
     /// A candidate as Rex's path picker shows it: its kind's icon and its own name, the selected
@@ -124,7 +135,7 @@ private struct CompletionListView: View {
             if path {
                 Image(systemName: folder ? "folder.fill" : "doc")
                     .font(.system(size: 11))
-                    .foregroundStyle(selected ? Color.white : (folder ? Color.accentColor : Color.secondary))
+                    .foregroundStyle(selected ? list.onAccent : (folder ? list.accent : Color.secondary))
                     .frame(width: 14)
             }
             Text(Self.name(of: item))
@@ -136,10 +147,10 @@ private struct CompletionListView: View {
         .padding(.horizontal, 8)
         .background {
             if selected {
-                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.accentColor)
+                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(list.accent)
             }
         }
-        .foregroundStyle(selected ? Color.white : Color.primary)
+        .foregroundStyle(selected ? list.onAccent : Color.primary)
     }
 
     /// A path's last name ("config/aerc/" shows "aerc"); anything else as it is.
