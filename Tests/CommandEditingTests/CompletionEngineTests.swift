@@ -91,6 +91,17 @@ final class CompletionEngineTests: XCTestCase {
         }
     }
 
+    func testANameStartingWithATildeIsEscaped() {
+        var sources = FakeSources()
+        sources.tree["/repo"] = [("~foo", false), ("~bar", true)]
+        sources.tree["/Users/me"] = [("~notes", false)]
+        XCTAssertEqual(complete("cat |", sources: sources)?.candidates, [#"\~bar/"#, #"\~foo"#])
+        XCTAssertEqual(complete(#"cat \~f|"#, sources: sources)?.candidates, [#"\~foo"#])
+        // The typed folder's `~` is still the home folder.
+        XCTAssertEqual(complete("cat ~/|", sources: sources)?.candidates, [#"~/\~notes"#])
+        XCTAssertEqual(complete("cd \\~|", sources: sources)?.candidates, [#"\~bar/"#])
+    }
+
     func testCompletesTheWordUpToTheCursorOnly() {
         let c = complete("mak| foo")
         XCTAssertEqual(c?.replacement, 0..<3)

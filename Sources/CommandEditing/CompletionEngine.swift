@@ -267,7 +267,8 @@ public enum CompletionEngine {
         let shownDir = ShellQuoting.escape(typedDir)
         return sources.entries(inDirectory: lookup)
             .filter { $0.name.hasPrefix(namePrefix) && (namePrefix.hasPrefix(".") || !$0.name.hasPrefix(".")) }
-            .map { shownDir + ShellQuoting.escape($0.name) + ($0.isDirectory ? "/" : "") }
+            // Only the typed folder keeps a leading `~`: a file named `~foo` is not foo's home.
+            .map { shownDir + ShellQuoting.escape($0.name, keepLeadingTilde: false) + ($0.isDirectory ? "/" : "") }
     }
 
     /// The folders in the typed folder that match the typed name loosely, best first: names that
@@ -291,7 +292,7 @@ public enum CompletionEngine {
                 ranks[2].append(folder.name)
             }
         }
-        return ranks.flatMap { $0 }.map { shownDir + ShellQuoting.escape($0) + "/" }
+        return ranks.flatMap { $0 }.map { shownDir + ShellQuoting.escape($0, keepLeadingTilde: false) + "/" }
     }
 
     private static func isSubsequence(_ needle: String, of haystack: String) -> Bool {
