@@ -20,6 +20,9 @@ struct WindowRootView: View {
     /// The terminals keep their sizes while the sidebar slides (see `holdTerminalSizes`).
     @State private var terminalSizesHeld = false
     @State private var terminalSizesRelease: Task<Void, Never>?
+    /// The collapsed sidebar has slid out: its rows leave the hierarchy, so they stop observing
+    /// the panes and animating out of sight. Expanding puts them back at once, to slide in.
+    @State private var sidebarSettledAway = false
 
     private var hidden: Bool { settings.settings.tabListHidden }
     private var layout: TabLayout { workspace.tabLayout }
@@ -77,7 +80,15 @@ struct WindowRootView: View {
         let width = settings.settings.sidebarWidth
         return ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
-                SidebarView(state: state, workspace: workspace, chrome: chrome, actions: actions)
+                Group {
+                    if !collapsed || !sidebarSettledAway {
+                        SidebarView(state: state, workspace: workspace, chrome: chrome, actions: actions)
+                            // Put back as the sidebar opens: it slides in with its frame.
+                            .transition(.move(edge: .leading))
+                    } else {
+                        Color.clear
+                    }
+                }
                     .frame(width: width)
                     // Narrowing to nothing with the sidebar pinned to its trailing edge: it slides
                     // out to the left.
@@ -116,6 +127,14 @@ struct WindowRootView: View {
             }
         }
         .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.08), value: showsPeek)
+        .task(id: hidden) {
+            guard hidden else {
+                sidebarSettledAway = false
+                return
+            }
+            try? await Task.sleep(for: .seconds(PaneAnimation.sidebarSpring.settlingDuration))
+            if !Task.isCancelled { sidebarSettledAway = true }
+        }
     }
 
     /// Also while a tab is renamed from it, or its icon changed: a tile's popover takes the pointer
