@@ -144,27 +144,48 @@ final class DirectoryListingTests: XCTestCase {
 }
 
 final class GitStatusTests: XCTestCase {
-    func testCleanBranch() {
-        let s = GitStatus.parse(porcelainV2: "# branch.oid 1234567890abcdef\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n")
-        XCTAssertEqual(s, GitStatus(branch: "main", dirty: false))
+    func testHeadFromSymbolicRef() {
+        XCTAssertEqual(GitHead(symbolicRef: .exited(status: 0, output: "feature/x\n")), .branch("feature/x"))
+        XCTAssertEqual(GitHead(symbolicRef: .exited(status: 1, output: "")), .detached)
+        XCTAssertEqual(GitHead(symbolicRef: .exited(status: 128, output: "")), .notARepository)
+        XCTAssertEqual(GitHead(symbolicRef: .failedToStart), .notARepository)
     }
 
-    func testDirty() {
-        let s = GitStatus.parse(porcelainV2: "# branch.oid abc\n# branch.head feature/x\n1 .M N... 100644 100644 100644 a b file\n")
-        XCTAssertEqual(s, GitStatus(branch: "feature/x", dirty: true))
-        XCTAssertEqual(GitStatus.parse(porcelainV2: "# branch.head main\n? new.txt\n")?.dirty, true)
+    func testASlowGitIsNotANonRepository() {
+        XCTAssertEqual(GitHead(symbolicRef: .timedOut), .unknown)
+        XCTAssertNil(GitStatus.dirty(fromStatus: .timedOut))
+        XCTAssertNil(GitStatus.dirty(fromStatus: .exited(status: 128, output: "")))
     }
 
-    func testDetachedHeadShowsTheShortHash() {
-        let s = GitStatus.parse(porcelainV2: "# branch.oid 1234567890abcdef\n# branch.head (detached)\n")
-        XCTAssertEqual(s?.branch, "1234567")
-        XCTAssertEqual(s?.detached, true)
-        XCTAssertEqual(GitStatus.parse(porcelainV2: "# branch.head main\n")?.detached, false)
+    func testDirtyFromStatus() {
+        XCTAssertEqual(GitStatus.dirty(fromStatus: .exited(status: 0, output: "")), false)
+        XCTAssertEqual(GitStatus.dirty(fromStatus: .exited(status: 0, output: "? new.txt\n")), true)
+        // Stopped at the first line: one change is enough.
+        XCTAssertEqual(GitStatus.dirty(fromStatus: .stopped(output: "1 .M N... 100644 100644 100644 a b file\n")), true)
+        XCTAssertFalse(GitStatus.dirtyEnough(Data()))
+        XCTAssertTrue(GitStatus.dirtyEnough(Data("? x\n".utf8)))
     }
 
-    func testNotARepository() {
-        XCTAssertNil(GitStatus.parse(porcelainV2: ""))
-        XCTAssertNil(GitStatus.parse(porcelainV2: "fatal: not a git repository\n"))
+    func testARealRepository() async throws {
+        let git = "/usr/bin/git"
+        let version = await ProcessRunner.run(git, ["--version"], timeout: 10)
+        try XCTSkipIf(version == nil, "no git")
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("GitStatusTests-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        let notRepo = await ProcessRunner.outcome(git, ["-C", root.path, "symbolic-ref", "--short", "-q", "HEAD"], timeout: 10)
+        // The temporary folder is in no repository.
+        XCTAssertEqual(GitHead(symbolicRef: notRepo), .notARepository)
+        _ = await ProcessRunner.run(git, ["-c", "init.defaultBranch=trunk", "init", "-q", root.path], timeout: 10)
+        let head = await ProcessRunner.outcome(git, ["-C", root.path, "symbolic-ref", "--short", "-q", "HEAD"], timeout: 10)
+        XCTAssertEqual(GitHead(symbolicRef: head), .branch("trunk"))
+        let status = ["-C", root.path, "--no-optional-locks", "status", "--porcelain=v2"]
+        let clean = await ProcessRunner.outcome(git, status, timeout: 10, until: GitStatus.dirtyEnough)
+        XCTAssertEqual(GitStatus.dirty(fromStatus: clean), false)
+        try Data().write(to: root.appendingPathComponent("new.txt"))
+        let dirty = await ProcessRunner.outcome(git, status, timeout: 10, until: GitStatus.dirtyEnough)
+        XCTAssertEqual(GitStatus.dirty(fromStatus: dirty), true)
     }
 }
 

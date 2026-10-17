@@ -179,6 +179,8 @@ final class PaneShell {
     /// How many polls that program may keep the terminal before it gets the keys.
     @ObservationIgnored private var handOverPolls = 4
     @ObservationIgnored private var gitGeneration = 0
+    /// The folder `git` was last worked out for: its dirty mark stands while the next status runs.
+    @ObservationIgnored private var gitDirectory: String?
     @ObservationIgnored private var stateFileGeneration = 0
     @ObservationIgnored private var commandsGeneration = 0
 
@@ -648,17 +650,46 @@ final class PaneShell {
         store.reloadIfChanged()
     }
 
+    /// The branch first (cheap), then whether anything is to commit (a full `git status`, which can
+    /// take seconds in a large repository). A git too slow to answer leaves the header as it was:
+    /// only "not a repository" hides the branch.
     private func refreshGit() {
         gitGeneration += 1
         let generation = gitGeneration
         let dir = directory
         let path = stateFile?.path ?? []
         Task.detached(priority: .utility) {
-            let status = await Self.git(["--no-optional-locks", "status", "--porcelain=v2", "--branch", "--ignore-submodules=dirty"], in: dir, path: path, timeout: 1)
-                .flatMap { GitStatus.parse(porcelainV2: $0) }
+            let head = await GitHead(symbolicRef: Self.gitOutcome(["symbolic-ref", "--short", "-q", "HEAD"], in: dir, path: path, timeout: 2))
+            var status: GitStatus?
+            switch head {
+            case .unknown:
+                return
+            case .notARepository:
+                status = nil
+            case .branch(let name):
+                status = GitStatus(branch: name, dirty: false)
+            case .detached:
+                guard let hash = await Self.git(["rev-parse", "--short", "HEAD"], in: dir, path: path, timeout: 2)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines), !hash.isEmpty else { return }
+                status = GitStatus(branch: hash, dirty: false, detached: true)
+            }
+            let shown = status
+            let stillCurrent = await MainActor.run { [weak self] () -> Bool in
+                guard let self, generation == self.gitGeneration else { return false }
+                var next = shown
+                // The same folder keeps its dirty mark until the status below says otherwise.
+                if let previous = self.git, self.gitDirectory == dir { next?.dirty = previous.dirty }
+                if self.git != next { self.git = next }
+                self.gitDirectory = dir
+                return true
+            }
+            guard stillCurrent, status != nil else { return }
+            let outcome = await Self.gitOutcome(["--no-optional-locks", "status", "--porcelain=v2", "--ignore-submodules=dirty"],
+                                                in: dir, path: path, timeout: 15, until: GitStatus.dirtyEnough)
+            guard let dirty = GitStatus.dirty(fromStatus: outcome) else { return }
             await MainActor.run { [weak self] in
-                guard let self, generation == self.gitGeneration else { return }
-                self.git = status
+                guard let self, generation == self.gitGeneration, self.git != nil, self.git?.dirty != dirty else { return }
+                self.git?.dirty = dirty
             }
         }
     }
@@ -666,8 +697,14 @@ final class PaneShell {
     /// Runs the shell's git (the first on its PATH, else the system's) in `directory`; its output,
     /// or nil when it failed or timed out. Call off the main thread: the lookup touches the disk.
     nonisolated static func git(_ arguments: [String], in directory: String, path: [String], timeout: TimeInterval) async -> String? {
+        await gitOutcome(arguments, in: directory, path: path, timeout: timeout).output
+    }
+
+    /// As `git`, telling a slow git from a failing one.
+    nonisolated static func gitOutcome(_ arguments: [String], in directory: String, path: [String], timeout: TimeInterval,
+                                       until: (@Sendable (Data) -> Bool)? = nil) async -> ProcessRunner.Outcome {
         let git = executable("git", in: path) ?? "/usr/bin/git"
-        return await ProcessRunner.run(git, ["-C", directory] + arguments, timeout: timeout)
+        return await ProcessRunner.outcome(git, ["-C", directory] + arguments, timeout: timeout, until: until)
     }
 
     nonisolated static func executable(_ name: String, in path: [String]) -> String? {
