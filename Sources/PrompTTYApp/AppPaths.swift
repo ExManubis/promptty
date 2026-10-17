@@ -64,6 +64,18 @@ enum AppPaths {
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh", isDirectory: true)
     }()
 
+    /// A driven run's shell history (`HISTFILE` in its panes from the first prompt on, whatever
+    /// the user's .zshrc sets): `<dir>/home/.zsh_history`, so the commands it types never reach
+    /// the real one. Nil outside a driven run.
+    static let debugHistoryFile: URL? = {
+        #if DEBUG
+        if let dir = ProcessInfo.processInfo.environment["PROMPTTY_DEBUG_DIR"], !dir.isEmpty {
+            return URL(fileURLWithPath: dir, isDirectory: true).appendingPathComponent("home/.zsh_history")
+        }
+        #endif
+        return nil
+    }()
+
     /// The hook helper inside the app bundle; nil when the bundle has none.
     static var hookHelper: URL? {
         let url = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/promptty-hook")
