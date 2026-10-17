@@ -25,6 +25,10 @@ final class BlockOverlayView: NSView {
     private let header = NSHostingView(rootView: StickyHeader(model: .init()))
     private let buttons = NSHostingView(rootView: BlockButtons(actions: .init()))
     private var headerModel = StickyHeader.Model()
+    /// "↓ 12 new lines": output arrived while the screen is scrolled back.
+    private let newOutputPill = NSHostingView(rootView: NewOutputPill(count: 0, action: {}))
+    private var newOutput = NewOutputTracker()
+    private var newOutputCount: Int?
 
     private var refreshQueued = false
     /// A refresh was skipped while hidden (another tab, or behind a zoom): one comes when shown.
@@ -60,10 +64,12 @@ final class BlockOverlayView: NSView {
         selectionBar.cornerRadius = 1
         flash.opacity = 0
         for sub in [dividers, failures, selectionFill, selectionBar, flash] { layer?.addSublayer(sub) }
-        for view in [header, buttons] as [NSView] {
+        for view in [header, buttons, newOutputPill] as [NSView] {
             view.isHidden = true
             addSubview(view)
         }
+        newOutputPill.sizingOptions = []
+        newOutputPill.safeAreaRegions = []
         // Laid out here; and near the top of a window with a see-through titlebar, SwiftUI would
         // otherwise push their contents down out of the titlebar's way.
         header.sizingOptions = []
@@ -417,6 +423,7 @@ final class BlockOverlayView: NSView {
         )
         guard state != rendered else { return }
         rendered = state
+        layoutNewOutputPill(snapshot?.viewport)
         guard let snapshot, !snapshot.blocks.isEmpty, bounds.height > 0 else {
             hideAll()
             return
@@ -523,6 +530,28 @@ final class BlockOverlayView: NSView {
             buttons.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         }
         buttons.isHidden = false
+    }
+
+    /// At the bottom center while lines arrived below a scrolled-back screen; a click goes to them.
+    private func layoutNewOutputPill(_ viewport: BlockViewport?) {
+        let count = viewport.flatMap { newOutput.update($0) }
+        guard let count else {
+            newOutputPill.isHidden = true
+            newOutputCount = nil
+            return
+        }
+        if count != newOutputCount {
+            newOutputCount = count
+            newOutputPill.rootView = NewOutputPill(count: count) { [weak self] in self?.surface?.scrollToBottom() }
+        }
+        // Laid out here (sizing off, as for the header): the label's width, the arrow and padding.
+        let label = NewOutputPill.label(count) as NSString
+        let textWidth = label.size(withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium)]).width
+        let size = CGSize(width: (textWidth + 50).rounded(.up), height: 28)
+        newOutputPill.frame = CGRect(x: ((bounds.width - size.width) / 2).rounded(), y: bounds.height - size.height - 14,
+                                     width: size.width, height: size.height)
+        newOutputPill.appearance = NSAppearance(named: Self.isDark ? .darkAqua : .aqua)
+        newOutputPill.isHidden = false
     }
 
     private func hideAll() {

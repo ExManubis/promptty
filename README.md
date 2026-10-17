@@ -28,7 +28,8 @@
   Tab completion, syntax coloring, vi mode and fuzzy history search (⌃R).
 - **Command blocks.** Every command and its output is a block you can jump between, copy, copy
   as Markdown or rerun. ⌃⌘↑ jumps straight to the last failure. ⌘F finds anything in the
-  scrollback, every match highlighted.
+  scrollback, every match highlighted. Scrolled back while a command keeps printing, a pill says
+  how many new lines are below; click it to jump down.
 - **Pick up where you left off.** Quit and reopen PrompTTY: every tab comes back in its folder
   with what it printed before, colors included, above a fresh prompt (zsh).
 - **Projects and pinned tabs.** Group tabs into projects. Pin a tab running `claude` or

@@ -225,3 +225,26 @@ private let blocks = [block(0, 30), block(31, 31, exit: 1), block(32, 60), block
         #expect(BlockMarkdown.format(command: "echo a \\\n  b", output: "a b") == "```console\n$ echo a \\\n>   b\na b\n```")
     }
 }
+
+private func scrolled(top: Int, total: Int) -> BlockViewport {
+    BlockViewport(top: top, rows: 10, totalRows: total, rowHeight: 16, paddingTop: 0)
+}
+
+@Test func newOutputCountsLinesAddedWhileScrolledBack() {
+    var t = NewOutputTracker()
+    #expect(t.update(scrolled(top: 90, total: 100)) == nil)   // at the bottom
+    #expect(t.update(scrolled(top: 50, total: 100)) == nil)   // scrolled back, nothing new
+    #expect(t.update(scrolled(top: 50, total: 112)) == 12)
+    #expect(t.update(scrolled(top: 50, total: 130)) == 30)
+    #expect(t.update(scrolled(top: 120, total: 130)) == nil)  // back at the bottom
+    #expect(t.update(scrolled(top: 100, total: 130)) == nil)  // away again: counting starts over
+    #expect(t.update(scrolled(top: 100, total: 131)) == 1)
+}
+
+@Test func newOutputStartsOverAfterAClear() {
+    var t = NewOutputTracker()
+    _ = t.update(scrolled(top: 90, total: 100))
+    _ = t.update(scrolled(top: 50, total: 100))
+    #expect(t.update(scrolled(top: 0, total: 40)) == nil)
+    #expect(t.update(scrolled(top: 0, total: 45)) == 5)
+}

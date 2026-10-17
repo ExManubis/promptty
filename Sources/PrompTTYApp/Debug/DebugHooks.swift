@@ -560,6 +560,12 @@ enum DebugHooks {
             coordinator.preferences.update { $0.savedCommands.append(SavedCommand(name: args[0], command: args.dropFirst().joined(separator: " "))) }
             return ""
         }
+        // eval binding <action> — runs a libghostty binding action (scroll_page_up, …) in the
+        // first window's focused terminal.
+        driver.hooks["binding"] = { args in
+            guard let surface = coordinator.allControllers.first?.focusedSurface, let action = args.first else { return "error: binding action" }
+            return surface.performBindingAction(action) ? "" : "error: not performed"
+        }
         // eval quick — the quick terminal's state.
         driver.hooks["quick"] = { _ in coordinator.quickTerminal?.debugState ?? "no quick terminal" }
         driver.hooks["settings"] = { args in

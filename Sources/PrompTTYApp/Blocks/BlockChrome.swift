@@ -79,3 +79,27 @@ struct BlockButtons: View {
         .background(FlatSurface(cornerRadius: 7))
     }
 }
+
+/// Over a scrolled-back terminal that printed more below: how much, and a way down to it.
+struct NewOutputPill: View {
+    let count: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(Self.label(count), systemImage: "arrow.down")
+                .font(.system(size: 12, weight: .medium))
+                .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: Capsule())
+        .help("Scroll to the newest output")
+        .accessibilityLabel("\(Self.label(count)) below. Scroll to the newest output.")
+    }
+
+    static func label(_ count: Int) -> String { count == 1 ? "1 new line" : "\(count) new lines" }
+}
