@@ -50,7 +50,8 @@
   the session.
 - **Type into every pane at once.** ⌥⇧⌘I broadcasts what you type to all panes of a tab (handy
   for the same command on several servers); each pane wears an orange border while it's on.
-- **Undo a closed tab.** ⇧⌘T brings back the last ten closed tabs, splits and folders included.
+- **Undo a closed tab.** ⇧⌘T brings back the last ten closed tabs, splits and folders included,
+  also the tabs of a closed window (pinned ones pinned again), and with no window open.
 - **Safe by default.** ⌘-click opens links and `path:line:col`, but never runs programs.
   Programs must ask before using your clipboard, and password prompts get secure input.
 

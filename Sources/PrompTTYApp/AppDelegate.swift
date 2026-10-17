@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if item.action == #selector(toggleSecureKeyboardEntry(_:)) {
             item.state = preferences?.settings.secureKeyboardEntry == true ? .on : .off
         }
+        if item.action == #selector(reopenClosedTab(_:)) { return coordinator?.canReopenClosedTab == true }
         return true
     }
 
@@ -228,6 +229,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: Menu actions (responder chain)
 
     @objc func newWindow(_ sender: Any?) { coordinator.newWindow() }
+    /// Reached with no window open (a window handles it itself): the tab opens in a new one.
+    @objc func reopenClosedTab(_ sender: Any?) { coordinator.reopenClosedTab(fallback: nil) }
     @objc func toggleTabLayout(_ sender: Any?) { coordinator.toggleTabLayout() }
     @objc func toggleTabListHidden(_ sender: Any?) { coordinator.toggleTabListHidden() }
     private var settingsWindow: SettingsWindowController?

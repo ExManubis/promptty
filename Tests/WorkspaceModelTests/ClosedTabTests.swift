@@ -39,6 +39,28 @@ final class ClosedTabTests: XCTestCase {
         XCTAssertEqual(reopened.closedLayout, closed.layout)
     }
 
+    /// A pinned tab closed with its window comes back pinned, as on relaunch.
+    func testAPinnedTabComesBackAsItsPin() throws {
+        let window = WindowState()
+        window.addTab(title: "", workingDirectory: "/a")
+        let tab = window.addTab(title: "", workingDirectory: "/repo")
+        tab.split(tab.focusedPaneID, direction: .right, workingDirectory: "/other")
+        let pin = TabPin(directory: "/repo", command: "npm run dev")
+        window.pin(tab.id, pin)
+        let closed = try XCTUnwrap(window.closedTab(tab))
+        XCTAssertEqual(closed.pin, pin)
+        window.closeTab(id: tab.id)
+
+        let other = WindowState()
+        other.addTab(title: "", workingDirectory: "/b")
+        let reopened = other.reopen(closed, projectExists: { _ in true }, directoryExists: { _ in true })
+        XCTAssertEqual(reopened.pin, pin)
+        XCTAssertEqual(other.index(of: reopened.id), 0)
+        XCTAssertFalse(reopened.hasSplits)
+        XCTAssertEqual(reopened.workingDirectory, "/repo")
+        XCTAssertEqual(reopened.focusedPane.startupCommand, "npm run dev")
+    }
+
     func testReopenFallsBackForMissingFoldersAndProjects() {
         let window = WindowState()
         let closed = ClosedTab(customTitle: nil, project: ProjectID(), window: window.id, index: 5,

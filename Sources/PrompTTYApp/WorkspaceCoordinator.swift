@@ -531,18 +531,17 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     private(set) var closedTabs = ClosedTabStack()
 
     /// Opens the most recently closed tab again: in its window if that is still open, else in
-    /// `fallback`'s.
+    /// `fallback`'s, else in a new window when none is open.
     func reopenClosedTab(fallback: WindowState?) {
         guard let closed = closedTabs.pop() else { return NSSound.beep() }
-        guard let state = workspace.windows.first(where: { $0.id == closed.window }) ?? fallback ?? workspace.windows.first,
-              let controller = controllers[state.id] else { return }
+        let state = workspace.windows.first(where: { $0.id == closed.window }) ?? fallback ?? workspace.windows.first ?? workspace.addWindow()
         state.reopen(closed, projectExists: { [workspace] in workspace.project(id: $0) != nil },
                      directoryExists: { path in
                          var isDirectory: ObjCBool = false
                          return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
                      })
-        controller.reload()
-        controller.window?.makeKeyAndOrderFront(nil)
+        if let controller = controllers[state.id] { controller.reload() } else { open(state) }
+        controllers[state.id]?.window?.makeKeyAndOrderFront(nil)
         modelDidChange()
     }
 
@@ -738,6 +737,8 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         // would hold secure input on for the whole system.
         if let state = workspace.windows.first(where: { $0.id == id }) {
             secureInput.remove(state.paneIDs)
+            // ⇧⌘T brings them back, last tab first.
+            for tab in state.tabs { if let closed = state.closedTab(tab) { closedTabs.push(closed) } }
         }
         for view in controller.allSurfaces() { view.teardown() }
         controller.stopShells()

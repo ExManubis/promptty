@@ -82,6 +82,10 @@ final class DebugDriver {
             return ""
         case "action":
             let selector = NSSelectorFromString(arg)
+            // No window open: the app (its delegate) gets it, as from the menu.
+            if DebugDriver.targetWindow == nil {
+                return NSApp.sendAction(selector, to: nil, from: nil) ? "" : "error: no target for \(arg)"
+            }
             guard let window = DebugDriver.targetWindow,
                   let target = Self.responder(for: selector, in: window) else { return "error: no target for \(arg)" }
             NSApp.sendAction(selector, to: target, from: nil)

@@ -51,7 +51,8 @@ extension ClosedLayout: Codable {
     }
 }
 
-/// What reopening a closed tab brings back: its name, project, place and panes. Not its output.
+/// What reopening a closed tab brings back: its name, project, place, panes and pin. Not its
+/// output.
 public struct ClosedTab: Equatable, Sendable {
     public var customTitle: String?
     public var project: ProjectID?
@@ -59,9 +60,12 @@ public struct ClosedTab: Equatable, Sendable {
     public var window: WindowID
     public var index: Int
     public var layout: ClosedLayout
+    /// A pinned tab's pin (it was closed with its window): it comes back as its pin.
+    public var pin: TabPin?
 
-    public init(customTitle: String?, project: ProjectID?, window: WindowID, index: Int, layout: ClosedLayout) {
+    public init(customTitle: String?, project: ProjectID?, window: WindowID, index: Int, layout: ClosedLayout, pin: TabPin? = nil) {
         self.customTitle = customTitle; self.project = project; self.window = window; self.index = index; self.layout = layout
+        self.pin = pin
     }
 }
 
@@ -87,11 +91,13 @@ extension WindowState {
     /// What reopening `tab` would need; nil for a tab not in this window.
     public func closedTab(_ tab: Tab) -> ClosedTab? {
         guard let index = index(of: tab.id) else { return nil }
-        return ClosedTab(customTitle: tab.customTitle, project: project(of: tab), window: id, index: index, layout: tab.closedLayout)
+        return ClosedTab(customTitle: tab.customTitle, project: project(of: tab), window: id, index: index, layout: tab.closedLayout,
+                         pin: tab.pin)
     }
 
     /// Opens `closed` again in this window, at its old place as near as the groups allow, selected.
-    /// A folder that is gone opens `fallbackDirectory`. A project that is gone leaves it in none.
+    /// A folder that is gone opens `fallbackDirectory`. A project that is gone leaves it in none. A
+    /// pinned tab comes back as on relaunch: one pane in its pinned folder, running its command.
     @discardableResult
     public func reopen(
         _ closed: ClosedTab,
@@ -100,6 +106,15 @@ extension WindowState {
         fallbackDirectory: String = NSHomeDirectory()
     ) -> Tab {
         let project = closed.project.flatMap { projectExists($0) ? $0 : nil }
+        if let pin = closed.pin {
+            let exists = directoryExists(pin.directory)
+            let tab = addTab(title: "", workingDirectory: exists ? pin.directory : fallbackDirectory,
+                             customTitle: closed.customTitle, project: project)
+            if exists { tab.focusedPane.startupCommand = pin.command }
+            self.pin(tab.id, pin, at: closed.index)
+            select(id: tab.id)
+            return tab
+        }
         let first = closed.layout.directories.first ?? fallbackDirectory
         let tab = addTab(title: "", workingDirectory: directoryExists(first) ? first : fallbackDirectory,
                          customTitle: closed.customTitle, project: project)
