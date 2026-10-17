@@ -1,6 +1,7 @@
 import AgentHooks
 import AppKit
 import Carbon.HIToolbox
+import CommandBlocks
 import CommandEditing
 import GhosttyBridge
 import Observation
@@ -100,12 +101,17 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     }
 
     private var controlServer: ControlServer?
+    /// `promptty wait -b`: replies waiting for a command to end, by its id.
+    var blockWaiters: [String: [(CommandRecord) -> Void]] = [:]
+    /// Ids handed out for a new pane's command before its shell runs it, and that pane.
+    var pendingBlocks: [String: (pane: PaneID, command: String)] = [:]
 
     /// Listens for `promptty`. Requests are answered on the main thread.
     func startControl() {
         let server = ControlServer(path: AppPaths.controlSocket) { [weak self] request, reply in
             MainActor.assumeIsolated {
-                reply(self?.handleControl(request) ?? .failed("PrompTTY is quitting"))
+                guard let self else { return reply(.failed("PrompTTY is quitting")) }
+                self.handleControl(request, reply: reply)
             }
         }
         do {
@@ -417,10 +423,11 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     /// A new tab, after the selected one, running `command` at its first prompt (typed ahead into
     /// a shell without the integration).
     @discardableResult
-    func newTab(in state: WindowState, running command: String?, workingDirectory: String? = nil) -> PaneID {
+    func newTab(in state: WindowState, running command: String?, workingDirectory: String? = nil, commandID: String? = nil) -> PaneID {
         let project = state.selectedTab.flatMap(state.project(of:))
         let tab = state.addTab(title: "", workingDirectory: workingDirectory ?? NSHomeDirectory(), project: project)
         tab.focusedPane.startupCommand = command
+        tab.focusedPane.startupBlockID = commandID
         controllers[state.id]?.reload()
         modelDidChange()
         return tab.focusedPaneID
@@ -737,11 +744,13 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     /// Splits `pane`; the new pane opens in `workingDirectory` (else the pane's) and runs
     /// `command` at its first prompt. Returns it.
     @discardableResult
-    func split(_ pane: PaneID, direction: SplitDirection, workingDirectory: String? = nil, command: String? = nil) -> PaneID? {
+    func split(_ pane: PaneID, direction: SplitDirection, workingDirectory: String? = nil, command: String? = nil,
+               commandID: String? = nil) -> PaneID? {
         guard let (state, tab) = workspace.tab(containing: pane), let controller = controllers[state.id],
               let source = tab.pane(pane) else { return nil }
         let new = tab.split(pane, direction: direction, workingDirectory: workingDirectory ?? source.workingDirectory)
         new.startupCommand = command
+        new.startupBlockID = commandID
         controller.prepareSplit(new.id, inheritingFrom: pane)
         state.select(id: tab.id)
         controller.reload()

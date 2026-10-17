@@ -73,8 +73,20 @@ promptty label server                      # name this pane
 promptty notify "Deploy done"
 ```
 
-`-p` names a pane by its label, its id or the end of its id. Exit status: 0 ok, 1 failed,
-2 usage, 3 no such pane (or more than one), 4 PrompTTY not reachable. Turn it off in
+An agent can work in a pane beside it and read back exactly what its command did. Every command
+run from the input bar (or started by `promptty`) has an id; `--json` hands it out:
+
+```sh
+promptty split right --label tests --json -- make test   # {"pane": "…", "block": "block:…"}
+promptty wait -b <block> --timeout 600                    # exits with make's own status
+promptty capture -b <block>                               # that command's output, nothing else
+promptty -p tests send --enter --json make lint           # another command, another id
+promptty ls --json                                        # each pane's recent commands and exit codes
+```
+
+`-p` names a pane by its label, its id or the end of its id; `-b` a command by its id or the end
+of it. Panes set `TERM_PROGRAM=PrompTTY`. Exit status: 0 ok, 1 failed, 2 usage, 3 no such pane or
+command (or more than one), 4 PrompTTY not reachable, 5 `wait` timed out. Turn it off in
 **Settings › Tabs › Command line**.
 
 ## Connect your agents

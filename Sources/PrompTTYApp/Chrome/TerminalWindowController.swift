@@ -141,6 +141,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         // `promptty`: the control socket, and the command first on the PATH (zsh's path_helper
         // and most shell files add to the PATH they find, keeping it).
         hookEnvironment[ControlEnvironment.socketVariable] = AppPaths.controlSocket
+        // Which terminal this is, for programs and agents that ask (`promptty` is on the PATH).
+        hookEnvironment["TERM_PROGRAM"] = "PrompTTY"
+        hookEnvironment["TERM_PROGRAM_VERSION"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1"
         if let bin = AppPaths.commandLineFolder {
             let inherited = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
             hookEnvironment["PATH"] = bin.path + ":" + inherited
@@ -148,7 +151,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         // A pinned tab's command: run from the bar at the first prompt, or typed ahead into a
         // shell without the integration.
         let startup = pane.startupCommand
+        let startupBlock = pane.startupBlockID
         pane.startupCommand = nil
+        pane.startupBlockID = nil
         let view = TerminalSurfaceView(
             runtime: runtime,
             configuration: TerminalSurfaceConfiguration(
@@ -162,8 +167,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         _ = BlockOverlayView(surface: view)
         surfaces[pane.id] = view
         let shell = PaneShell(pane: pane.id, directory: pane.workingDirectory, integrated: integrated,
-                              startupCommand: integrated ? startup : nil)
+                              startupCommand: integrated ? startup : nil, startupBlockID: integrated ? startupBlock : nil)
         shell.surface = view
+        shell.onCommandFinished = { [weak self] record in self?.coordinator.commandFinished(record) }
         shell.onUserCommand = { [weak self] command in self?.broadcastCommand(command, from: pane.id) }
         shells[pane.id] = shell
         bind(view, to: pane.id)

@@ -23,6 +23,25 @@ final class ControlCommandLineTests: XCTestCase {
         XCTAssertEqual(r.options, ["cwd": "/tmp"])
     }
 
+    func testLabelKeepOpenAndBlockOptions() throws {
+        let r = try request(["split", "right", "--label", "tests", "--keep-open", "--json", "--", "make", "test"])
+        XCTAssertEqual(r.options, ["label": "tests"])
+        XCTAssertEqual(r.flags, ["keep-open", "json"])
+        XCTAssertEqual(r.arguments, ["right", "make", "test"])
+        let c = try request(["capture", "-b", "block:abcd", "--markdown"])
+        XCTAssertEqual(c.options, ["block": "block:abcd"])
+        XCTAssertEqual(c.flags, ["markdown"])
+    }
+
+    func testWaitNeedsABlockAndWaitsAsLongAsItsTimeout() throws {
+        XCTAssertThrowsError(try ControlCommandLine.parse(["wait"], caller: nil))
+        XCTAssertThrowsError(try ControlCommandLine.parse(["wait", "-b", "x", "--timeout", "soon"], caller: nil))
+        let w = try request(["wait", "-b", "1234", "--timeout", "30"])
+        XCTAssertEqual(ControlCommandLine.replyTimeout(for: w), 35)
+        XCTAssertGreaterThan(ControlCommandLine.replyTimeout(for: try request(["wait", "-b", "1234"])), 3600)
+        XCTAssertEqual(ControlCommandLine.replyTimeout(for: try request(["ls"])), 15)
+    }
+
     func testUsageErrors() {
         XCTAssertThrowsError(try ControlCommandLine.parse(["frobnicate"], caller: nil))
         XCTAssertThrowsError(try ControlCommandLine.parse(["split", "sideways"], caller: nil))
