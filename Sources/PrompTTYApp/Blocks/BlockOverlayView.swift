@@ -40,8 +40,10 @@ final class BlockOverlayView: NSView {
     private var rendered: RenderState?
     private var buttonsDark: Bool?
     /// While a block is selected or under the pointer, its last row can move as its command
-    /// prints, before the screen fills and scrolls; a slow poll keeps the outline on it.
+    /// prints, before the screen fills and scrolls; a slow poll keeps the outline on it, while
+    /// the pane can be seen.
     private var poll: Timer?
+    nonisolated(unsafe) private var windowObservers: [NSObjectProtocol] = []
     /// The command the header names, read from the terminal once: the block keeps its command
     /// while its rows shift as old ones drop off the top.
     private var headerCommand: (block: BlockSelection, text: String)?
@@ -92,6 +94,10 @@ final class BlockOverlayView: NSView {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    deinit {
+        for o in windowObservers { NotificationCenter.default.removeObserver(o) }
+    }
+
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
@@ -113,6 +119,12 @@ final class BlockOverlayView: NSView {
     override func viewDidUnhide() {
         super.viewDidUnhide()
         refreshIfStale()
+        updatePoll()
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        updatePoll()
     }
 
     /// Moved to another host, which may be shown.
@@ -129,12 +141,21 @@ final class BlockOverlayView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil {
-            poll?.invalidate()
-            poll = nil
-        } else {
-            setNeedsRefresh()
-        }
+        for o in windowObservers { NotificationCenter.default.removeObserver(o) }
+        windowObservers.removeAll()
+        updatePoll()
+        guard let window else { return }
+        let nc = NotificationCenter.default
+        windowObservers = [
+            nc.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updatePoll() }
+            },
+            // The pointer's tracking stops with the window's focus, maybe before it says it left.
+            nc.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.pointerMoved(nil) }
+            },
+        ]
+        setNeedsRefresh()
     }
 
     // MARK: State
@@ -151,7 +172,7 @@ final class BlockOverlayView: NSView {
         }
         guard !refreshQueued else { return }
         refreshQueued = true
-        let calm = snapshot?.viewport.atBottom == true && hovered == nil && selection == nil
+        let calm = snapshot.map { $0.viewport.atBottom && !onScreen(hovered, in: $0) && !onScreen(selection, in: $0) } ?? false
         let wait = max(0, lastRefresh + (calm ? 1.0 / 20 : 1.0 / 120) - CACurrentMediaTime())
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
             MainActor.assumeIsolated {
@@ -166,8 +187,8 @@ final class BlockOverlayView: NSView {
         }
     }
 
-    /// Reads the blocks on screen, or all of them when `all` (to move between them or copy one) or
-    /// when the selected one is not on screen (to tell whether it is gone), and draws them.
+    /// Reads the blocks on screen, or all of them when `all` (to move between them or copy one), and
+    /// draws them. A selected block off the screen is kept until a read of all of them misses it.
     func refresh(all: Bool = false) {
         lastRefresh = CACurrentMediaTime()
         #if DEBUG
@@ -175,14 +196,13 @@ final class BlockOverlayView: NSView {
         let started = lastRefresh
         defer { Self.readTime += CACurrentMediaTime() - started; Self.reads += 1 }
         #endif
-        guard window != nil, var snap = surface?.blockSnapshot(all ? .all : .viewport) else {
+        guard window != nil, let snap = surface?.blockSnapshot(all ? .all : .viewport) else {
             snapshot = nil
             render()
             return
         }
-        if !all, let selection, selection.index(in: snap) == nil, let full = surface?.blockSnapshot(.all) { snap = full }
         snapshot = snap
-        if let selection, selection.index(in: snap) == nil { self.selection = nil }
+        if let selection, !snap.hasBlocks || (all && selection.index(in: snap) == nil) { self.selection = nil }
         if !snap.hasBlocks { headerCommand = nil }
         render()
     }
@@ -575,8 +595,14 @@ final class BlockOverlayView: NSView {
         updatePoll()
     }
 
+    /// Whether `block` is listed in `snapshot`: on the screen, or the one just above it.
+    private func onScreen(_ block: BlockSelection?, in snapshot: BlockSnapshot) -> Bool {
+        block?.index(in: snapshot) != nil
+    }
+
     private func updatePoll() {
-        let wanted = window != nil && (selection != nil || hovered != nil)
+        let visible = window.map { $0.occlusionState.contains(.visible) } == true && !isHiddenOrHasHiddenAncestor
+        let wanted = visible && snapshot.map { onScreen(selection, in: $0) || onScreen(hovered, in: $0) } == true
         if wanted, poll == nil {
             poll = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refresh() }

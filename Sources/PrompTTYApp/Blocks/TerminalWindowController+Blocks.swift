@@ -48,7 +48,7 @@ extension TerminalWindowController {
 
     private func hasSelectedText(_ responder: NSResponder) -> Bool {
         if let text = responder as? NSTextView { return text.selectedRange().length > 0 }
-        if let surface = responder as? TerminalSurfaceView { return surface.selectedText() != nil }
+        if let surface = responder as? TerminalSurfaceView { return surface.hasSelection }
         return false
     }
 }
