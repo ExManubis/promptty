@@ -42,8 +42,9 @@ final class BlockOverlayView: NSView {
     /// While a block is selected or under the pointer, its last row can move as its command
     /// prints, before the screen fills and scrolls; a slow poll keeps the outline on it.
     private var poll: Timer?
-    /// The command the header names, read from the terminal once.
-    private var headerCommand: (block: BlockSelection, row: Int, text: String)?
+    /// The command the header names, read from the terminal once: the block keeps its command
+    /// while its rows shift as old ones drop off the top.
+    private var headerCommand: (block: BlockSelection, text: String)?
     /// Puts a command in the pane's input bar; false when the pane is not at a prompt.
     var onRerun: ((String) -> Bool)?
     /// Saves a command for the palette (asks for its name).
@@ -497,11 +498,11 @@ final class BlockOverlayView: NSView {
         let block = snapshot.blocks[index]
         let id = BlockSelection(index: index, in: snapshot)
         let command: String
-        if let cached = headerCommand, cached.block == id, cached.row == block.row {
+        if let cached = headerCommand, cached.block == id {
             command = cached.text
         } else {
             command = surface?.blockText(row: block.row, part: .command) ?? ""
-            headerCommand = (id, block.row, command)
+            headerCommand = (id, command)
         }
         let model = StickyHeader.Model(
             command: command, exitCode: block.exitCode, running: index == snapshot.blocks.count - 1 && block.exitCode == nil,
@@ -509,7 +510,7 @@ final class BlockOverlayView: NSView {
         )
         if model != headerModel || header.isHidden {
             headerModel = model
-            header.rootView = StickyHeader(model: model) { [weak self] in self?.reveal(row: block.row) }
+            header.rootView = StickyHeader(model: model) { [weak self] in self?.reveal(id) }
         }
         // Over the top row only: the row it stands for.
         let v = snapshot.viewport
@@ -586,9 +587,11 @@ final class BlockOverlayView: NSView {
         }
     }
 
-    /// Scrolls the command on `row` to the top.
-    private func reveal(row: Int) {
-        surface?.scroll(toRow: row)
+    /// Scrolls `block`'s command to the top, at the row it is on now.
+    private func reveal(_ block: BlockSelection) {
+        refresh()
+        guard let snapshot, let index = block.index(in: snapshot) else { return }
+        surface?.scroll(toRow: snapshot.blocks[index].row)
         refresh()
     }
 
