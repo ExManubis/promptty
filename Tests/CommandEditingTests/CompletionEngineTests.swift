@@ -135,10 +135,10 @@ final class CompletionSnapshotTests: XCTestCase {
         return CompletionEngine.need(text: text, cursor: cursor, directory: "/repo", home: "/Users/me")
     }
 
-    private func complete(_ marked: String, _ snapshot: CompletionSnapshot) -> [String]? {
+    private func complete(_ marked: String, _ snapshot: CompletionSnapshot, in directory: String = "/repo") -> [String]? {
         let cursor = (marked as NSString).range(of: "|", options: .backwards).location
         let text = (marked as NSString).replacingCharacters(in: NSRange(location: cursor, length: 1), with: "")
-        return CompletionEngine.complete(text: text, cursor: cursor, directory: "/repo", home: "/Users/me", sources: snapshot)?.candidates
+        return CompletionEngine.complete(text: text, cursor: cursor, directory: directory, home: "/Users/me", sources: snapshot)?.candidates
     }
 
     func testNeeds() {
@@ -166,7 +166,7 @@ final class CompletionSnapshotTests: XCTestCase {
     func testFiltersCachedEntriesPerKeystroke() {
         var snapshot = CompletionSnapshot(commands: [], exports: [])
         XCTAssertFalse(snapshot.has(.directory("/repo")))
-        snapshot.listings["/repo"] = [("Sources", true), ("Package.swift", false), ("Podfile", false), (".git", true)]
+        snapshot.store([("Sources", true), ("Package.swift", false), ("Podfile", false), (".git", true)], forDirectory: "/repo")
         XCTAssertTrue(snapshot.has(.directory("/repo")))
         XCTAssertEqual(complete("cat |", snapshot), ["Package.swift", "Podfile", "Sources/"])
         XCTAssertEqual(complete("cat P|", snapshot), ["Package.swift", "Podfile"])
@@ -196,6 +196,18 @@ final class CompletionSnapshotTests: XCTestCase {
         XCTAssertEqual(c?.candidates, ["Firefox/", "fixtures/", "lefty/"])
         XCTAssertEqual(c?.folders, true)
         XCTAssertEqual(folders("cd fx|")?.candidates, ["Firefox/", "fixtures/"])
+    }
+
+    func testSnapshotSortsFoldersOnceWhenStored() {
+        var snapshot = CompletionSnapshot(commands: [], exports: [])
+        snapshot.store([("zeta", true), ("Alpha", true), ("beta", true), ("alpha.txt", false), (".hidden", true)], forDirectory: "/work")
+        XCTAssertEqual(snapshot.sortedFolders(inDirectory: "/work").map(\.name), [".hidden", "Alpha", "beta", "zeta"])
+        XCTAssertEqual(snapshot.sortedFolders(inDirectory: "/work").map(\.lower), [".hidden", "alpha", "beta", "zeta"])
+        XCTAssertEqual(complete("cd |", snapshot, in: "/work"), ["Alpha/", "beta/", "zeta/"])
+        XCTAssertEqual(complete("cd al|", snapshot, in: "/work"), ["Alpha/"])
+        // Folders sorted elsewhere (off the main thread) are used as given.
+        snapshot.store([("b", true), ("a", true)], folders: [FolderEntry(name: "b"), FolderEntry(name: "a")], forDirectory: "/x")
+        XCTAssertEqual(snapshot.sortedFolders(inDirectory: "/x").map(\.name), ["b", "a"])
     }
 
     func testCdHidesDotFoldersUnlessTypedWithADot() {

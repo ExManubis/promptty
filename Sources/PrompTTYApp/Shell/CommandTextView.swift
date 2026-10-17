@@ -79,7 +79,22 @@ final class CommandTextView: NSTextView {
     private let popup = CompletionPopup()
     /// What the open completion list filters: fetched once when it opens (and again only when the
     /// word moves to another folder), so a keystroke does no disk or git work.
-    private var popupSnapshot: (snapshot: CompletionSnapshot, directory: String)?
+    private var popupSnapshot: (snapshot: CompletionSnapshot, directory: String)? {
+        didSet {
+            snapshotRevision += 1
+            if popupSnapshot == nil { cachedCompletion = nil }
+        }
+    }
+    /// Bumped whenever `popupSnapshot` changes, so the cached completion is worked out again.
+    private var snapshotRevision = 0
+    private struct CompletionKey: Equatable {
+        let text: String
+        let caret: Int
+        let revision: Int
+    }
+    /// The last completion worked out: a keystroke refilters, places the ghost and accepts from one
+    /// result, and ↑/↓ in the picker reuse it.
+    private var cachedCompletion: (key: CompletionKey, completion: Completion?)?
     /// Bumped whenever the text, the list or the question changes: a fetch that finishes under an
     /// older number is stale and dropped.
     private var completionRequest = 0
@@ -342,8 +357,12 @@ final class CommandTextView: NSTextView {
 
     private func currentCompletion() -> Completion? {
         guard let context = popupSnapshot, selectedRange().length == 0 else { return nil }
-        return CompletionEngine.complete(text: string, cursor: selectedRange().location, directory: context.directory,
-                                         home: NSHomeDirectory(), sources: context.snapshot)
+        let key = CompletionKey(text: string, caret: selectedRange().location, revision: snapshotRevision)
+        if let cachedCompletion, cachedCompletion.key == key { return cachedCompletion.completion }
+        let completion = CompletionEngine.complete(text: key.text, cursor: key.caret, directory: context.directory,
+                                                   home: NSHomeDirectory(), sources: context.snapshot)
+        cachedCompletion = (key, completion)
+        return completion
     }
 
     /// Tab: one match is inserted; several insert what they share and open the list.
@@ -439,7 +458,8 @@ final class CommandTextView: NSTextView {
             switch need {
             case .directory(let path):
                 let entries = await listEntries(path)
-                popupSnapshot?.snapshot.listings[path] = entries
+                let folders = await Task.detached(priority: .userInitiated) { FolderEntry.sorted(from: entries) }.value
+                popupSnapshot?.snapshot.store(entries, folders: folders, forDirectory: path)
             case .gitBranches(let directory):
                 let branches = await loadBranches(directory)
                 popupSnapshot?.snapshot.branches[directory] = branches

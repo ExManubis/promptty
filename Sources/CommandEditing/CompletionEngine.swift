@@ -7,7 +7,35 @@ public protocol CompletionSources: Sendable {
     func commandNames() -> Set<String>
     func exportNames() -> Set<String>
     func entries(inDirectory path: String) -> [(name: String, isDirectory: Bool)]
+    /// The directory's folders in the order `cd`'s picker lists them (case-insensitively), each with
+    /// its lowercased name for matching.
+    func sortedFolders(inDirectory path: String) -> [FolderEntry]
     func gitBranches(in directory: String) -> [String]
+}
+
+/// A folder as `cd`'s picker matches it.
+public struct FolderEntry: Equatable, Sendable {
+    public var name: String
+    /// `name.lowercased()`, worked out once.
+    public var lower: String
+
+    public init(name: String) {
+        self.name = name
+        lower = name.lowercased()
+    }
+
+    /// The folders among `entries`, sorted as the picker lists them.
+    public static func sorted(from entries: [(name: String, isDirectory: Bool)]) -> [FolderEntry] {
+        entries.filter(\.isDirectory)
+            .map { FolderEntry(name: $0.name) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+}
+
+extension CompletionSources {
+    public func sortedFolders(inDirectory path: String) -> [FolderEntry] {
+        FolderEntry.sorted(from: entries(inDirectory: path))
+    }
 }
 
 /// What `complete` will read from the file system or git, so the app can fetch it off the main
@@ -24,7 +52,10 @@ public enum CompletionNeed: Hashable, Sendable {
 public struct CompletionSnapshot: CompletionSources {
     public var commands: Set<String>
     public var exports: Set<String>
-    public var listings: [String: [(name: String, isDirectory: Bool)]] = [:]
+    public private(set) var listings: [String: [(name: String, isDirectory: Bool)]] = [:]
+    /// Each listing's folders, sorted once when it is stored rather than at every keystroke: a
+    /// folder of 10,000 names takes tens of milliseconds to sort.
+    private var folders: [String: [FolderEntry]] = [:]
     public var branches: [String: [String]] = [:]
 
     public init(commands: Set<String>, exports: Set<String>) {
@@ -40,9 +71,17 @@ public struct CompletionSnapshot: CompletionSources {
         }
     }
 
+    /// Stores a directory's entries, fetched off the main thread, with its folders sorted by
+    /// `FolderEntry.sorted(from:)` (also off the main thread, when given).
+    public mutating func store(_ entries: [(name: String, isDirectory: Bool)], folders sorted: [FolderEntry]? = nil, forDirectory path: String) {
+        listings[path] = entries
+        folders[path] = sorted ?? FolderEntry.sorted(from: entries)
+    }
+
     public func commandNames() -> Set<String> { commands }
     public func exportNames() -> Set<String> { exports }
     public func entries(inDirectory path: String) -> [(name: String, isDirectory: Bool)] { listings[path] ?? [] }
+    public func sortedFolders(inDirectory path: String) -> [FolderEntry] { folders[path] ?? [] }
     public func gitBranches(in directory: String) -> [String] { branches[directory] ?? [] }
 }
 
@@ -240,19 +279,16 @@ public enum CompletionEngine {
         let lookup = lookupDirectory(word, directory: directory, home: home)
         let shownDir = ShellQuoting.escape(typedDir)
         let query = namePrefix.lowercased()
-        let folders = sources.entries(inDirectory: lookup)
-            .filter { $0.isDirectory && (namePrefix.hasPrefix(".") || !$0.name.hasPrefix(".")) }
-            .map(\.name)
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        let showHidden = namePrefix.hasPrefix(".")
         var ranks: [[String]] = [[], [], []]
-        for name in folders {
-            let lower = name.lowercased()
+        for folder in sources.sortedFolders(inDirectory: lookup) where showHidden || !folder.name.hasPrefix(".") {
+            let lower = folder.lower
             if query.isEmpty || lower.hasPrefix(query) {
-                ranks[0].append(name)
+                ranks[0].append(folder.name)
             } else if lower.contains(query) {
-                ranks[1].append(name)
+                ranks[1].append(folder.name)
             } else if isSubsequence(query, of: lower) {
-                ranks[2].append(name)
+                ranks[2].append(folder.name)
             }
         }
         return ranks.flatMap { $0 }.map { shownDir + ShellQuoting.escape($0) + "/" }
