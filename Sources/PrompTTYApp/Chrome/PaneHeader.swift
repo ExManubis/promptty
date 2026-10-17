@@ -100,3 +100,15 @@ extension EnvironmentValues {
         set { self[PaneHeadersKey.self] = newValue }
     }
 }
+
+/// Whether panes are see-through (Settings › Appearance).
+private struct TranslucentPanesKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var translucentPanes: Bool {
+        get { self[TranslucentPanesKey.self] }
+        set { self[TranslucentPanesKey.self] = newValue }
+    }
+}

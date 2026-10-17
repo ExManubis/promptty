@@ -49,7 +49,10 @@ public enum TerminalConfigWriter {
             "window-padding-y = 8",
             "window-padding-balance = true",
             "window-padding-color = extend",
-        ]
+        ] + (settings.translucentPanes
+            // The pane card draws the background, see-through; cells a program colors stay opaque.
+            ? ["background-opacity = 0"]
+            : [])
         return lines.joined(separator: "\n") + "\n"
     }
 

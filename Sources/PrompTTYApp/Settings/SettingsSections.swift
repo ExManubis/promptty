@@ -46,6 +46,8 @@ struct AppearanceSection: View {
             }
 
             Section("Panes") {
+                Toggle("Translucent panes", isOn: $model.settings.translucentPanes)
+                    .help("The desktop shows faintly through the panes, as through the rest of the window.")
                 Picker("Pane headers", selection: $model.settings.paneHeaders) {
                     Text("Always").tag(PaneHeaders.always)
                     Text("In split tabs").tag(PaneHeaders.splits)

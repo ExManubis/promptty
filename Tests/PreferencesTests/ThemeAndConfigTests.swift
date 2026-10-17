@@ -50,6 +50,13 @@ final class ThemeCatalogTests: XCTestCase {
 }
 
 final class TerminalConfigWriterTests: XCTestCase {
+    func testTranslucentPanesLeaveTheTerminalBackgroundToTheCard() {
+        var s = Settings()
+        XCTAssertTrue(TerminalConfigWriter.render(s, knownThemes: nil).contains("background-opacity = 0\n"))
+        s.translucentPanes = false
+        XCTAssertFalse(TerminalConfigWriter.render(s, knownThemes: nil).contains("background-opacity"))
+    }
+
     private let themes: Set<String> = ["Flexoki Light", "Flexoki Dark", "Dracula"]
 
     private func lines(_ s: Settings) -> [String] {

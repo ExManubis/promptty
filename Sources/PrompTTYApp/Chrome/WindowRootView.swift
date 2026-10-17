@@ -65,6 +65,7 @@ struct WindowRootView: View {
         .environment(\.terminalResizeMode, terminalSizesHeld ? .held : chrome.resizingSplit ? .throttled : .live)
         .environment(\.windowChrome, chrome)
         .environment(\.paneHeaders, settings.settings.paneHeaders)
+        .environment(\.translucentPanes, settings.settings.translucentPanes)
     }
 
     /// The sidebar beside the panes. Collapsing slides it out to the left while the panes widen
