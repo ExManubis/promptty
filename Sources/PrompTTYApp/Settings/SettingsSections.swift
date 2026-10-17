@@ -85,10 +85,18 @@ struct AppearanceSection: View {
                         Text("Theme").font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                 }
+                LabeledContent("Opacity") {
+                    HStack(spacing: 8) {
+                        Text("Clear").font(.system(size: 11)).foregroundStyle(.secondary)
+                        Slider(value: $model.settings.windowOpacity, in: Preferences.Settings.windowOpacityRange)
+                            .frame(maxWidth: 200)
+                        Text("Solid").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }
             } header: {
                 Text("Window")
             } footer: {
-                Text("How much of the terminal theme's color the window frame takes on.")
+                Text("How much of the terminal theme's color the window frame takes on, and how much of the desktop shows through it.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }

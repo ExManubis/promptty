@@ -577,6 +577,7 @@ enum DebugHooks {
             switch args[0] {
             case "sidebarWidth": coordinator.preferences.update { $0.sidebarWidth = Double(args[1]) ?? 220 }
             case "tintStrength": coordinator.preferences.update { $0.tintStrength = Double(args[1]) ?? 0.5 }
+            case "windowOpacity": coordinator.preferences.update { $0.windowOpacity = Double(args[1]) ?? 0.55 }
             case "follow": coordinator.preferences.update { $0.followSystemAppearance = args[1] == "on" }
             case "vim": coordinator.preferences.update { $0.vimNavigation = args[1] == "on" }
             case "fullrate": coordinator.preferences.update { $0.fullRefreshRate = args[1] == "on" }
