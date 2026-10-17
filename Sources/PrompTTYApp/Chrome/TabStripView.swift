@@ -1,3 +1,4 @@
+import IOKit
 import SwiftUI
 import SystemConfiguration
 import WorkspaceModel
@@ -11,6 +12,8 @@ struct TabStripView: View {
 
     /// This Mac's name ("Mac Studio"), read once.
     static let computerName: String = SCDynamicStoreCopyComputerName(nil, nil) as String? ?? "This Mac"
+    /// This kind of Mac drawn as an SF Symbol, as Rex shows it by the Mac's name.
+    static let computerSymbol: String = MacModel.symbol(for: MacModel.name)
 
     private var projectName: String {
         state.selectedTab.flatMap(state.project(of:)).flatMap { id in actions.projects.first { $0.id == id }?.name } ?? "PrompTTY"
@@ -34,7 +37,7 @@ struct TabStripView: View {
     var body: some View {
         HStack(spacing: 6) {
             HStack(spacing: 7) {
-                Image(systemName: "macwindow")
+                Image(systemName: Self.computerSymbol)
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 0) {
@@ -108,5 +111,33 @@ struct CompactTitleBar: View {
         }
         .padding(.leading, ChromeMetrics.trafficLightsWidth)
         .padding(.trailing, ChromeMetrics.inset)
+    }
+}
+
+/// Which kind of Mac this is, for its symbol.
+enum MacModel {
+    /// "MacBook Pro (16-inch, M5 Max)" on Apple silicon, else the model identifier
+    /// ("MacBookPro16,1", "iMac20,1").
+    static var name: String {
+        let product = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/product")
+        defer { IOObjectRelease(product) }
+        if let data = IORegistryEntryCreateCFProperty(product, "product-name" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? Data,
+           let name = String(data: data, encoding: .utf8)?.trimmingCharacters(in: CharacterSet(charactersIn: "\0")), !name.isEmpty {
+            return name
+        }
+        var size = 0
+        sysctlbyname("hw.model", nil, &size, nil, 0)
+        var model = [CChar](repeating: 0, count: max(size, 1))
+        sysctlbyname("hw.model", &model, &size, nil, 0)
+        return String(cString: model)
+    }
+
+    static func symbol(for name: String) -> String {
+        let name = name.replacingOccurrences(of: " ", with: "").lowercased()
+        if name.hasPrefix("macbook") { return "macbook" }
+        if name.hasPrefix("macmini") { return "macmini" }
+        if name.hasPrefix("macstudio") { return "macstudio" }
+        if name.hasPrefix("macpro") { return "macpro.gen3" }
+        return "desktopcomputer"
     }
 }
