@@ -209,6 +209,8 @@ struct KeyboardSection: View {
                     Text("Off").tag(OptionAsAlt.off)
                 }
                 Toggle("Vim-style navigation", isOn: $model.settings.vimNavigation)
+                Toggle("Quick terminal drops down from any app", isOn: $model.settings.quickTerminal)
+                    .help("Its shortcut is set below, under Window.")
             } header: {
                 Text("Terminal")
             } footer: {

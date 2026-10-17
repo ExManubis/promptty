@@ -70,6 +70,8 @@ public struct Settings: Equatable, Sendable {
     public static let notifyAfterRange: ClosedRange<Double> = 3...3600
 
     // Keyboard
+    /// The quick terminal drops down on its global shortcut (`ShortcutAction.quickTerminal`).
+    public var quickTerminal = true
     public var optionAsAlt = OptionAsAlt.both
     /// ⌥H/J/K/L focus panes and ⌥⇧J/K switch tabs (`VimNavigation`), taken from the terminal.
     public var vimNavigation = true
@@ -114,7 +116,7 @@ extension Settings: Codable {
         case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, tabLayout, sidebarWidth, tabListHidden
         case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, secureKeyboardEntry, shortcuts
         case clipboardRead, clipboardWrite, clipboardReadPrograms, clipboardWritePrograms
-        case notifyCommands, notifyAfterSeconds, restoreScrollback, markUnseenOutput
+        case notifyCommands, notifyAfterSeconds, restoreScrollback, markUnseenOutput, quickTerminal
     }
 
     public init(from decoder: Decoder) throws {
@@ -145,6 +147,7 @@ extension Settings: Codable {
         s.notifyCommands = value(.notifyCommands, s.notifyCommands)
         s.notifyAfterSeconds = value(.notifyAfterSeconds, s.notifyAfterSeconds)
         s.markUnseenOutput = value(.markUnseenOutput, s.markUnseenOutput)
+        s.quickTerminal = value(.quickTerminal, s.quickTerminal)
         s.optionAsAlt = value(.optionAsAlt, s.optionAsAlt)
         s.vimNavigation = value(.vimNavigation, s.vimNavigation)
         s.secureKeyboardEntry = value(.secureKeyboardEntry, s.secureKeyboardEntry)
@@ -189,6 +192,7 @@ extension Settings: Codable {
         try c.encode(notifyCommands, forKey: .notifyCommands)
         try c.encode(notifyAfterSeconds, forKey: .notifyAfterSeconds)
         try c.encode(markUnseenOutput, forKey: .markUnseenOutput)
+        try c.encode(quickTerminal, forKey: .quickTerminal)
         try c.encode(optionAsAlt, forKey: .optionAsAlt)
         try c.encode(vimNavigation, forKey: .vimNavigation)
         try c.encode(secureKeyboardEntry, forKey: .secureKeyboardEntry)

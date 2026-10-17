@@ -547,6 +547,8 @@ enum DebugHooks {
             coordinator.showTransientBanner(args.joined(separator: " "))
             return ""
         }
+        // eval quick — the quick terminal's state.
+        driver.hooks["quick"] = { _ in coordinator.quickTerminal?.debugState ?? "no quick terminal" }
         driver.hooks["settings"] = { args in
             // eval settings <key> <value> for a few app settings.
             guard args.count == 2 else { return "error: settings key value" }

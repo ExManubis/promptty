@@ -476,6 +476,9 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         return names
     }
 
+    /// The drop-down terminal on the global shortcut; set by the app delegate.
+    var quickTerminal: QuickTerminal?
+
     /// The tabs closed most recently, for Reopen Closed Tab.
     private(set) var closedTabs = ClosedTabStack()
 
@@ -827,6 +830,18 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     // MARK: GhosttyActionSink
 
     func handle(_ action: GhosttyAction, target: GhosttyActionTarget) -> Bool {
+        // The quick terminal is no pane: it closes itself and copes with nothing else.
+        if case .surface(let view) = target, view.token?.base is QuickTerminal.Token {
+            switch action {
+            case .closeSurface, .showChildExited:
+                DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { self?.quickTerminal?.surfaceClosed() } }
+                return true
+            case .scrollbar, .cellSize, .render, .mouseOverLink, .initialSize:
+                return true
+            default:
+                return false
+            }
+        }
         // The screen moved in the scrollback, the scrollback grew, or rows changed height: the
         // command blocks moved. These arrive constantly in a stream, so no `locate` for them.
         switch action {

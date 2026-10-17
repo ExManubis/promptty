@@ -39,6 +39,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(old.notifyAfterSeconds, 10)
         XCTAssertTrue(old.markUnseenOutput)
         XCTAssertTrue(old.restoreScrollback)
+        XCTAssertTrue(old.quickTerminal)
         var s = Settings()
         s.notifyCommands = false
         s.notifyAfterSeconds = 60
