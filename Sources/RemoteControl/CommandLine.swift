@@ -4,7 +4,7 @@ import Foundation
 /// [--enter] [--all] [-c CMD] [--timeout S] [--command-line|--markdown] [-- COMMAND…]`. Options may come before or
 /// after the command. `-b`/`--block` is Rex's name for a pane.
 public enum ControlCommandLine {
-    public static let commands: Set<String> = ["ls", "new-tab", "split", "send", "capture", "wait", "focus", "notify", "label"]
+    public static let commands: Set<String> = ["ls", "new-tab", "split", "send", "capture", "wait", "focus", "close", "notify", "label"]
 
     public enum Parsed: Equatable, Sendable {
         case request(ControlRequest)
@@ -71,6 +71,9 @@ public enum ControlCommandLine {
             guard !positional.isEmpty || request.command == "label" else { throw UsageError(message: "notify TITLE [BODY]") }
         case "focus":
             guard request.target != nil else { throw UsageError(message: "focus -p PANE") }
+        case "close":
+            // Named, never implied: closing the caller's own pane would end the program asking.
+            guard request.target != nil else { throw UsageError(message: "close -b PANE") }
         case "wait":
             // Never the caller's own pane: its command is the one running `promptty`.
             guard request.options["cmd"] != nil || request.target != nil else {
@@ -104,6 +107,7 @@ public enum ControlCommandLine {
       wait -p PANE | -c CMD [--timeout S]
                                       wait for the pane's command (or that command) to end; exits with its status
       focus -p PANE                   bring a pane forward
+      close -p PANE                   close a pane, ending what runs in it (its tab, if it is the last)
       notify TITLE [BODY]             post a notification for this pane
       label [NAME]                    label this pane (none: remove it)
 
@@ -118,6 +122,7 @@ public enum ControlCommandLine {
       promptty wait -b tests --timeout 600; echo "exit $?"
       promptty capture -c <cmd>                                 # that command's output only
       promptty send -b tests --enter --json make lint           # another command, another cmd id
+      promptty close -b tests                                   # done with it
 
     Exit status: 0 ok, 1 failed, 2 usage, 3 pane or command not found or ambiguous, 4 PrompTTY not
     reachable, 5 wait timed out; `wait` otherwise exits with the command's own status.
