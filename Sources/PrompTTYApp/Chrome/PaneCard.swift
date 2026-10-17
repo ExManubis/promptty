@@ -33,7 +33,7 @@ struct PaneCard: View {
                 // Rex's bright top edge, added to the color under it (it keeps the hue) rather than
                 // laid over it in white.
                 .overlay(shape.strokeBorder(LinearGradient(stops: [
-                    .init(color: .white.opacity(chrome.panelIsDark ? 0.55 : 0.6), location: 0),
+                    .init(color: .white.opacity(chrome.panelIsDark ? 0.38 : 0.45), location: 0),
                     .init(color: .white.opacity(chrome.panelIsDark ? 0.10 : 0.2), location: 0.03),
                     .init(color: .white.opacity(chrome.panelIsDark ? 0.05 : 0.1), location: 1),
                 ], startPoint: .top, endPoint: .bottom), lineWidth: 0.75).blendMode(.plusLighter))
