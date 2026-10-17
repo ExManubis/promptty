@@ -20,9 +20,17 @@ struct InputBarView: View {
             ShellHeaderView(shell: shell)
                 .padding(.top, 8)
             Spacer(minLength: 4)
-            LongLivedViewHost(view: shell.editor, dark: dark)
-                .frame(height: shell.editorHeight)
-                .opacity(shell.bar == .active ? 1 : 0.45)
+            HStack(alignment: .top, spacing: 8) {
+                // A prompt mark before the input, in the theme's color, centered on the first line.
+                Image(systemName: "chevron.right")
+                    .font(.system(size: EditorStyle.font.pointSize * 0.85, weight: .bold))
+                    .foregroundStyle(Color(nsColor: shell.promptColor))
+                    .frame(height: CommandTextView.lineHeight(for: EditorStyle.font))
+                    .accessibilityHidden(true)
+                LongLivedViewHost(view: shell.editor, dark: dark)
+                    .frame(height: shell.editorHeight)
+            }
+            .opacity(shell.bar == .active ? 1 : 0.45)
                 .popover(isPresented: Binding(get: { shell.historyPicker != nil },
                                               set: { if !$0 { shell.closeHistorySearch() } }), arrowEdge: .top) {
                     if let picker = shell.historyPicker {
