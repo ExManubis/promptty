@@ -214,3 +214,42 @@ public final class Tab {
         return path
     }
 }
+
+// MARK: Closing and reopening
+
+extension Tab {
+    /// The panes as laid out now, for reopening the tab once it is closed.
+    public var closedLayout: ClosedLayout {
+        func layout(_ node: SplitNode) -> ClosedLayout {
+            switch node {
+            case .leaf(let id):
+                return .pane(workingDirectory: panes[id]?.workingDirectory ?? workingDirectory, focused: id == focusedPaneID)
+            case .split(let axis, let ratio, let first, let second):
+                return .split(axis: axis, ratio: ratio, first: layout(first), second: layout(second))
+            }
+        }
+        return layout(root)
+    }
+
+    /// Replaces the panes with fresh ones laid out as `layout`; `directory` picks each one's folder.
+    func restore(_ layout: ClosedLayout, directory: (String) -> String) {
+        var made: [PaneID: Pane] = [:]
+        var focused: PaneID?
+        func build(_ node: ClosedLayout) -> SplitNode {
+            switch node {
+            case .pane(let dir, let isFocused):
+                let pane = Pane(workingDirectory: directory(dir))
+                made[pane.id] = pane
+                if isFocused { focused = pane.id }
+                return .leaf(pane.id)
+            case .split(let axis, let ratio, let first, let second):
+                return .split(axis: axis, ratio: SplitNode.clamp(ratio), first: build(first), second: build(second))
+            }
+        }
+        let newRoot = build(layout)
+        root = newRoot
+        panes = made
+        focusedPaneID = focused ?? newRoot.leaves[0]
+        zoomedPaneID = nil
+    }
+}

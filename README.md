@@ -25,6 +25,7 @@
 - **Command palette.** ⇧⌘P finds any tab in any window and runs any command by name, with its
   shortcut beside it.
 - **Splits.** Split right or down, drag to resize, zoom one pane to fill the tab.
+- **Undo a closed tab.** ⇧⌘T brings back the last ten closed tabs, splits and folders included.
 - **Safe by default.** ⌘-click opens links and `path:line:col`, but never runs programs.
   Programs must ask before using your clipboard, and password prompts get secure input.
 
@@ -55,6 +56,7 @@ included), and Option works as Alt. Every shortcut can be changed in **Settings 
 | Command palette | ⇧⌘P |
 | New window / close window | ⌘N / ⇧⌘W |
 | New tab / close tab | ⌘T / ⌥⌘W |
+| Reopen the last closed tab | ⇧⌘T |
 | Next / previous tab, go to tab 1–9 | ⇧⌘] / ⇧⌘[, ⌘1…⌘9 |
 | Toggle sidebar / sidebar or strip | ⌘B / ⌃⌘S |
 | Split right / split down | ⌘D / ⇧⌘D |

@@ -1,0 +1,74 @@
+import Foundation
+
+/// A closed tab's panes as they were laid out: each pane's folder, and which one had focus.
+public indirect enum ClosedLayout: Equatable, Sendable {
+    case pane(workingDirectory: String, focused: Bool)
+    case split(axis: SplitAxis, ratio: Double, first: ClosedLayout, second: ClosedLayout)
+
+    /// The panes' folders in reading order.
+    public var directories: [String] {
+        switch self {
+        case .pane(let dir, _): return [dir]
+        case .split(_, _, let a, let b): return a.directories + b.directories
+        }
+    }
+}
+
+/// What reopening a closed tab brings back: its name, project, place and panes. Not its output.
+public struct ClosedTab: Equatable, Sendable {
+    public var customTitle: String?
+    public var project: ProjectID?
+    /// The window it was in, and where among its tabs.
+    public var window: WindowID
+    public var index: Int
+    public var layout: ClosedLayout
+
+    public init(customTitle: String?, project: ProjectID?, window: WindowID, index: Int, layout: ClosedLayout) {
+        self.customTitle = customTitle; self.project = project; self.window = window; self.index = index; self.layout = layout
+    }
+}
+
+/// The most recently closed tabs, newest last; ⇧⌘T takes them back in reverse order.
+public struct ClosedTabStack: Sendable {
+    public static let limit = 10
+    private var tabs: [ClosedTab] = []
+
+    public init() {}
+
+    public var isEmpty: Bool { tabs.isEmpty }
+    public var count: Int { tabs.count }
+
+    public mutating func push(_ tab: ClosedTab) {
+        tabs.append(tab)
+        if tabs.count > Self.limit { tabs.removeFirst(tabs.count - Self.limit) }
+    }
+
+    public mutating func pop() -> ClosedTab? { tabs.popLast() }
+}
+
+extension WindowState {
+    /// What reopening `tab` would need; nil for a tab not in this window.
+    public func closedTab(_ tab: Tab) -> ClosedTab? {
+        guard let index = index(of: tab.id) else { return nil }
+        return ClosedTab(customTitle: tab.customTitle, project: project(of: tab), window: id, index: index, layout: tab.closedLayout)
+    }
+
+    /// Opens `closed` again in this window, at its old place as near as the groups allow, selected.
+    /// A folder that is gone opens `fallbackDirectory`. A project that is gone leaves it in none.
+    @discardableResult
+    public func reopen(
+        _ closed: ClosedTab,
+        projectExists: (ProjectID) -> Bool,
+        directoryExists: (String) -> Bool,
+        fallbackDirectory: String = NSHomeDirectory()
+    ) -> Tab {
+        let project = closed.project.flatMap { projectExists($0) ? $0 : nil }
+        let first = closed.layout.directories.first ?? fallbackDirectory
+        let tab = addTab(title: "", workingDirectory: directoryExists(first) ? first : fallbackDirectory,
+                         customTitle: closed.customTitle, project: project)
+        tab.restore(closed.layout) { directoryExists($0) ? $0 : fallbackDirectory }
+        moveTab(id: tab.id, to: closed.index)
+        select(id: tab.id)
+        return tab
+    }
+}

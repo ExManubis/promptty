@@ -593,6 +593,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         requestCloseTab(id)
     }
 
+    @objc func reopenClosedTab(_ sender: Any?) { coordinator.reopenClosedTab(fallback: state) }
+
     @objc func togglePinTab(_ sender: Any?) {
         guard let tab = state.selectedTab else { return }
         if tab.pin == nil { pinTab(tab.id, at: nil) } else { unpinTab(tab.id, at: nil) }
@@ -697,6 +699,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             return focusedSurface != nil
         case #selector(useSelectionForFind(_:)):
             return focusedSurface?.hasSelection ?? false
+        case #selector(reopenClosedTab(_:)):
+            return coordinator.canReopenClosedTab
         case #selector(togglePinTab(_:)):
             item.title = state.selectedTab?.pin == nil ? "Pin Tab" : "Unpin Tab"
             return state.selectedTab != nil

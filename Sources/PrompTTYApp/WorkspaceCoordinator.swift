@@ -397,6 +397,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             NSSound.beep()
             return
         }
+        if let closed = state.closedTab(tab) { closedTabs.push(closed) }
         for pane in tab.orderedPanes { controller.removeSurface(for: pane.id) }
         state.closeTab(id: id)
         if state.isEmpty {
@@ -406,6 +407,27 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         }
         modelDidChange()
     }
+
+    /// The tabs closed most recently, for Reopen Closed Tab.
+    private(set) var closedTabs = ClosedTabStack()
+
+    /// Opens the most recently closed tab again: in its window if that is still open, else in
+    /// `fallback`'s.
+    func reopenClosedTab(fallback: WindowState?) {
+        guard let closed = closedTabs.pop() else { return NSSound.beep() }
+        guard let state = workspace.windows.first(where: { $0.id == closed.window }) ?? fallback ?? workspace.windows.first,
+              let controller = controllers[state.id] else { return }
+        state.reopen(closed, projectExists: { [workspace] in workspace.project(id: $0) != nil },
+                     directoryExists: { path in
+                         var isDirectory: ObjCBool = false
+                         return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+                     })
+        controller.reload()
+        controller.window?.makeKeyAndOrderFront(nil)
+        modelDidChange()
+    }
+
+    var canReopenClosedTab: Bool { !closedTabs.isEmpty }
 
     func rename(_ id: TabID, to title: String) {
         guard let state = workspace.window(containing: id), let tab = state.tab(id: id) else { return }

@@ -17,6 +17,7 @@ enum MainMenu {
         static let newTab = #selector(TerminalWindowController.newTab(_:))
         static let newProject = #selector(TerminalWindowController.newProject(_:))
         static let closeTab = #selector(TerminalWindowController.closeTab(_:))
+        static let reopenClosedTab = #selector(TerminalWindowController.reopenClosedTab(_:))
         static let togglePinTab = #selector(TerminalWindowController.togglePinTab(_:))
         static let closePane = #selector(TerminalWindowController.closePane(_:))
         static let previousTab = #selector(TerminalWindowController.previousTab(_:))
@@ -86,6 +87,7 @@ enum MainMenu {
         file.addItem(item("Close Pane", Action.closePane, .closePane))
         file.addItem(item("Close Tab", Action.closeTab, .closeTab))
         file.addItem(item("Close Window", #selector(NSWindow.performClose(_:)), .closeWindow))
+        file.addItem(item("Reopen Closed Tab", Action.reopenClosedTab, .reopenClosedTab))
         menu.addItem(submenu: file, title: "File")
 
         // Standard selectors so text fields (tab rename, Settings) keep working; the terminal view
