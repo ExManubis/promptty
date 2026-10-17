@@ -543,6 +543,13 @@ enum DebugHooks {
             }
             return "status=\(ClaudeHooks.status().map { "\($0)" } ?? "nil") file=\(ClaudeHooks.settingsFile.path)"
         }
+        // eval sendcontrol <letter> — what the input bar sends for ⌃D/⌃L, to the first window's focused pane.
+        driver.hooks["sendcontrol"] = { args in
+            guard let c = coordinator.allControllers.first, let pane = c.state.selectedTab?.focusedPane,
+                  let surface = c.surfaceView(for: pane), let letter = args.first?.first else { return "error: sendcontrol <letter>" }
+            surface.sendControl(letter)
+            return ""
+        }
         driver.hooks["banner"] = { args in
             coordinator.showTransientBanner(args.joined(separator: " "))
             return ""

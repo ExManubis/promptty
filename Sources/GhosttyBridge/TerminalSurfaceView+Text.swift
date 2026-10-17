@@ -12,12 +12,13 @@ extension TerminalSurfaceView {
         sendKeyPress(keyCode: 36, text: "\r", mods: GHOSTTY_MODS_NONE, unshifted: 13)
     }
 
-    /// Presses Control and a letter: `d` (end of input) or `l` (clear screen).
+    /// Presses Control and a letter: `d` (end of input) or `l` (clear screen). The key's text is
+    /// the letter, as Ghostty's own app passes it: given the control character itself, the encoder
+    /// takes it for an unusual key and sends `ESC [12;5u`, which a shell ignores.
     public func sendControl(_ letter: Character) {
         let codes: [Character: UInt32] = ["d": 2, "l": 37, "c": 8, "u": 32]
         guard let code = codes[letter], let scalar = letter.unicodeScalars.first else { return }
-        let control = String(UnicodeScalar(UInt8(scalar.value & 0x1F)))
-        sendKeyPress(keyCode: code, text: control, mods: GHOSTTY_MODS_CTRL, unshifted: scalar.value)
+        sendKeyPress(keyCode: code, text: String(letter), mods: GHOSTTY_MODS_CTRL, unshifted: scalar.value)
     }
 
     private func sendKeyPress(keyCode: UInt32, text: String, mods: ghostty_input_mods_e, unshifted: UInt32) {
