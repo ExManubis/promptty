@@ -83,7 +83,7 @@ final class PreferencesController {
     /// Writes `terminal.conf` if its text changed. Returns whether it changed.
     @discardableResult
     func writeTerminalConfig() throws -> Bool {
-        let text = TerminalConfigWriter.render(model.settings, knownThemes: themes.names.isEmpty ? nil : Set(themes.names),
+        let text = TerminalConfigWriter.render(model.settings, knownThemes: themes.names.isEmpty ? nil : themes.nameSet,
                                                accentColor: Self.accentColor)
         guard text != lastConfigText else { return false }
         try FileManager.default.createDirectory(at: terminalConfigURL.deletingLastPathComponent(), withIntermediateDirectories: true)

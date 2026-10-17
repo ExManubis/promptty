@@ -37,6 +37,8 @@ public struct ThemeCatalog: Sendable {
 
     public let directory: URL
     public let names: [String]
+    /// `names`, for lookups.
+    public let nameSet: Set<String>
 
     public init(directory: URL) {
         self.directory = directory
@@ -44,14 +46,25 @@ public struct ThemeCatalog: Sendable {
         names = entries
             .filter { !$0.hasPrefix(".") }
             .sorted { $0.caseInsensitiveCompare($1) == .orderedAscending }
+        nameSet = Set(names)
     }
 
-    public func contains(_ name: String) -> Bool { names.contains(name) }
+    public func contains(_ name: String) -> Bool { nameSet.contains(name) }
 
+    /// Reads the theme's file: call it off the main thread for more than a few themes.
     public func swatch(for name: String) -> ThemeSwatch? {
         guard contains(name),
               let text = try? String(contentsOf: directory.appendingPathComponent(name), encoding: .utf8) else { return nil }
         return Self.parse(text)
+    }
+
+    /// Every theme's swatch (themes whose file has none are left out). Reads every file.
+    public func allSwatches() -> [String: ThemeSwatch] {
+        var swatches: [String: ThemeSwatch] = [:]
+        for name in names {
+            if let swatch = swatch(for: name) { swatches[name] = swatch }
+        }
+        return swatches
     }
 
     /// Reads `background`, `foreground` and `palette = N=#rrggbb` lines from a Ghostty theme file.
