@@ -99,10 +99,10 @@ private struct CompletionListView: View {
                             .padding(.horizontal, 8)
                             .background {
                                 if index == list.selected {
-                                    RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.accentColor.opacity(0.85))
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(0.12))
                                 }
                             }
-                            .foregroundStyle(index == list.selected ? Color.white : Color.primary)
+                            .foregroundStyle(Color.primary)
                             .id(index)
                     }
                 }
@@ -111,6 +111,6 @@ private struct CompletionListView: View {
             .scrollIndicators(.never)
             .onChange(of: list.selected) { _, new in proxy.scrollTo(new) }
         }
-        .background(FlatSurface(cornerRadius: 9))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
