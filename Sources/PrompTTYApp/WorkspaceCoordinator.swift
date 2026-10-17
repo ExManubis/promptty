@@ -33,6 +33,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         self.runtime = runtime
         self.workspace = workspace
         self.preferences = preferences
+        lastAppSettings = preferences.settings
         activity.panes = { [weak self] in self?.watchedPanes() ?? [] }
         activity.isSeen = { [weak self] in self?.isSeen($0) ?? false }
         activity.onNotice = { [weak self] pane, notice in self?.post(notice, for: pane) }
@@ -41,6 +42,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         activity.afterTick = { [weak self] in self?.lookUpRepositories() }
         secureInput.global = preferences.settings.secureKeyboardEntry
         activity.marksUnseenOutput = preferences.settings.markUnseenOutput
+        ChromeTint.opacity = CGFloat(preferences.settings.windowOpacity)
         secureInput.onChange = { [weak self] in self?.refreshSecureIndicators() }
     }
 
@@ -368,11 +370,23 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         preferences.update { $0.tabListHidden.toggle() }
     }
 
-    private var lastTintStrength: Double?
+    private var lastAppSettings: Preferences.Settings
 
     /// Applies app-only settings after a change. Layout, sidebar width and visibility are
     /// observed by SwiftUI directly; the model's layout is kept in step for the session file.
+    /// Dragging the Frame color or Opacity slider changes settings at every step, so a change to
+    /// only those recolors the chrome and touches nothing else.
     func applyAppSettings(_ settings: Preferences.Settings) {
+        let old = lastAppSettings
+        lastAppSettings = settings
+        if old.tintStrength != settings.tintStrength || old.windowOpacity != settings.windowOpacity {
+            ChromeTint.opacity = CGFloat(settings.windowOpacity)
+            for c in controllers.values { applyConfiguredTint(to: c) }
+        }
+        var rest = old
+        rest.tintStrength = settings.tintStrength
+        rest.windowOpacity = settings.windowOpacity
+        if rest == settings { return }
         activity.marksUnseenOutput = settings.markUnseenOutput
         let layout = TabLayout(settings.tabLayout)
         if workspace.tabLayout != layout {
@@ -382,11 +396,6 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         if secureInput.global != settings.secureKeyboardEntry {
             secureInput.global = settings.secureKeyboardEntry
             refreshSecureIndicators()
-        }
-        if lastTintStrength != settings.tintStrength || ChromeTint.opacity != CGFloat(settings.windowOpacity) {
-            lastTintStrength = settings.tintStrength
-            ChromeTint.opacity = CGFloat(settings.windowOpacity)
-            configDidReload()
         }
         for c in controllers.values {
             c.focusSelectedPane()
