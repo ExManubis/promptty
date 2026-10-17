@@ -145,6 +145,12 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     private func post(_ notice: Notice, for pane: PaneID) {
         guard let (state, tab) = workspace.tab(containing: pane) else { return }
+        switch notice.kind {
+        case .finished, .failed:
+            let settings = preferences.settings
+            guard settings.notifyCommands, (notice.duration ?? 0) >= settings.notifyAfterSeconds else { return }
+        default: break
+        }
         // A finished command is the bar's last one; an attention is about whatever runs now.
         // The pane's own title, or its folder as the tab shows it.
         var command = tab.pane(pane).map { pane -> String in

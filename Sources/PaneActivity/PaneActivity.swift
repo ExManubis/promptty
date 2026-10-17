@@ -79,8 +79,11 @@ public struct PaneActivity: Equatable, Sendable {
     /// The tool the agent runs (or asks to run), as it reports it.
     private var tool: String?
 
-    /// Commands that take at least this long notify when they finish unseen.
+    /// Agents' turns that take at least this long notify when they end unseen.
     public static let notifyAfter: TimeInterval = 10
+    /// Commands that take at least this long notify when they finish unseen; the app raises it to
+    /// the user's setting (`Settings.notifyAfterSeconds`).
+    public static let commandNotifyMinimum: TimeInterval = 3
     /// With exit reports: how long the shell may be in front without one before the command is
     /// taken to have ended anyway.
     static let reportGrace: TimeInterval = 3
@@ -166,7 +169,7 @@ public struct PaneActivity: Equatable, Sendable {
         shellObservations = 0
         guard !seen else { return nil }
         if unseen != .attention { unseen = code == 0 ? .finished : .failed(code) }
-        guard duration >= Self.notifyAfter else { return nil }
+        guard duration >= Self.commandNotifyMinimum else { return nil }
         return Notice(kind: code == 0 ? .finished : .failed(code), program: ran, duration: duration)
     }
 

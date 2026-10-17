@@ -15,6 +15,9 @@
 - **Agents at a glance.** PrompTTY spots Claude Code, Codex, Amp, Cline and others running in
   a pane. Each tab shows whether its agent is working, waiting for permission or done, and you
   get a notification when it needs you.
+- **Long commands tell you when they're done.** A command that ran 10 seconds or more in a tab you
+  aren't looking at posts a notification with how it ended and how long it took (Settings › Tabs
+  sets how long is long, or turns it off).
 - **A smarter prompt.** In zsh, an input bar replaces the shell prompt: history, suggestions,
   Tab completion, syntax coloring, vi mode and fuzzy history search (⌃R).
 - **Command blocks.** Every command and its output is a block you can jump between, copy, copy

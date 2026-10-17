@@ -58,6 +58,13 @@ public struct Settings: Equatable, Sendable {
     public var restoreSession = true
     public var confirmCloseRunning = true
 
+    // Notifications
+    /// A command that ran at least `notifyAfterSeconds` and finished where the user was not
+    /// looking posts a notification.
+    public var notifyCommands = true
+    public var notifyAfterSeconds: Double = 10
+    public static let notifyAfterRange: ClosedRange<Double> = 3...3600
+
     // Keyboard
     public var optionAsAlt = OptionAsAlt.both
     /// ⌥H/J/K/L focus panes and ⌥⇧J/K switch tabs (`VimNavigation`), taken from the terminal.
@@ -84,6 +91,7 @@ public struct Settings: Equatable, Sendable {
         s.fontSize = min(Self.fontSizeRange.upperBound, max(Self.fontSizeRange.lowerBound, fontSize))
         s.sidebarWidth = min(Self.sidebarWidthRange.upperBound, max(Self.sidebarWidthRange.lowerBound, sidebarWidth))
         s.tintStrength = min(1, max(0, tintStrength))
+        s.notifyAfterSeconds = min(Self.notifyAfterRange.upperBound, max(Self.notifyAfterRange.lowerBound, notifyAfterSeconds))
         return s
     }
 
@@ -102,6 +110,7 @@ extension Settings: Codable {
         case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, tabLayout, sidebarWidth, tabListHidden
         case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, secureKeyboardEntry, shortcuts
         case clipboardRead, clipboardWrite, clipboardReadPrograms, clipboardWritePrograms
+        case notifyCommands, notifyAfterSeconds
     }
 
     public init(from decoder: Decoder) throws {
@@ -128,6 +137,8 @@ extension Settings: Codable {
         s.newTabDirectory = value(.newTabDirectory, s.newTabDirectory)
         s.restoreSession = value(.restoreSession, s.restoreSession)
         s.confirmCloseRunning = value(.confirmCloseRunning, s.confirmCloseRunning)
+        s.notifyCommands = value(.notifyCommands, s.notifyCommands)
+        s.notifyAfterSeconds = value(.notifyAfterSeconds, s.notifyAfterSeconds)
         s.optionAsAlt = value(.optionAsAlt, s.optionAsAlt)
         s.vimNavigation = value(.vimNavigation, s.vimNavigation)
         s.secureKeyboardEntry = value(.secureKeyboardEntry, s.secureKeyboardEntry)
@@ -168,6 +179,8 @@ extension Settings: Codable {
         try c.encode(newTabDirectory, forKey: .newTabDirectory)
         try c.encode(restoreSession, forKey: .restoreSession)
         try c.encode(confirmCloseRunning, forKey: .confirmCloseRunning)
+        try c.encode(notifyCommands, forKey: .notifyCommands)
+        try c.encode(notifyAfterSeconds, forKey: .notifyAfterSeconds)
         try c.encode(optionAsAlt, forKey: .optionAsAlt)
         try c.encode(vimNavigation, forKey: .vimNavigation)
         try c.encode(secureKeyboardEntry, forKey: .secureKeyboardEntry)

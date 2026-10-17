@@ -125,6 +125,20 @@ struct TabsSection: View {
                 Toggle("Ask before closing a running process", isOn: $model.settings.confirmCloseRunning)
             }
 
+            Section {
+                Toggle("Notify when a long command finishes", isOn: $model.settings.notifyCommands)
+                Picker("Long means at least", selection: $model.settings.notifyAfterSeconds) {
+                    ForEach([3.0, 5, 10, 30, 60, 300], id: \.self) { seconds in
+                        Text(seconds < 60 ? "\(Int(seconds)) seconds" : "\(Int(seconds / 60)) min").tag(seconds)
+                    }
+                }
+                .disabled(!model.settings.notifyCommands)
+            } header: {
+                Text("Notifications")
+            } footer: {
+                Text("Only for commands in a tab or window you are not looking at. Agents always tell you when they finish or need you.")
+            }
+
             Section("Clipboard access by programs") {
                 Picker("Reading the clipboard", selection: $model.settings.clipboardRead) {
                     Text("Ask").tag(ClipboardAccess.ask)

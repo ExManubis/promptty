@@ -33,6 +33,20 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(try JSONDecoder().decode(Settings.self, from: Data(#"{"version":2}"#.utf8)).fullRefreshRate)
     }
 
+    func testCommandNotificationsAreSavedOnByDefaultAndClamped() throws {
+        let old = try JSONDecoder().decode(Settings.self, from: Data(#"{"version":2}"#.utf8))
+        XCTAssertTrue(old.notifyCommands)
+        XCTAssertEqual(old.notifyAfterSeconds, 10)
+        var s = Settings()
+        s.notifyCommands = false
+        s.notifyAfterSeconds = 60
+        let back = try JSONDecoder().decode(Settings.self, from: JSONEncoder().encode(s))
+        XCTAssertFalse(back.notifyCommands)
+        XCTAssertEqual(back.notifyAfterSeconds, 60)
+        let tiny = try JSONDecoder().decode(Settings.self, from: Data(#"{"version":2,"notifyAfterSeconds":0.5}"#.utf8))
+        XCTAssertEqual(tiny.notifyAfterSeconds, 3)
+    }
+
     func testClipboardAccessIsSavedAndAsksByDefault() throws {
         var s = Settings()
         XCTAssertEqual(s.clipboardRead, .ask)

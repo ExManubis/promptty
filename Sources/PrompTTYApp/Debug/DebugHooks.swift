@@ -556,6 +556,8 @@ enum DebugHooks {
             case "follow": coordinator.preferences.update { $0.followSystemAppearance = args[1] == "on" }
             case "vim": coordinator.preferences.update { $0.vimNavigation = args[1] == "on" }
             case "fullrate": coordinator.preferences.update { $0.fullRefreshRate = args[1] == "on" }
+            case "notify": coordinator.preferences.update { $0.notifyCommands = args[1] == "on" }
+            case "notifyAfter": coordinator.preferences.update { $0.notifyAfterSeconds = Double(args[1]) ?? 10 }
             case "cursor":
                 let value: CursorColor = switch args[1] {
                 case "accent": .accent
