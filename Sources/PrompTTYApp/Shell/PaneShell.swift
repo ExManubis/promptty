@@ -222,6 +222,7 @@ final class PaneShell {
         reloadStateFileIfChanged()
         branchCache = [:]
         branchEpoch += 1
+        executables = [:]
         refreshGit()
         phaseChanged()
         if startupCommand != nil {
@@ -305,9 +306,42 @@ final class PaneShell {
         if name.contains("/") {
             let path = (name as NSString).expandingTildeInPath
             let full = path.hasPrefix("/") ? path : (directory as NSString).appendingPathComponent(path)
-            return FileManager.default.isExecutableFile(atPath: full)
+            if let known = executables[full] { return known }
+            // Known until the disk has said otherwise.
+            checkExecutable(full)
+            return true
         }
         return knownCommands.isEmpty || knownCommands.contains(name)
+    }
+
+    /// Whether paths typed as commands are executable, by absolute path. The bar colors the command
+    /// at every keystroke and must not touch the disk to do it (a stalled network share would
+    /// freeze typing); dropped at every prompt, as a build or a `chmod` may have changed them.
+    @ObservationIgnored private var executables: [String: Bool] = [:]
+    /// One check at a time, however fast the typing: the latest path asked for waits its turn (a
+    /// stalled share would otherwise tie up a thread per keystroke).
+    @ObservationIgnored private var checkingExecutable: String?
+    @ObservationIgnored private var nextExecutableCheck: String?
+
+    private func checkExecutable(_ path: String) {
+        guard checkingExecutable == nil else {
+            if path != checkingExecutable { nextExecutableCheck = path }
+            return
+        }
+        checkingExecutable = path
+        Task.detached(priority: .userInitiated) {
+            let executable = FileManager.default.isExecutableFile(atPath: path)
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.checkingExecutable = nil
+                self.executables[path] = executable
+                if !executable { self.editor.textView.recolor() }
+                if let next = self.nextExecutableCheck {
+                    self.nextExecutableCheck = nil
+                    if self.executables[next] == nil { self.checkExecutable(next) }
+                }
+            }
+        }
     }
 
     /// `knownCommands` and the shell's own names together, merged once (thousands of names) and
