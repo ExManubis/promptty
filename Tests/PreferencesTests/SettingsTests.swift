@@ -37,6 +37,8 @@ final class SettingsTests: XCTestCase {
         let old = try JSONDecoder().decode(Settings.self, from: Data(#"{"version":2}"#.utf8))
         XCTAssertTrue(old.notifyCommands)
         XCTAssertEqual(old.notifyAfterSeconds, 10)
+        XCTAssertTrue(old.markUnseenOutput)
+        XCTAssertTrue(old.restoreScrollback)
         var s = Settings()
         s.notifyCommands = false
         s.notifyAfterSeconds = 60

@@ -40,6 +40,13 @@ final class PaneStatus {
         if remoteHost != host { remoteHost = host }
     }
 
+    /// The pane printed new lines while the user was not looking (not an agent's: those say more).
+    private(set) var unseenOutput = false
+
+    func setUnseenOutput(_ on: Bool) {
+        if unseenOutput != on { unseenOutput = on }
+    }
+
     /// The TCP ports the pane's programs listen on (a dev server's), lowest first.
     private(set) var ports: [Int] = []
 
@@ -143,6 +150,12 @@ final class ActivityTracker {
     private var remoteHosts: [PaneID: String] = [:]
     /// The folder each agent works in, read from its process.
     private var agentDirectories: [PaneID: String] = [:]
+    /// Each pane's scrollback length as last reported, to tell new lines from redraws.
+    private var rowTotals: [PaneID: UInt64] = [:]
+    /// The panes the user saw at the last tick: cheap to ask on every scroll report.
+    private var seenAtTick: Set<PaneID> = []
+    /// Whether panes mark output printed while unseen; set by the coordinator from Settings.
+    var marksUnseenOutput = true
     /// Panes whose listening ports are being looked up, off the main thread.
     private var portLookups: Set<PaneID> = []
     /// The panes showing a progress report, for dropping the ones not renewed in time at a tick.
@@ -202,6 +215,7 @@ final class ActivityTracker {
         let now = Date()
         var live = Set<PaneID>()
         let watchedPanes = panes()
+        seenAtTick = Set(watchedPanes.lazy.filter(\.seen).map(\.pane))
         let wanted = watchedPanes.contains { $0.visible } ? 0.25 : 1
         if timer != nil, wanted != timerInterval { schedule(every: wanted) }
         for watched in watchedPanes {
@@ -238,6 +252,7 @@ final class ActivityTracker {
             }
             lookUpPorts(watched, at: now)
             status(for: watched.pane).setRemoteHost(remoteHosts[watched.pane])
+            if watched.seen { statuses[watched.pane]?.setUnseenOutput(false) }
             if watched.seen, activity.hasUnseen {
                 activity.seen()
                 onSeen(watched.pane)
@@ -252,6 +267,8 @@ final class ActivityTracker {
             clearProgress(gone)
             statuses[gone]?.hover(over: nil)
             statuses[gone]?.setPorts([])
+            statuses[gone]?.setUnseenOutput(false)
+            rowTotals[gone] = nil
             if let status = statuses[gone], status.activity != PaneActivity().visible { status.activity = PaneActivity().visible }
             shellPIDs[gone] = nil
             identified[gone] = nil
@@ -282,6 +299,18 @@ final class ActivityTracker {
     }
 
     func clearProgress(_ pane: PaneID) { reportProgress(pane, kind: nil, percent: nil) }
+
+    /// The pane's scrollback (with its screen) is `total` rows now; reported with every scroll, so
+    /// thousands of times a second while a program streams. More rows than before, in a pane the
+    /// user does not see, is new output. A full-screen program redraws without adding rows.
+    func rowsReported(_ pane: PaneID, total: UInt64) {
+        let before = rowTotals[pane]
+        rowTotals[pane] = total
+        guard marksUnseenOutput, let before, total > before else { return }
+        let status = status(for: pane)
+        guard !status.unseenOutput, !seenAtTick.contains(pane), status.activity.program?.isAgent != true else { return }
+        status.setUnseenOutput(true)
+    }
 
     /// The shell reported how a command ended.
     func exitReported(_ pane: PaneID, code: Int) {

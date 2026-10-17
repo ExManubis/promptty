@@ -15,6 +15,8 @@
 - **Agents at a glance.** PrompTTY spots Claude Code, Codex, Amp, Cline and others running in
   a pane. Each tab shows whether its agent is working, waiting for permission or done, and you
   get a notification when it needs you.
+- **New output, marked.** A tab that printed while you looked elsewhere gets a ring by its name
+  until you open it (a `tail -f`, a log, a build).
 - **Long commands tell you when they're done.** A command that ran 10 seconds or more in a tab you
   aren't looking at posts a notification with how it ended and how long it took (Settings › Tabs
   sets how long is long, or turns it off).

@@ -38,6 +38,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         activity.allPanes = { [weak self] in Set(self?.allPaneIDs ?? []) }
         activity.afterTick = { [weak self] in self?.lookUpRepositories() }
         secureInput.global = preferences.settings.secureKeyboardEntry
+        activity.marksUnseenOutput = preferences.settings.markUnseenOutput
         secureInput.onChange = { [weak self] in self?.refreshSecureIndicators() }
     }
 
@@ -341,6 +342,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     /// Applies app-only settings after a change. Layout, sidebar width and visibility are
     /// observed by SwiftUI directly; the model's layout is kept in step for the session file.
     func applyAppSettings(_ settings: Preferences.Settings) {
+        activity.marksUnseenOutput = settings.markUnseenOutput
         let layout = TabLayout(settings.tabLayout)
         if workspace.tabLayout != layout {
             workspace.tabLayout = layout
@@ -828,7 +830,13 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         // The screen moved in the scrollback, the scrollback grew, or rows changed height: the
         // command blocks moved. These arrive constantly in a stream, so no `locate` for them.
         switch action {
-        case .scrollbar, .cellSize:
+        case .scrollbar(let total, _, _):
+            if case .surface(let view) = target {
+                view.onLayoutChange?()
+                if let pane = view.token?.base as? PaneID { activity.rowsReported(pane, total: total) }
+            }
+            return true
+        case .cellSize:
             if case .surface(let view) = target { view.onLayoutChange?() }
             return true
         case .mouseOverLink(let link):

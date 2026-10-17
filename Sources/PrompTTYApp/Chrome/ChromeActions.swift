@@ -20,6 +20,8 @@ protocol ChromeActions: AnyObject {
     func alwaysAllowClipboard(_ ticket: ClipboardTicket, for program: String, in pane: PaneID)
     /// A pane's progress report, if it has one (observes that pane alone).
     func progress(for pane: PaneID) -> PaneProgress?
+    /// Whether a pane printed while the user looked elsewhere (observes that pane alone).
+    func hasUnseenOutput(_ pane: PaneID) -> Bool
     /// Where a pane's ssh is connected (observes that pane alone).
     func remoteHost(for pane: PaneID) -> String?
     /// The ports a pane's programs listen on (observes that pane alone).

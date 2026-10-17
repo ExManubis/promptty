@@ -200,8 +200,13 @@ struct TabRow: View {
             ZStack(alignment: .trailing) {
                 HStack(spacing: 6) {
                     TabProgressRing(panes: stackPanes, actions: actions)
-                    // The strip's pills stay as they were: no dot.
-                    if style == .full { ActivityIndicator(display: display) }
+                    // The strip's pills show only new output, no activity dot.
+                    let newOutput = !selected && stackPanes.contains { actions.hasUnseenOutput($0) }
+                    if style == .full {
+                        ActivityIndicator(display: display, newOutput: newOutput)
+                    } else if newOutput {
+                        ActivityIndicator(display: .idle, newOutput: true)
+                    }
                 }
                 .opacity(hovering && !renaming ? 0 : 1)
                 Button { actions.requestCloseTab(tab.id) } label: {

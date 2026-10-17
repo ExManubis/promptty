@@ -129,6 +129,7 @@ struct TabsSection: View {
             }
 
             Section {
+                Toggle("Mark tabs that printed while you looked elsewhere", isOn: $model.settings.markUnseenOutput)
                 Toggle("Notify when a long command finishes", isOn: $model.settings.notifyCommands)
                 Picker("Long means at least", selection: $model.settings.notifyAfterSeconds) {
                     ForEach([3.0, 5, 10, 30, 60, 300], id: \.self) { seconds in

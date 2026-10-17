@@ -65,6 +65,8 @@ public struct Settings: Equatable, Sendable {
     /// looking posts a notification.
     public var notifyCommands = true
     public var notifyAfterSeconds: Double = 10
+    /// A tab that printed while the user looked elsewhere shows a dot until it is selected.
+    public var markUnseenOutput = true
     public static let notifyAfterRange: ClosedRange<Double> = 3...3600
 
     // Keyboard
@@ -112,7 +114,7 @@ extension Settings: Codable {
         case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, tabLayout, sidebarWidth, tabListHidden
         case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, secureKeyboardEntry, shortcuts
         case clipboardRead, clipboardWrite, clipboardReadPrograms, clipboardWritePrograms
-        case notifyCommands, notifyAfterSeconds, restoreScrollback
+        case notifyCommands, notifyAfterSeconds, restoreScrollback, markUnseenOutput
     }
 
     public init(from decoder: Decoder) throws {
@@ -142,6 +144,7 @@ extension Settings: Codable {
         s.confirmCloseRunning = value(.confirmCloseRunning, s.confirmCloseRunning)
         s.notifyCommands = value(.notifyCommands, s.notifyCommands)
         s.notifyAfterSeconds = value(.notifyAfterSeconds, s.notifyAfterSeconds)
+        s.markUnseenOutput = value(.markUnseenOutput, s.markUnseenOutput)
         s.optionAsAlt = value(.optionAsAlt, s.optionAsAlt)
         s.vimNavigation = value(.vimNavigation, s.vimNavigation)
         s.secureKeyboardEntry = value(.secureKeyboardEntry, s.secureKeyboardEntry)
@@ -185,6 +188,7 @@ extension Settings: Codable {
         try c.encode(confirmCloseRunning, forKey: .confirmCloseRunning)
         try c.encode(notifyCommands, forKey: .notifyCommands)
         try c.encode(notifyAfterSeconds, forKey: .notifyAfterSeconds)
+        try c.encode(markUnseenOutput, forKey: .markUnseenOutput)
         try c.encode(optionAsAlt, forKey: .optionAsAlt)
         try c.encode(vimNavigation, forKey: .vimNavigation)
         try c.encode(secureKeyboardEntry, forKey: .secureKeyboardEntry)
