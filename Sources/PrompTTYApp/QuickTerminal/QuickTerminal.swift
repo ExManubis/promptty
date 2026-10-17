@@ -27,6 +27,9 @@ final class QuickTerminal: NSObject, NSWindowDelegate {
         self.runtime = runtime
     }
 
+    /// Told when the shortcut could not be registered (another app holds it), with its symbols.
+    var onShortcutUnavailable: ((String) -> Void)?
+
     /// Registers the global shortcut, or none when the quick terminal is off.
     func apply(_ settings: Settings, shortcut: Shortcut) {
         hotKey = nil
@@ -35,6 +38,7 @@ final class QuickTerminal: NSObject, NSWindowDelegate {
             return
         }
         hotKey = GlobalHotKey(shortcut) { [weak self] in self?.toggle() }
+        if hotKey == nil { onShortcutUnavailable?(shortcut.displayString) }
     }
 
     var isShown: Bool { panel?.isVisible == true }
@@ -213,7 +217,9 @@ final class GlobalHotKey {
         }, 1, &spec, me, &handler)
         guard installed == noErr,
               RegisterEventHotKey(UInt32(code), modifiers, id, GetApplicationEventTarget(), 0, &ref) == noErr else {
+            // deinit runs for a failed init too: it must not remove the handler again.
             if let handler { RemoveEventHandler(handler) }
+            handler = nil
             return nil
         }
         registeredID = id.id

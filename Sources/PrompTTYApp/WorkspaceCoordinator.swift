@@ -521,7 +521,13 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     }
 
     /// The drop-down terminal on the global shortcut; set by the app delegate.
-    var quickTerminal: QuickTerminal?
+    var quickTerminal: QuickTerminal? {
+        didSet {
+            quickTerminal?.onShortcutUnavailable = { [weak self] shortcut in
+                self?.showTransientBanner("The quick terminal's shortcut \(shortcut) is taken by another app. Choose another in Settings › Keyboard.")
+            }
+        }
+    }
 
     /// The tabs closed most recently, for Reopen Closed Tab.
     private(set) var closedTabs = ClosedTabStack()
