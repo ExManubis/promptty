@@ -641,8 +641,8 @@ final class PaneShell {
 
     // MARK: What the shell told us
 
-    /// The integration rewrites the state file at every prompt (PATH and aliases change: direnv,
-    /// nvm, a new alias); reread it when it changed.
+    /// The integration rewrites the state file at a prompt when what it lists changed (PATH and
+    /// aliases change: direnv, nvm, a new alias); reread it when it changed.
     private func reloadStateFileIfChanged() {
         stateFileGeneration += 1
         let generation = stateFileGeneration
@@ -671,7 +671,7 @@ final class PaneShell {
     private func applyStateFile(_ parsed: ShellStateFile, date: Date) -> Bool {
         stateFileDate = date
         guard parsed != stateFile else { return false }
-        let namesChanged = parsed.path != stateFile?.path || parsed.commandNames != stateFile?.commandNames
+        let namesChanged = parsed.path != stateFile?.path || !parsed.hasSameCommandNames(as: stateFile)
         stateFile = parsed
         if namesChanged { mergedCommandNames = nil }
         return namesChanged
