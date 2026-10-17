@@ -53,7 +53,7 @@ public final class HookListener: @unchecked Sendable {
     public func start() throws {
         let folder = (path as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try checkFolder(folder)
+        guard HookSocket.isSafeFolder(folder) else { throw Failure.unsafeFolder }
         guard let address = HookSocket.address(path) else { throw Failure.pathTooLong }
         if Self.answers(address) { throw Failure.inUse }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -100,16 +100,6 @@ public final class HookListener: @unchecked Sendable {
         guard fd >= 0 else { return false }
         defer { close(fd) }
         return HookSocket.connect(fd, to: address)
-    }
-
-    /// The folder is a real folder of the user's; the shared fallback in /tmp must also be closed
-    /// to everyone else.
-    private func checkFolder(_ folder: String) throws {
-        var info = stat()
-        guard lstat(folder, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == getuid() else { throw Failure.unsafeFolder }
-        if folder == HookSocket.sharedFolder(), info.st_mode & 0o077 != 0 {
-            guard chmod(folder, 0o700) == 0 else { throw Failure.unsafeFolder }
-        }
     }
 
     private func acceptAll(on listening: Int32) {
@@ -171,6 +161,15 @@ public final class HookListener: @unchecked Sendable {
 }
 
 extension HookSocket {
+    /// Whether a socket's folder is a real folder of the user's; the shared fallback in /tmp is
+    /// also closed to everyone else (made so if it is not).
+    public static func isSafeFolder(_ folder: String) -> Bool {
+        var info = stat()
+        guard lstat(folder, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == getuid() else { return false }
+        if folder == sharedFolder(), info.st_mode & 0o077 != 0 { return chmod(folder, 0o700) == 0 }
+        return true
+    }
+
     /// The Unix socket address of `path`; nil when the path is too long for one.
     public static func address(_ path: String) -> sockaddr_un? {
         var address = sockaddr_un()

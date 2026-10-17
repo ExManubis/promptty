@@ -91,6 +91,17 @@ final class CompletionEngineTests: XCTestCase {
         }
     }
 
+    func testANameStartingWithATildeIsEscaped() {
+        var sources = FakeSources()
+        sources.tree["/repo"] = [("~foo", false), ("~bar", true)]
+        sources.tree["/Users/me"] = [("~notes", false)]
+        XCTAssertEqual(complete("cat |", sources: sources)?.candidates, [#"\~bar/"#, #"\~foo"#])
+        XCTAssertEqual(complete(#"cat \~f|"#, sources: sources)?.candidates, [#"\~foo"#])
+        // The typed folder's `~` is still the home folder.
+        XCTAssertEqual(complete("cat ~/|", sources: sources)?.candidates, [#"~/\~notes"#])
+        XCTAssertEqual(complete("cd \\~|", sources: sources)?.candidates, [#"\~bar/"#])
+    }
+
     func testCompletesTheWordUpToTheCursorOnly() {
         let c = complete("mak| foo")
         XCTAssertEqual(c?.replacement, 0..<3)
@@ -102,28 +113,79 @@ final class CompletionEngineTests: XCTestCase {
     }
 }
 
+final class DirectoryListingTests: XCTestCase {
+    func testSymlinksToFoldersAreFolders() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("DirectoryListingTests-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let target = root.appendingPathComponent("target")
+        let listed = root.appendingPathComponent("listed")
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
+        try fm.createDirectory(at: listed, withIntermediateDirectories: true)
+        try Data().write(to: root.appendingPathComponent("file.txt"))
+        try fm.createDirectory(at: listed.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: listed.appendingPathComponent("linked").path, withDestinationPath: target.path)
+        try fm.createSymbolicLink(atPath: listed.appendingPathComponent("linkedFile").path,
+                                  withDestinationPath: root.appendingPathComponent("file.txt").path)
+        try fm.createSymbolicLink(atPath: listed.appendingPathComponent("dangling").path, withDestinationPath: root.appendingPathComponent("gone").path)
+
+        let entries = Dictionary(uniqueKeysWithValues: DirectoryListing.entries(inDirectory: listed.path).map { ($0.name, $0.isDirectory) })
+        XCTAssertEqual(entries, ["sub": true, "linked": true, "linkedFile": false, "dangling": false])
+
+        var snapshot = CompletionSnapshot(commands: [], exports: [])
+        snapshot.store(DirectoryListing.entries(inDirectory: listed.path), forDirectory: listed.path)
+        let complete = { (text: String) in
+            CompletionEngine.complete(text: text, cursor: (text as NSString).length, directory: listed.path, home: "/Users/me", sources: snapshot)
+        }
+        XCTAssertEqual(complete("cd l")?.candidates, ["linked/"])
+        XCTAssertEqual(complete("ls linked")?.candidates, ["linked/", "linkedFile"])
+        XCTAssertEqual(complete("ls linkedF")?.singleInsertion, "linkedFile ")
+    }
+}
+
 final class GitStatusTests: XCTestCase {
-    func testCleanBranch() {
-        let s = GitStatus.parse(porcelainV2: "# branch.oid 1234567890abcdef\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n")
-        XCTAssertEqual(s, GitStatus(branch: "main", dirty: false))
+    func testHeadFromSymbolicRef() {
+        XCTAssertEqual(GitHead(symbolicRef: .exited(status: 0, output: "feature/x\n")), .branch("feature/x"))
+        XCTAssertEqual(GitHead(symbolicRef: .exited(status: 1, output: "")), .detached)
+        XCTAssertEqual(GitHead(symbolicRef: .exited(status: 128, output: "")), .notARepository)
+        XCTAssertEqual(GitHead(symbolicRef: .failedToStart), .notARepository)
     }
 
-    func testDirty() {
-        let s = GitStatus.parse(porcelainV2: "# branch.oid abc\n# branch.head feature/x\n1 .M N... 100644 100644 100644 a b file\n")
-        XCTAssertEqual(s, GitStatus(branch: "feature/x", dirty: true))
-        XCTAssertEqual(GitStatus.parse(porcelainV2: "# branch.head main\n? new.txt\n")?.dirty, true)
+    func testASlowGitIsNotANonRepository() {
+        XCTAssertEqual(GitHead(symbolicRef: .timedOut), .unknown)
+        XCTAssertNil(GitStatus.dirty(fromStatus: .timedOut))
+        XCTAssertNil(GitStatus.dirty(fromStatus: .exited(status: 128, output: "")))
     }
 
-    func testDetachedHeadShowsTheShortHash() {
-        let s = GitStatus.parse(porcelainV2: "# branch.oid 1234567890abcdef\n# branch.head (detached)\n")
-        XCTAssertEqual(s?.branch, "1234567")
-        XCTAssertEqual(s?.detached, true)
-        XCTAssertEqual(GitStatus.parse(porcelainV2: "# branch.head main\n")?.detached, false)
+    func testDirtyFromStatus() {
+        XCTAssertEqual(GitStatus.dirty(fromStatus: .exited(status: 0, output: "")), false)
+        XCTAssertEqual(GitStatus.dirty(fromStatus: .exited(status: 0, output: "? new.txt\n")), true)
+        // Stopped at the first line: one change is enough.
+        XCTAssertEqual(GitStatus.dirty(fromStatus: .stopped(output: "1 .M N... 100644 100644 100644 a b file\n")), true)
+        XCTAssertFalse(GitStatus.dirtyEnough(Data()))
+        XCTAssertTrue(GitStatus.dirtyEnough(Data("? x\n".utf8)))
     }
 
-    func testNotARepository() {
-        XCTAssertNil(GitStatus.parse(porcelainV2: ""))
-        XCTAssertNil(GitStatus.parse(porcelainV2: "fatal: not a git repository\n"))
+    func testARealRepository() async throws {
+        let git = "/usr/bin/git"
+        let version = await ProcessRunner.run(git, ["--version"], timeout: 10)
+        try XCTSkipIf(version == nil, "no git")
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("GitStatusTests-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        let notRepo = await ProcessRunner.outcome(git, ["-C", root.path, "symbolic-ref", "--short", "-q", "HEAD"], timeout: 10)
+        // The temporary folder is in no repository.
+        XCTAssertEqual(GitHead(symbolicRef: notRepo), .notARepository)
+        _ = await ProcessRunner.run(git, ["-c", "init.defaultBranch=trunk", "init", "-q", root.path], timeout: 10)
+        let head = await ProcessRunner.outcome(git, ["-C", root.path, "symbolic-ref", "--short", "-q", "HEAD"], timeout: 10)
+        XCTAssertEqual(GitHead(symbolicRef: head), .branch("trunk"))
+        let status = ["-C", root.path, "--no-optional-locks", "status", "--porcelain=v2"]
+        let clean = await ProcessRunner.outcome(git, status, timeout: 10, until: GitStatus.dirtyEnough)
+        XCTAssertEqual(GitStatus.dirty(fromStatus: clean), false)
+        try Data().write(to: root.appendingPathComponent("new.txt"))
+        let dirty = await ProcessRunner.outcome(git, status, timeout: 10, until: GitStatus.dirtyEnough)
+        XCTAssertEqual(GitStatus.dirty(fromStatus: dirty), true)
     }
 }
 
@@ -135,10 +197,10 @@ final class CompletionSnapshotTests: XCTestCase {
         return CompletionEngine.need(text: text, cursor: cursor, directory: "/repo", home: "/Users/me")
     }
 
-    private func complete(_ marked: String, _ snapshot: CompletionSnapshot) -> [String]? {
+    private func complete(_ marked: String, _ snapshot: CompletionSnapshot, in directory: String = "/repo") -> [String]? {
         let cursor = (marked as NSString).range(of: "|", options: .backwards).location
         let text = (marked as NSString).replacingCharacters(in: NSRange(location: cursor, length: 1), with: "")
-        return CompletionEngine.complete(text: text, cursor: cursor, directory: "/repo", home: "/Users/me", sources: snapshot)?.candidates
+        return CompletionEngine.complete(text: text, cursor: cursor, directory: directory, home: "/Users/me", sources: snapshot)?.candidates
     }
 
     func testNeeds() {
@@ -166,7 +228,7 @@ final class CompletionSnapshotTests: XCTestCase {
     func testFiltersCachedEntriesPerKeystroke() {
         var snapshot = CompletionSnapshot(commands: [], exports: [])
         XCTAssertFalse(snapshot.has(.directory("/repo")))
-        snapshot.listings["/repo"] = [("Sources", true), ("Package.swift", false), ("Podfile", false), (".git", true)]
+        snapshot.store([("Sources", true), ("Package.swift", false), ("Podfile", false), (".git", true)], forDirectory: "/repo")
         XCTAssertTrue(snapshot.has(.directory("/repo")))
         XCTAssertEqual(complete("cat |", snapshot), ["Package.swift", "Podfile", "Sources/"])
         XCTAssertEqual(complete("cat P|", snapshot), ["Package.swift", "Podfile"])
@@ -196,6 +258,18 @@ final class CompletionSnapshotTests: XCTestCase {
         XCTAssertEqual(c?.candidates, ["Firefox/", "fixtures/", "lefty/"])
         XCTAssertEqual(c?.folders, true)
         XCTAssertEqual(folders("cd fx|")?.candidates, ["Firefox/", "fixtures/"])
+    }
+
+    func testSnapshotSortsFoldersOnceWhenStored() {
+        var snapshot = CompletionSnapshot(commands: [], exports: [])
+        snapshot.store([("zeta", true), ("Alpha", true), ("beta", true), ("alpha.txt", false), (".hidden", true)], forDirectory: "/work")
+        XCTAssertEqual(snapshot.sortedFolders(inDirectory: "/work").map(\.name), [".hidden", "Alpha", "beta", "zeta"])
+        XCTAssertEqual(snapshot.sortedFolders(inDirectory: "/work").map(\.lower), [".hidden", "alpha", "beta", "zeta"])
+        XCTAssertEqual(complete("cd |", snapshot, in: "/work"), ["Alpha/", "beta/", "zeta/"])
+        XCTAssertEqual(complete("cd al|", snapshot, in: "/work"), ["Alpha/"])
+        // Folders sorted elsewhere (off the main thread) are used as given.
+        snapshot.store([("b", true), ("a", true)], folders: [FolderEntry(name: "b"), FolderEntry(name: "a")], forDirectory: "/x")
+        XCTAssertEqual(snapshot.sortedFolders(inDirectory: "/x").map(\.name), ["b", "a"])
     }
 
     func testCdHidesDotFoldersUnlessTypedWithADot() {

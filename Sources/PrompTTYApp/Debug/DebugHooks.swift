@@ -416,6 +416,62 @@ enum DebugHooks {
             }
             return FrameCounter.shared.stop()
         }
+        // eval mainframes start | mainframes stop — the key window's display link on the main
+        // thread: a frame it misses is a frame the main thread was too busy to draw (a hitch).
+        driver.hooks["mainframes"] = { args in
+            guard let view = (coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true }) ?? coordinator.allControllers.first)?.window?.contentView else { return "error: no window" }
+            if args.first == "start" {
+                MainFrameTimer.shared.start(on: view)
+                return ""
+            }
+            return MainFrameTimer.shared.stop()
+        }
+        // eval winresize <dw> <seconds> — the key window narrows by dw points and widens back, a
+        // step every frame, as a live resize does.
+        driver.hooks["winresize"] = { args in
+            guard let window = coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true })?.window ?? coordinator.allControllers.first?.window,
+                  let dw = args.first.flatMap(Double.init) else { return "error: winresize <dw> <seconds>" }
+            let seconds = args.dropFirst().first.flatMap(Double.init) ?? 1
+            let start = window.frame
+            Task { @MainActor in
+                let steps = Int(seconds * 60)
+                for i in 0...steps {
+                    let t = Double(i) / Double(steps)
+                    var frame = start
+                    frame.size.width -= dw * (1 - abs(2 * t - 1))
+                    window.setFrame(frame, display: true)
+                    try? await Task.sleep(for: .milliseconds(16))
+                }
+            }
+            return ""
+        }
+        // eval winsize <width> <height> — sets the key window's size, its top left kept.
+        driver.hooks["winsize"] = { args in
+            guard let window = coordinator.allControllers.first?.window, args.count == 2,
+                  let w = Double(args[0]), let h = Double(args[1]) else { return "error: winsize <width> <height>" }
+            var frame = window.frame
+            frame.origin.y += frame.height - h
+            frame.size = CGSize(width: w, height: h)
+            window.setFrame(frame, display: true)
+            return ""
+        }
+        // eval splitdrag <seconds> — drags the selected tab's first divider from a third to two
+        // thirds and back, a step every frame, as the pointer does.
+        driver.hooks["splitdrag"] = { args in
+            guard let c = coordinator.allControllers.first, let tab = c.state.selectedTab, tab.hasSplits else { return "error: no split" }
+            let seconds = args.first.flatMap(Double.init) ?? 1
+            Task { @MainActor in
+                c.chrome.resizingSplit = true
+                let steps = Int(seconds * 60)
+                for i in 0...steps {
+                    let t = Double(i) / Double(steps)
+                    tab.setRatio(at: SplitPath(steps: []), 1.0 / 3 + (1.0 / 3) * (1 - abs(2 * t - 1)))
+                    try? await Task.sleep(for: .milliseconds(16))
+                }
+                c.chrome.resizingSplit = false
+            }
+            return ""
+        }
         driver.hooks["resizes"] = { _ in
             defer { TerminalSurfaceView.sentSizes = [] }
             return "resizes=\(TerminalSurfaceView.sentSizes.count) \(TerminalSurfaceView.sentSizes.joined(separator: " "))"
@@ -655,6 +711,43 @@ private struct LogoGallery: View {
         .environment(\.colorScheme, .dark)
     }
 }
+
+/// The key window's display link, timed: the frames the main thread had time for.
+@MainActor final class MainFrameTimer: NSObject {
+    static let shared = MainFrameTimer()
+    private var link: CADisplayLink?
+    private var frames: [CFTimeInterval] = []
+    private var interval: CFTimeInterval = 1.0 / 60
+
+    func start(on view: NSView) {
+        frames = []
+        link?.invalidate()
+        let link = view.displayLink(target: self, selector: #selector(tick(_:)))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        interval = link.duration > 0 ? link.duration : interval
+        frames.append(link.timestamp)
+    }
+
+    func stop() -> String {
+        link?.invalidate()
+        link = nil
+        if let dir = ProcessInfo.processInfo.environment["PROMPTTY_DEBUG_DIR"] {
+            try? frames.map { String(format: "%.6f", $0) }.joined(separator: "\n")
+                .write(toFile: dir + "/mainframes.txt", atomically: true, encoding: .utf8)
+        }
+        let gaps = zip(frames.dropFirst(), frames).map { $0 - $1 }
+        // Frames the link should have delivered in each gap, less the one it did.
+        let missed = gaps.reduce(0) { $0 + max(0, Int(($1 / interval).rounded()) - 1) }
+        let worst = (gaps.max() ?? 0) * 1000
+        return String(format: "frames=%d missed=%d (%.0f%%) worst=%.1fms interval=%.1fms", frames.count, missed,
+                      Double(missed) * 100 / Double(max(1, frames.count + missed)), worst, interval * 1000)
+    }
+}
+
 /// Counts a layer's `contents` changes: the frames the terminal presents.
 @MainActor
 final class FrameCounter: NSObject {

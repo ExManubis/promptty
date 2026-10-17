@@ -62,6 +62,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         window.minSize = NSSize(width: 520, height: 320)
         super.init(window: window)
         window.delegate = self
+        fullRefreshRateSetting = coordinator.preferences.settings.fullRefreshRate
         window.activityObserver = { [weak self] in self?.noteRefreshActivity() }
         window.keyInterceptor = { [weak self] event in
             guard let self else { return false }
@@ -170,7 +171,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         let shell = PaneShell(pane: pane.id, directory: pane.workingDirectory, integrated: integrated,
                               startupCommand: integrated ? startup : nil, startupBlockID: integrated ? startupBlock : nil)
         shell.surface = view
-        shell.onCommandFinished = { [weak self] record in self?.coordinator.commandFinished(record) }
+        shell.onCommandFinished = { [weak self] record in self?.coordinator.controlCommands.finished(record) }
         shell.onUserCommand = { [weak self] command in self?.broadcastCommand(command, from: pane.id) }
         shells[pane.id] = shell
         bind(view, to: pane.id)
@@ -180,6 +181,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func shell(for pane: PaneID) -> PaneShell? { shells[pane] }
     func blocks(for pane: PaneID) -> BlockOverlayView? { surfaces[pane]?.overlay as? BlockOverlayView }
     func activity(for pane: PaneID) -> PaneActivity.Visible { coordinator.activity.activity(for: pane) }
+    func display(for pane: PaneID) -> PaneActivity.Display { coordinator.activity.status(for: pane).display }
     func hoveredLink(for pane: PaneID) -> String? { coordinator.activity.status(for: pane).hoveredLink }
     func clipboardRequest(for pane: PaneID) -> ClipboardTicket? { coordinator.activity.status(for: pane).clipboardRequest }
     func answerClipboardRequest(_ decision: ClipboardDecision, id: Int, in pane: PaneID) { surfaces[pane]?.answerClipboardRequest(decision, id: id) }
@@ -197,7 +199,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         guard let url = URL(string: "http://localhost:\(port)") else { return }
         NSWorkspace.shared.open(url)
     }
-    var agentList: AgentList { coordinator.agentList }
+    var agentList: AgentList { coordinator.agents.list }
     func reveal(_ pane: PaneID) { coordinator.reveal(pane) }
     func allShells() -> [PaneShell] { Array(shells.values) }
 
@@ -865,7 +867,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     /// display otherwise lowers its rate when little changes, down to 24 Hz, and the frame for
     /// the next keystroke can wait up to a refresh of that length. Runs only while this window
     /// is in front, visible, of the active app, and only while something is changing: it starts
-    /// on key input or terminal output and stops after `refreshIdleSeconds` without either.
+    /// on key input or terminal output and stops after `refreshIdleSeconds` without either
+    /// (`refreshBusySeconds` while a command runs in the focused pane).
     private var refreshLink: CADisplayLink?
     /// When a key was last pressed or the terminal last drew.
     private var lastRefreshActivity: CFTimeInterval = 0
@@ -878,15 +881,26 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     var forceFullRefreshRate = false
     #endif
 
+    /// Settings › Display › full refresh rate, as of the last `updateRefreshRate()` (called on
+    /// every settings change), so a runtime wakeup need not read the settings.
+    private var fullRefreshRateSetting = false
+
     /// Key input or terminal output: keeps the link running, or starts it. Called at every
-    /// runtime wakeup, so it only stamps the time while the link runs.
+    /// runtime wakeup, so it only stamps the time while the link runs, and does nothing while
+    /// the setting is off.
     func noteRefreshActivity() {
         lastRefreshActivity = CACurrentMediaTime()
-        if refreshLink == nil { updateRefreshRate() }
+        guard refreshLink == nil else { return }
+        var allowed = fullRefreshRateSetting
+        #if DEBUG
+        allowed = allowed || forceFullRefreshRate
+        #endif
+        if allowed { updateRefreshRate() }
     }
 
     func updateRefreshRate() {
-        var wanted = coordinator.preferences.settings.fullRefreshRate && NSApp.isActive
+        fullRefreshRateSetting = coordinator.preferences.settings.fullRefreshRate
+        var wanted = fullRefreshRateSetting && NSApp.isActive
             && window?.isKeyWindow == true && window?.occlusionState.contains(.visible) == true
         #if DEBUG
         wanted = wanted || forceFullRefreshRate
@@ -905,17 +919,21 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     }
 
     /// Output that redraws in place (full-screen programs, spinners, progress lines, coding
-    /// agents) wakes the runtime no more than a still screen does, so a program running in the
-    /// focused pane counts as activity too. Only an idle shell prompt lets the link stop.
+    /// agents) wakes the runtime no more than a still screen does, so a command running in the
+    /// focused pane keeps the link a while longer after the last key or wakeup: long enough for
+    /// a burst of output, not for an agent or editor left waiting. libghostty does not tell the
+    /// app when a surface draws, so this is a guess. A pane whose shell never reports a prompt
+    /// (not zsh) stays `.starting` and counts as idle.
     private var focusedPaneIsBusy: Bool {
         guard let id = state.selectedTab?.focusedPaneID, let shell = shells[id] else { return false }
-        return shell.phase != .idle
+        return shell.phase == .running
     }
+    private static let refreshBusySeconds: CFTimeInterval = 3
 
     @objc private func refreshTick(_ link: CADisplayLink) {
         refreshTicks &+= 1
-        if focusedPaneIsBusy { lastRefreshActivity = CACurrentMediaTime() }
-        if CACurrentMediaTime() - lastRefreshActivity > Self.refreshIdleSeconds {
+        let idleAfter = focusedPaneIsBusy ? Self.refreshBusySeconds : Self.refreshIdleSeconds
+        if CACurrentMediaTime() - lastRefreshActivity > idleAfter {
             link.invalidate()
             refreshLink = nil
         }

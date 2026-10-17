@@ -14,6 +14,14 @@ final class ScrollbackArchiveTests: XCTestCase {
         XCTAssertTrue(archived.hasSuffix("\r\n"))
     }
 
+    func testBlankLinesBetweenAreKeptAndCarriageReturnsDropped() throws {
+        let text = "one\r\n\r\ntwo\nthree\r\n\n\n"
+        let archived = try XCTUnwrap(ScrollbackArchive.archived(text, savedAt: date, maxLines: 3))
+        XCTAssertTrue(archived.hasPrefix("\r\ntwo\r\nthree\r\n\u{1B}[0m"), archived.debugDescription)
+        let all = try XCTUnwrap(ScrollbackArchive.archived("only", savedAt: date))
+        XCTAssertTrue(all.hasPrefix("only\r\n"))
+    }
+
     func testNothingToKeepForAnEmptyScreen() {
         XCTAssertNil(ScrollbackArchive.archived("\n   \n\u{1B}[0m\n", savedAt: date))
     }
@@ -34,7 +42,7 @@ final class ScrollbackArchiveTests: XCTestCase {
         let ws = Workspace(tabLayout: .sidebar)
         let w = ws.addWindow()
         let tab = w.addTab(title: "", workingDirectory: "/tmp")
-        let snapshot = ws.snapshot { $0.id == tab.id ? "x.vt" : nil }
+        let snapshot = ws.snapshot { $0.id == tab.focusedPaneID ? "x.vt" : nil }
         XCTAssertEqual(snapshot.windows[0].tabs[0].scrollback, "x.vt")
         let data = try JSONEncoder().encode(snapshot)
         let restored = Workspace.restore(from: try JSONDecoder().decode(SessionSnapshot.self, from: data), directoryExists: { _ in true })

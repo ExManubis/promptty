@@ -248,3 +248,25 @@ private func scrolled(top: Int, total: Int) -> BlockViewport {
     #expect(t.update(scrolled(top: 0, total: 40)) == nil)
     #expect(t.update(scrolled(top: 0, total: 45)) == 5)
 }
+
+@Test func newOutputKeepsCountingOnceTheScrollbackIsFull() {
+    var t = NewOutputTracker()
+    _ = t.update(scrolled(top: 90, total: 100))
+    #expect(t.update(scrolled(top: 50, total: 100)) == nil)
+    #expect(t.update(scrolled(top: 50, total: 130)) == 30)
+    // 40 rows pruned from the top as 5 more arrive: the screen moves up with the rows it shows.
+    #expect(t.update(scrolled(top: 10, total: 95)) == 35)
+    #expect(t.update(scrolled(top: 10, total: 115)) == 55)
+    // Pruned again, with nothing new.
+    #expect(t.update(scrolled(top: 0, total: 105)) == 55)
+    // Scrolling back further adds nothing.
+    #expect(t.update(scrolled(top: 0, total: 105)) == 55)
+}
+
+@Test func newOutputIgnoresScrollingWhileScrolledBack() {
+    var t = NewOutputTracker()
+    _ = t.update(scrolled(top: 90, total: 100))
+    #expect(t.update(scrolled(top: 50, total: 104)) == 4)
+    #expect(t.update(scrolled(top: 20, total: 104)) == 4)
+    #expect(t.update(scrolled(top: 70, total: 106)) == 6)
+}

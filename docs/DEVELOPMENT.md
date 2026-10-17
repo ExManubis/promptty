@@ -46,18 +46,25 @@ get a plain terminal, without the input bar.
 `Sources/promptty` (with `Sources/RemoteControl`) is bundled at `Contents/Resources/bin/promptty`,
 not beside the app's own binary, which on a case-insensitive disk it would clash with. Every pane
 starts with that folder first on its `PATH` and `PROMPTTY_CONTROL`, the control socket
-(`control.sock` in the data folder, mode 0600, the user's own processes only; same fallbacks as the
-hook socket). `promptty` sends one JSON `ControlRequest` line and reads one `ControlResponse` line;
-the app answers on the main thread (`WorkspaceCoordinator+Control.swift`). Panes are found by full
+(`control.sock` in the data folder, mode 0600, the user's own processes only; same fallbacks and
+checks as the hook socket: a folder only the user owns, at most 64 connections sending a request at
+once, each read without blocking a thread and hung up on after 10 s). `promptty` sends one JSON
+`ControlRequest` line and reads one `ControlResponse` line, and talks only to a server run by the
+same user (`getpeereid`); the app answers on the main thread (`WorkspaceCoordinator+Control.swift`).
+A `wait` is answered when its command ends, when the next command starts in that pane without the
+first reporting its end, or when the pane closes (status 1). Panes are found by full
 id, then label, then id suffix (`PaneTarget`). Settings › Tabs › Command line turns answering off
 (status 4).
 
 ## Restored output
 
 With **Settings › Tabs › Keep each tab's output when quitting** on (and session restore on), the
-app writes what each tab's focused pane holds (its last 2000 lines, with colors, read with
-libghostty's VT text format) to `scrollback/<tab>.vt` in the data folder, at quit and every two
-minutes; the session file names each tab's file. A restored zsh pane starts with
+app writes what each pane holds (its last 2000 lines, with colors, read with libghostty's VT
+text format; only those rows are read) to `scrollback/<pane>.vt` in the data folder, at quit and
+every two minutes (then only panes whose screen changed, written off the main thread); the session
+file names each pane's file. A split tab is saved with its layout (`TabSnapshot.layout`:
+the split tree, each pane's folder, label and file) and comes back split; a pinned tab comes back
+as its pin, one pane. A restored zsh pane starts with
 `PROMPTTY_RESTORE` set to its file: the integration's `.zshenv` prints it before anything else and
 deletes it. Files no tab names any more are removed at the next write. Other shells start plain.
 

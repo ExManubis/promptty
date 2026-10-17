@@ -240,26 +240,41 @@ public enum BlockMarkdown {
 }
 
 /// Whether output arrived below while the screen is scrolled back, and how many lines: what the
-/// "new output" pill says. The rows at the bottom when the user scrolled away are remembered; more
-/// rows since are new.
+/// "new output" pill says. Lines are counted as they come, from one viewport to the next: the
+/// scrollback growing, or, once it is full and drops its oldest rows (moving the screen up with
+/// them), the rows below the screen growing.
 public struct NewOutputTracker: Equatable, Sendable {
-    /// The total rows when the screen was last at the newest output.
-    private var anchor: Int?
+    /// The viewport at the last update.
+    private var last: BlockViewport?
+    /// Lines added since the screen left the newest output.
+    private var added = 0
 
     public init() {}
 
     /// The lines added since the screen left the newest output, or nil when it is there (or nothing
     /// was added).
     public mutating func update(_ viewport: BlockViewport) -> Int? {
+        defer { last = viewport }
         guard !viewport.atBottom else {
-            anchor = viewport.totalRows
+            added = 0
             return nil
         }
-        let start = anchor ?? viewport.totalRows
-        anchor = start
-        // A clear can shrink the scrollback below where it was.
-        if viewport.totalRows < start { anchor = viewport.totalRows }
-        let added = viewport.totalRows - (anchor ?? viewport.totalRows)
+        if let last {
+            let grown = viewport.totalRows - last.totalRows
+            if grown >= 0 {
+                // Scrolling leaves the total alone, so this is output alone.
+                added += grown
+            } else {
+                // Rows dropped off the top. Pruning takes them from above the screen, so the rows
+                // below it still count the output; a clear shrinks those too, and counting starts over.
+                let below = Self.rowsBelow(viewport) - Self.rowsBelow(last)
+                added = below >= 0 ? added + below : 0
+            }
+        }
         return added > 0 ? added : nil
+    }
+
+    private static func rowsBelow(_ viewport: BlockViewport) -> Int {
+        max(0, viewport.totalRows - viewport.top - viewport.rows)
     }
 }

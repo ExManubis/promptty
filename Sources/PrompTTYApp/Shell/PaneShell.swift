@@ -179,6 +179,8 @@ final class PaneShell {
     /// How many polls that program may keep the terminal before it gets the keys.
     @ObservationIgnored private var handOverPolls = 4
     @ObservationIgnored private var gitGeneration = 0
+    /// The folder `git` was last worked out for: its dirty mark stands while the next status runs.
+    @ObservationIgnored private var gitDirectory: String?
     @ObservationIgnored private var stateFileGeneration = 0
     @ObservationIgnored private var commandsGeneration = 0
 
@@ -220,6 +222,7 @@ final class PaneShell {
         reloadStateFileIfChanged()
         branchCache = [:]
         branchEpoch += 1
+        executables = [:]
         refreshGit()
         phaseChanged()
         if startupCommand != nil {
@@ -249,6 +252,15 @@ final class PaneShell {
     func commandFinished(code: Int16, durationNs: UInt64) {
         state.commandFinished(code: Int(code), durationNanoseconds: durationNs)
         if let record = commands.finish(code: Int(code)) { onCommandFinished?(record) }
+    }
+
+    /// Records a command starting. One still marked running never reported its end (the shell was
+    /// replaced): it ended too, and whoever waits for it is told.
+    @discardableResult
+    private func startCommand(_ command: String, id: String? = nil) -> String {
+        let (started, ended) = commands.start(command, id: id)
+        for record in ended { onCommandFinished?(record) }
+        return started
     }
 
     // MARK: The bar
@@ -303,9 +315,42 @@ final class PaneShell {
         if name.contains("/") {
             let path = (name as NSString).expandingTildeInPath
             let full = path.hasPrefix("/") ? path : (directory as NSString).appendingPathComponent(path)
-            return FileManager.default.isExecutableFile(atPath: full)
+            if let known = executables[full] { return known }
+            // Known until the disk has said otherwise.
+            checkExecutable(full)
+            return true
         }
         return knownCommands.isEmpty || knownCommands.contains(name)
+    }
+
+    /// Whether paths typed as commands are executable, by absolute path. The bar colors the command
+    /// at every keystroke and must not touch the disk to do it (a stalled network share would
+    /// freeze typing); dropped at every prompt, as a build or a `chmod` may have changed them.
+    @ObservationIgnored private var executables: [String: Bool] = [:]
+    /// One check at a time, however fast the typing: the latest path asked for waits its turn (a
+    /// stalled share would otherwise tie up a thread per keystroke).
+    @ObservationIgnored private var checkingExecutable: String?
+    @ObservationIgnored private var nextExecutableCheck: String?
+
+    private func checkExecutable(_ path: String) {
+        guard checkingExecutable == nil else {
+            if path != checkingExecutable { nextExecutableCheck = path }
+            return
+        }
+        checkingExecutable = path
+        Task.detached(priority: .userInitiated) {
+            let executable = FileManager.default.isExecutableFile(atPath: path)
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.checkingExecutable = nil
+                self.executables[path] = executable
+                if !executable { self.editor.textView.recolor() }
+                if let next = self.nextExecutableCheck {
+                    self.nextExecutableCheck = nil
+                    if self.executables[next] == nil { self.checkExecutable(next) }
+                }
+            }
+        }
     }
 
     /// `knownCommands` and the shell's own names together, merged once (thousands of names) and
@@ -386,7 +431,7 @@ final class PaneShell {
         guard state.phase == .idle, let surface else { return nil }
         var started: String?
         if !command.isEmpty {
-            started = commands.start(command, id: id)
+            started = startCommand(command, id: id)
             surface.sendText(command)
             if recordingHistory {
                 history.add(command)
@@ -489,7 +534,7 @@ final class PaneShell {
         guard bar == .active, state.phase == .idle, let surface else { return }
         surface.sendText(command)
         history.add(command)
-        commands.start(command)
+        startCommand(command)
         lastCommand = command
         surface.sendReturn()
         keepingDraft = true
@@ -605,8 +650,8 @@ final class PaneShell {
 
     // MARK: What the shell told us
 
-    /// The integration rewrites the state file at every prompt (PATH and aliases change: direnv,
-    /// nvm, a new alias); reread it when it changed.
+    /// The integration rewrites the state file at a prompt when what it lists changed (PATH and
+    /// aliases change: direnv, nvm, a new alias); reread it when it changed.
     private func reloadStateFileIfChanged() {
         stateFileGeneration += 1
         let generation = stateFileGeneration
@@ -635,7 +680,7 @@ final class PaneShell {
     private func applyStateFile(_ parsed: ShellStateFile, date: Date) -> Bool {
         stateFileDate = date
         guard parsed != stateFile else { return false }
-        let namesChanged = parsed.path != stateFile?.path || parsed.commandNames != stateFile?.commandNames
+        let namesChanged = parsed.path != stateFile?.path || !parsed.hasSameCommandNames(as: stateFile)
         stateFile = parsed
         if namesChanged { mergedCommandNames = nil }
         return namesChanged
@@ -648,17 +693,46 @@ final class PaneShell {
         store.reloadIfChanged()
     }
 
+    /// The branch first (cheap), then whether anything is to commit (a full `git status`, which can
+    /// take seconds in a large repository). A git too slow to answer leaves the header as it was:
+    /// only "not a repository" hides the branch.
     private func refreshGit() {
         gitGeneration += 1
         let generation = gitGeneration
         let dir = directory
         let path = stateFile?.path ?? []
         Task.detached(priority: .utility) {
-            let status = await Self.git(["--no-optional-locks", "status", "--porcelain=v2", "--branch", "--ignore-submodules=dirty"], in: dir, path: path, timeout: 1)
-                .flatMap { GitStatus.parse(porcelainV2: $0) }
+            let head = await GitHead(symbolicRef: Self.gitOutcome(["symbolic-ref", "--short", "-q", "HEAD"], in: dir, path: path, timeout: 2))
+            var status: GitStatus?
+            switch head {
+            case .unknown:
+                return
+            case .notARepository:
+                status = nil
+            case .branch(let name):
+                status = GitStatus(branch: name, dirty: false)
+            case .detached:
+                guard let hash = await Self.git(["rev-parse", "--short", "HEAD"], in: dir, path: path, timeout: 2)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines), !hash.isEmpty else { return }
+                status = GitStatus(branch: hash, dirty: false, detached: true)
+            }
+            let shown = status
+            let stillCurrent = await MainActor.run { [weak self] () -> Bool in
+                guard let self, generation == self.gitGeneration else { return false }
+                var next = shown
+                // The same folder keeps its dirty mark until the status below says otherwise.
+                if let previous = self.git, self.gitDirectory == dir { next?.dirty = previous.dirty }
+                if self.git != next { self.git = next }
+                self.gitDirectory = dir
+                return true
+            }
+            guard stillCurrent, status != nil else { return }
+            let outcome = await Self.gitOutcome(["--no-optional-locks", "status", "--porcelain=v2", "--ignore-submodules=dirty"],
+                                                in: dir, path: path, timeout: 15, until: GitStatus.dirtyEnough)
+            guard let dirty = GitStatus.dirty(fromStatus: outcome) else { return }
             await MainActor.run { [weak self] in
-                guard let self, generation == self.gitGeneration else { return }
-                self.git = status
+                guard let self, generation == self.gitGeneration, self.git != nil, self.git?.dirty != dirty else { return }
+                self.git?.dirty = dirty
             }
         }
     }
@@ -666,8 +740,14 @@ final class PaneShell {
     /// Runs the shell's git (the first on its PATH, else the system's) in `directory`; its output,
     /// or nil when it failed or timed out. Call off the main thread: the lookup touches the disk.
     nonisolated static func git(_ arguments: [String], in directory: String, path: [String], timeout: TimeInterval) async -> String? {
+        await gitOutcome(arguments, in: directory, path: path, timeout: timeout).output
+    }
+
+    /// As `git`, telling a slow git from a failing one.
+    nonisolated static func gitOutcome(_ arguments: [String], in directory: String, path: [String], timeout: TimeInterval,
+                                       until: (@Sendable (Data) -> Bool)? = nil) async -> ProcessRunner.Outcome {
         let git = executable("git", in: path) ?? "/usr/bin/git"
-        return await ProcessRunner.run(git, ["-C", directory] + arguments, timeout: timeout)
+        return await ProcessRunner.outcome(git, ["-C", directory] + arguments, timeout: timeout, until: until)
     }
 
     nonisolated static func executable(_ name: String, in path: [String]) -> String? {

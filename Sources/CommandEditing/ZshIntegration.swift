@@ -133,11 +133,16 @@ public enum ZshIntegration {
         }
 
         # Lists what only the shell knows (history file, PATH, aliases, functions, builtins, reserved
-        # words, exported names) for the bar's coloring and completion.
+        # words, exported names) for the bar's coloring and completion. Only when it changed: the
+        # app rereads the file whenever it is written. The alias and function names are compared
+        # in full (a new alias of the same count), the rest by their count.
         _promptty_write_state() {
             'builtin' 'emulate' -L zsh -o no_aliases
             [[ -n "${PROMPTTY_STATE-}" ]] || return 0
             'builtin' 'zmodload' zsh/parameter 2>/dev/null
+            'builtin' 'local' key="${HISTFILE-}"$'\n'"$PATH"$'\n'"${(j: :)${(@ok)aliases}}"$'\n'"${(j: :)${(@ok)functions}}"$'\n'"${#builtins} ${#reswords} ${#${(@k)parameters[(R)*export*]}}"
+            [[ "$key" != "${_promptty_state_key-}" || ! -e "$PROMPTTY_STATE" ]] || return 0
+            'builtin' 'typeset' -g _promptty_state_key="$key"
             {
                 [[ -z "${HISTFILE-}" ]] || 'builtin' 'print' -r -- "histfile $HISTFILE"
                 'builtin' 'print' -r -- "path $PATH"
@@ -186,6 +191,13 @@ public struct ShellStateFile: Equatable, Sendable {
 
     /// Names that run without a `PATH` lookup.
     public var commandNames: Set<String> { aliases.union(functions).union(builtins).union(reserved) }
+
+    /// Whether `other` has the same `commandNames`, compared kind by kind rather than by merging
+    /// thousands of names twice.
+    public func hasSameCommandNames(as other: ShellStateFile?) -> Bool {
+        guard let other else { return false }
+        return aliases == other.aliases && functions == other.functions && builtins == other.builtins && reserved == other.reserved
+    }
 
     public static func parse(_ text: String) -> ShellStateFile {
         var s = ShellStateFile()

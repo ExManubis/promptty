@@ -3,18 +3,6 @@ import CommandEditing
 import Observation
 import SwiftUI
 
-/// The file system side of completion: read off the main thread, once per completion list.
-enum DirectoryListing {
-    nonisolated static func entries(inDirectory path: String) -> [(name: String, isDirectory: Bool)] {
-        let url = URL(fileURLWithPath: path, isDirectory: true)
-        let items = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
-        return items.map { item in
-            let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            return (name: item.lastPathComponent, isDirectory: isDirectory == true)
-        }
-    }
-}
-
 @MainActor
 @Observable
 final class CompletionList {
@@ -29,6 +17,8 @@ final class CompletionList {
     var dark = true
     /// The theme's background, for the smoked glass.
     var tint: NSColor = .black
+    /// The bar's font when the list was shown: it changes with the terminal's in Settings.
+    var font: Font = .body
 }
 
 /// The list of completions above the caret, in a borderless child window of the pane's window.
@@ -52,7 +42,8 @@ final class CompletionPopup {
         let accent = EditorStyle.colors.accent
         list.accent = Color(nsColor: accent)
         list.onAccent = ChromeTint.isDark(accent) ? .white : .black
-        let panel = self.panel ?? makePanel(font: font)
+        list.font = Font(font)
+        let panel = self.panel ?? makePanel()
         self.panel = panel
         panel.appearance = window.effectiveAppearance
         list.dark = window.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -95,58 +86,86 @@ final class CompletionPopup {
         panel.orderOut(nil)
     }
 
-    private func makePanel(font: NSFont) -> NSPanel {
+    private func makePanel() -> NSPanel {
         let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.hidesOnDeactivate = true
         panel.becomesKeyOnlyIfNeeded = true
-        panel.contentView = NSHostingView(rootView: CompletionListView(list: list, font: Font(font), rowHeight: Self.rowHeight))
+        panel.contentView = NSHostingView(rootView: CompletionListView(list: list, rowHeight: Self.rowHeight))
         return panel
     }
 }
 
 private struct CompletionListView: View {
     let list: CompletionList
-    let font: Font
     let rowHeight: CGFloat
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
-                VStack(spacing: 0) {
+                // Lazy, and the selection read only by the rows (and the scroller below): ↑/↓
+                // redraws the rows on screen, not all of up to 500.
+                LazyVStack(spacing: 0) {
                     let rows = Array(list.items.enumerated())
-                    ForEach(list.bottomUp ? rows.reversed() : rows, id: \.offset) { index, item in
-                        row(item, selected: index == list.selected)
-                            .id(index)
+                    ForEach(list.bottomUp ? rows.reversed() : rows, id: \.element) { index, item in
+                        CompletionRow(list: list, item: item, index: index, rowHeight: rowHeight)
+                            .id(item)
                     }
                 }
                 .padding(5)
             }
             .scrollIndicators(.never)
             .defaultScrollAnchor(list.bottomUp ? .bottom : .top)
-            .onChange(of: list.selected) { _, new in proxy.scrollTo(new) }
+            .background(SelectionScroller(list: list, proxy: proxy))
         }
         // Smoked glass, as the panes and the tab bar.
         .modifier(SmokedGlass(shape: RoundedRectangle(cornerRadius: 12, style: .continuous), tint: list.tint, dark: list.dark))
         .environment(\.colorScheme, list.dark ? .dark : .light)
     }
 
-    /// A candidate as Rex's path picker shows it: its kind's icon and its own name, the selected
-    /// one on the accent color.
-    private func row(_ item: String, selected: Bool) -> some View {
+    /// A path's last name ("config/aerc/" shows "aerc"); anything else as it is.
+    static func name(of item: String) -> String {
+        let trimmed = item.hasSuffix("/") ? String(item.dropLast()) : item
+        guard let slash = trimmed.lastIndex(of: "/") else { return trimmed }
+        return String(trimmed[trimmed.index(after: slash)...])
+    }
+}
+
+/// Keeps the selected row in view; on its own so the list itself does not observe the selection.
+private struct SelectionScroller: View {
+    let list: CompletionList
+    let proxy: ScrollViewProxy
+
+    var body: some View {
+        Color.clear.onChange(of: list.selected) { _, new in
+            if list.items.indices.contains(new) { proxy.scrollTo(list.items[new]) }
+        }
+    }
+}
+
+/// A candidate as Rex's path picker shows it: its kind's icon and its own name, the selected one on
+/// the accent color.
+private struct CompletionRow: View {
+    let list: CompletionList
+    let item: String
+    let index: Int
+    let rowHeight: CGFloat
+
+    var body: some View {
+        let selected = index == list.selected
         let folder = item.hasSuffix("/")
         let path = item.contains("/")
-        return HStack(spacing: 7) {
+        HStack(spacing: 7) {
             if path {
                 Image(systemName: folder ? "folder.fill" : "doc")
                     .font(.system(size: 11))
                     .foregroundStyle(selected ? list.onAccent : (folder ? list.accent : Color.secondary))
                     .frame(width: 14)
             }
-            Text(Self.name(of: item))
-                .font(font)
+            Text(CompletionListView.name(of: item))
+                .font(list.font)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -158,12 +177,5 @@ private struct CompletionListView: View {
             }
         }
         .foregroundStyle(selected ? list.onAccent : Color.primary)
-    }
-
-    /// A path's last name ("config/aerc/" shows "aerc"); anything else as it is.
-    static func name(of item: String) -> String {
-        let trimmed = item.hasSuffix("/") ? String(item.dropLast()) : item
-        guard let slash = trimmed.lastIndex(of: "/") else { return trimmed }
-        return String(trimmed[trimmed.index(after: slash)...])
     }
 }

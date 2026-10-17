@@ -12,7 +12,12 @@ import WorkspaceModel
 @Observable
 final class PaneStatus {
     /// The pane's activity as views show it; set only when that changes.
-    fileprivate(set) var activity = PaneActivity().visible
+    fileprivate(set) var activity = PaneActivity().visible {
+        didSet { if display != activity.display { display = activity.display } }
+    }
+    /// What the activity shows alone (working, waiting, finished…), for the tab rows' marks: an
+    /// agent moving from one tool to the next does not reach them.
+    private(set) var display = PaneActivity().visible.display
     /// The link under the pointer, shown at the pane's corner; nil when there is none.
     private(set) var hoveredLink: String?
 
@@ -128,7 +133,8 @@ final class ActivityTracker {
     var onNotice: (PaneID, Notice) -> Void = { _, _ in }
     /// The user looked at a pane that had something unseen: its notification is out of date.
     var onSeen: (PaneID) -> Void = { _ in }
-    /// After every tick (at most 4 times a second), for work that goes with the polling.
+    /// After every tick (at most 4 times a second) while a window is on screen, for work that goes
+    /// with the polling.
     var afterTick: () -> Void = {}
 
     /// The first shell seen in a pane's foreground, for panes without PrompTTY's integration.
@@ -191,6 +197,7 @@ final class ActivityTracker {
         timer.tolerance = interval * 0.4
         self.timer = timer
         timerInterval = interval
+        cadence.slack = interval * 0.45
     }
 
     /// A pane's box, made on first use: a view reading it before the pane is watched sees the
@@ -216,8 +223,10 @@ final class ActivityTracker {
         var live = Set<PaneID>()
         let watchedPanes = panes()
         seenAtTick = Set(watchedPanes.lazy.filter(\.seen).map(\.pane))
-        let wanted = watchedPanes.contains { $0.visible } ? 0.25 : 1
+        let onScreen = watchedPanes.contains { $0.visible }
+        let wanted = onScreen ? 0.25 : 1
         if timer != nil, wanted != timerInterval { schedule(every: wanted) }
+        var portRoots: [(pane: PaneID, root: Int32)] = []
         for watched in watchedPanes {
             live.insert(watched.pane)
             if cadence.isDue(Job(pane: watched.pane, kind: .shell), every: watched.visible ? 0.25 : 1, at: now) {
@@ -250,7 +259,7 @@ final class ActivityTracker {
             } else {
                 screens[watched.pane] = nil
             }
-            lookUpPorts(watched, at: now)
+            if onScreen, let root = portLookupRoot(watched, at: now) { portRoots.append((watched.pane, root)) }
             status(for: watched.pane).setRemoteHost(remoteHosts[watched.pane])
             if watched.seen { statuses[watched.pane]?.setUnseenOutput(false) }
             if watched.seen, activity.hasUnseen {
@@ -287,7 +296,8 @@ final class ActivityTracker {
             let existing = allPanes()
             for gone in statuses.keys where !live.contains(gone) && !existing.contains(gone) { statuses[gone] = nil }
         }
-        afterTick()
+        lookUpPorts(portRoots)
+        if onScreen { afterTick() }
     }
 
     /// A program reports progress (`kind` nil: it removes it). The report stands until the next one,
@@ -418,25 +428,42 @@ final class ActivityTracker {
     }
 
     /// Every 3 s where the user looks (5 s elsewhere): the ports the pane's shell and everything
-    /// under it listen on, so a server started in the background counts too. A shell with no
-    /// children is skipped without a look at its sockets.
-    private func lookUpPorts(_ watched: Watched, at now: Date) {
+    /// under it listen on, so a server started in the background counts too. The pane's root
+    /// process when its look is due. Nothing is looked up while no window is on screen; one coming
+    /// back is looked at once (its tick is due by then).
+    private func portLookupRoot(_ watched: Watched, at now: Date) -> Int32? {
         let pane = watched.pane
         guard !portLookups.contains(pane),
               cadence.isDue(Job(pane: pane, kind: .ports), every: watched.visible ? 3 : 5, at: now),
-              let root = watched.shellPID() ?? shellPIDs[pane] ?? watched.foregroundPID() else { return }
-        portLookups.insert(pane)
+              let root = watched.shellPID() ?? shellPIDs[pane] ?? watched.foregroundPID() else { return nil }
+        return Int32(root)
+    }
+
+    /// Looks up the due panes' ports off the main thread, from one read of the process table for
+    /// all of them. A shell with no children is skipped without a look at its sockets.
+    private func lookUpPorts(_ roots: [(pane: PaneID, root: Int32)]) {
+        guard !roots.isEmpty else { return }
+        let panes = roots.map(\.pane)
+        portLookups.formUnion(panes)
         Task.detached(priority: .utility) { [weak self] in
-            let ports = ListeningPorts.hasChildren(Int32(root)) ? ListeningPorts.find(root: Int32(root)) : []
-            await self?.portsFound(ports, in: pane)
+            var found: [PaneID: [Int]] = [:]
+            if let processes = ProcessTree.snapshot() {
+                for (pane, root) in roots {
+                    found[pane] = processes.hasChildren(root) ? ListeningPorts.find(root: root, in: processes) : []
+                }
+            }
+            await self?.portsFound(found, lookedUp: panes)
         }
     }
 
-    private func portsFound(_ ports: [Int], in pane: PaneID) {
-        portLookups.remove(pane)
-        // Gone while looking: its box is dropped, or about to be.
-        guard states[pane] != nil else { return }
-        status(for: pane).setPorts(ports)
+    /// `found` is empty when the process table could not be read: the panes keep what they show.
+    private func portsFound(_ found: [PaneID: [Int]], lookedUp panes: [PaneID]) {
+        portLookups.subtract(panes)
+        for (pane, ports) in found {
+            // Gone while looking: its box is dropped, or about to be.
+            guard states[pane] != nil else { continue }
+            status(for: pane).setPorts(ports)
+        }
     }
 
     private func store(_ activity: PaneActivity, for pane: PaneID) {

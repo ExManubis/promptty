@@ -36,6 +36,24 @@ final class ProcessRunnerTests: XCTestCase {
         XCTAssertFalse(alive)
     }
 
+    func testOutcomesTellATimeoutFromAFailure() async {
+        let failed = await ProcessRunner.outcome("/bin/sh", ["-c", "echo no; exit 3"], timeout: 5)
+        XCTAssertEqual(failed, .exited(status: 3, output: "no\n"))
+        XCTAssertNil(failed.output)
+        let slow = await ProcessRunner.outcome("/bin/sleep", ["5"], timeout: 0.2)
+        XCTAssertEqual(slow, .timedOut)
+        let missing = await ProcessRunner.outcome("/nonexistent/program", [], timeout: 5)
+        XCTAssertEqual(missing, .failedToStart)
+    }
+
+    func testUntilStopsTheRunAtTheFirstOutputThatSatisfiesIt() async {
+        let start = Date()
+        let out = await ProcessRunner.outcome("/bin/sh", ["-c", "echo first; exec sleep 5"], timeout: 10, until: { !$0.isEmpty })
+        XCTAssertEqual(out, .stopped(output: "first\n"))
+        XCTAssertEqual(out.output, "first\n")
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2)
+    }
+
     func testLargeOutputIsReadCompletely() async {
         // 20,000 lines of 41 bytes is 820 KB, well over a pipe's 64 KB buffer.
         let big = await ProcessRunner.run("/bin/sh", ["-c", "i=0; while [ $i -lt 20000 ]; do echo 0123456789abcdefghij0123456789abcdefghij; i=$((i+1)); done"], timeout: 20)

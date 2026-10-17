@@ -62,9 +62,24 @@ extension TerminalSurfaceView {
     /// Everything the terminal holds, scrollback and screen, with its colors and styles as escape
     /// sequences (`vt`) or as plain text.
     public func allText(styled vt: Bool) -> String? {
+        screenText(from: GHOSTTY_POINT_COORD_TOP_LEFT, row: 0, styled: vt)
+    }
+
+    /// The last `rows` rows the terminal holds (scrollback and screen), styled as `allText`: the
+    /// rest of a long scrollback is never read or formatted.
+    public func recentText(rows: Int, styled vt: Bool) -> String? {
+        guard let total = blockSnapshot(.viewport)?.viewport.totalRows, total > rows else { return allText(styled: vt) }
+        // The scrollback can change between the two reads: then everything, as before.
+        return screenText(from: GHOSTTY_POINT_COORD_EXACT, row: total - rows, styled: vt) ?? allText(styled: vt)
+    }
+
+    /// Rows in the scrollback and on screen together, or nil before the surface exists.
+    public var totalRows: Int? { blockSnapshot(.viewport)?.viewport.totalRows }
+
+    private func screenText(from coord: ghostty_point_coord_e, row: Int, styled vt: Bool) -> String? {
         guard let surface else { return nil }
         let selection = ghostty_selection_s(
-            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: coord, x: 0, y: UInt32(clamping: row)),
             bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
             rectangle: false
         )

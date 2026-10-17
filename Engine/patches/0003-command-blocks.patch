@@ -234,7 +234,7 @@ index 17eea73d0..f9c86748b 100644
      // The count of rows that was erased.
      var erased: usize = 0;
 diff --git a/src/terminal/Terminal.zig b/src/terminal/Terminal.zig
-index 6740a93e6..dcd14c202 100644
+index 6740a93e6..7b7a805f1 100644
 --- a/src/terminal/Terminal.zig
 +++ b/src/terminal/Terminal.zig
 @@ -30,6 +30,7 @@ const size = @import("size.zig");
@@ -245,7 +245,18 @@ index 6740a93e6..dcd14c202 100644
  const ScreenSet = @import("ScreenSet.zig");
  const Page = pagepkg.Page;
  const Cell = pagepkg.Cell;
-@@ -1189,7 +1190,10 @@ pub fn semanticPrompt(
+@@ -81,6 +82,10 @@ modes: modespkg.ModeState = .{},
+ /// The most recently set mouse shape for the terminal.
+ mouse_shape: mouse.Shape = .text,
+ 
++/// PrompTTY: the prompt of the command running on the primary screen, so
++/// that its exit status is kept without a walk up through its output.
++running_command: blocks.RunningCommand = .{},
++
+ /// These are just a packed set of flags we may set on the terminal.
+ flags: packed struct {
+     // This supports a Kitty extension where programs using semantic
+@@ -1189,7 +1194,10 @@ pub fn semanticPrompt(
      cmd: osc.Command.SemanticPrompt,
  ) !void {
      switch (cmd.action) {
@@ -257,13 +268,43 @@ index 6740a93e6..dcd14c202 100644
  
          .fresh_line_new_prompt => {
              // "First do a fresh-line."
-@@ -1302,10 +1306,26 @@ pub fn semanticPrompt(
+@@ -1199,6 +1207,7 @@ pub fn semanticPrompt(
+ 
+             // "Subsequent text (until a OSC "133;B" or OSC "133;I" command)
+             // is a prompt string (as if followed by OSC 133;P;k=i\007)."
++            self.running_command.promptStarted();
+             screen.cursorSetSemanticContent(.{
+                 .prompt = cmd.readOption(.prompt_kind) orelse .initial,
+             });
+@@ -1256,6 +1265,7 @@ pub fn semanticPrompt(
+             // The k (kind) option specifies the type of prompt:
+             // regular primary prompt (k=i or default),
+             // right-side prompts (k=r), or prompts for continuation lines (k=c or k=s).
++            self.running_command.promptStarted();
+             self.screens.active.cursorSetSemanticContent(.{
+                 .prompt = cmd.readOption(.prompt_kind) orelse .initial,
+             });
+@@ -1294,6 +1304,9 @@ pub fn semanticPrompt(
+             {
+                 self.screens.active.cursor.page_row.semantic_prompt = .none;
+             }
++
++            // The command's prompt, for its exit status.
++            if (self.screens.active_key == .primary) self.running_command.outputStarted(self.screens.active);
+         },
+ 
+         .end_command => {
+@@ -1302,10 +1315,30 @@ pub fn semanticPrompt(
              // its reasonable at this point to reset our semantic content
              // state but the spec doesn't really say what to do.
              self.screens.active.cursorSetSemanticContent(.output);
 +
 +            // Keep the exit status with the command's prompt row.
-+            if (cmd.readOption(.exit_code)) |code| blocks.markExit(self.screens.active, code);
++            if (cmd.readOption(.exit_code)) |code| blocks.markExit(
++                self.screens.active,
++                if (self.screens.active_key == .primary) &self.running_command else null,
++                code,
++            );
          },
      }
  }
@@ -286,10 +327,10 @@ index 6740a93e6..dcd14c202 100644
      const left_margin = if (self.screens.active.cursor.x < self.scrolling_region.left)
 diff --git a/src/terminal/blocks.zig b/src/terminal/blocks.zig
 new file mode 100644
-index 000000000..a0cacdd21
+index 000000000..19d1ca545
 --- /dev/null
 +++ b/src/terminal/blocks.zig
-@@ -0,0 +1,659 @@
+@@ -0,0 +1,988 @@
 +//! Command blocks: each command the shell ran, found from its semantic
 +//! prompt marks (OSC 133), with the output it printed. A block starts on
 +//! the first row of a prompt that has input and runs to the last row with
@@ -313,14 +354,60 @@ index 000000000..a0cacdd21
 +};
 +
 +/// Records the exit status the shell reported (OSC 133;D) on the prompt
-+/// of the command that just finished: the nearest prompt at or above the
-+/// cursor.
-+pub fn markExit(screen: *Screen, code: i32) void {
-+    var it = screen.cursor.page_pin.promptIterator(.left_up, null);
-+    const prompt = it.next() orelse return;
++/// of the command that just finished: the one `running` found when its
++/// output started, or else the nearest prompt at or above the cursor.
++pub fn markExit(screen: *Screen, running: ?*RunningCommand, code: i32) void {
++    const prompt = (if (running) |r| r.prompt(screen) else null) orelse prompt: {
++        var it = screen.cursor.page_pin.promptIterator(.left_up, null);
++        break :prompt it.next() orelse return;
++    };
 +    const status: u8 = @intCast(std.math.clamp(code, 0, 255));
 +    prompt.rowAndCell().row.command_exit = @as(u9, status) + 1;
++    if (running) |r| r.exited = true;
 +}
++
++/// The prompt of the command running, found when its output starts (OSC
++/// 133;C), so that its exit status (133;D, which integrations may send
++/// twice) is kept without a walk up through all it printed. For the
++/// primary screen only, which lives as long as the terminal: its pin is
++/// tracked by that screen's page list and freed with it.
++pub const RunningCommand = struct {
++    pin: ?*Pin = null,
++    /// The page list's history_generation when it was found.
++    generation: u32 = 0,
++    valid: bool = false,
++    /// Its exit status was recorded: the next output is another command's.
++    exited: bool = false,
++
++    /// A prompt starts (OSC 133;A or P).
++    pub fn promptStarted(self: *RunningCommand) void {
++        self.valid = false;
++    }
++
++    /// Output starts (OSC 133;C, which integrations may send more than
++    /// once): the command's prompt is the nearest at or above the cursor.
++    pub fn outputStarted(self: *RunningCommand, screen: *Screen) void {
++        if (self.valid and !self.exited) return;
++        self.valid = false;
++        var it = screen.cursor.page_pin.promptIterator(.left_up, null);
++        const found = it.next() orelse return;
++        if (self.pin == null) self.pin = screen.pages.trackPin(found) catch return;
++        self.pin.?.* = found;
++        self.generation = screen.pages.history_generation;
++        self.valid = true;
++        self.exited = false;
++    }
++
++    /// The command's prompt, unless it is unknown or its rows were moved
++    /// (a resize, erase or reset) or pruned since.
++    fn prompt(self: *const RunningCommand, screen: *const Screen) ?Pin {
++        if (!self.valid) return null;
++        const p = self.pin.?.*;
++        if (p.garbage or self.generation != screen.pages.history_generation or
++            p.rowAndCell().row.semantic_prompt == .none) return null;
++        return p;
++    }
++};
 +
 +/// Which blocks `list` writes.
 +pub const Range = union(enum) {
@@ -345,46 +432,66 @@ index 000000000..a0cacdd21
 +/// Fills `out` with the blocks on `screen` in `range`, the newest that
 +/// fit, oldest first. One walk up from the bottom of the screen that ends
 +/// as soon as `range` is covered; with a `hint` kept between calls, it
-+/// also skips the history it walked through before.
++/// also skips the history it walked through before: from the newest row
++/// of history to the prompt above it, from there over the prompts below
++/// the rows asked for, and from the top prompt in them to the one above.
 +pub fn list(screen: *Screen, range: Range, out: []Block, hint: ?*Hint) Listing {
 +    var result: Listing = .{};
 +    if (out.len == 0 or !screen.semantic_prompt.seen) return result;
 +    var walk = Walk.init(screen, hint) orelse return result;
++    var learner: SpanLearner = .{
++        .active_top = @intCast(screen.pages.total_rows - screen.pages.rows),
++    };
 +
 +    // The first row of the prompt below the one being looked at.
 +    var below: ?Row = null;
 +    while (walk.next()) |prompt| {
-+        defer below = prompt;
-+        if (!hasInput(prompt.pin, if (below) |b| b.pin else null)) continue;
++        const under = below;
++        below = prompt;
++        const input = hasInput(prompt.pin, if (under) |b| b.pin else null);
 +        const above_range = switch (range) {
 +            .all => false,
 +            .rows => |rows| above: {
++                learner.saw(rows, prompt, under, input);
 +                if (prompt.y > rows.bottom) {
-+                    result.newer += 1;
-+                    continue;
++                    if (input) result.newer += 1;
++                    break :above false;
 +                }
 +                break :above prompt.y < rows.top;
 +            },
 +        };
-+        const last: Row = if (below) |b| (b.up() orelse prompt) else walk.bottom;
-+        const command_exit = prompt.pin.rowAndCell().row.command_exit;
-+        out[result.len] = .{
-+            .row = prompt.y,
-+            .end_row = lastRowWithText(prompt, last).y,
-+            .exit_code = if (command_exit == 0) null else @intCast(command_exit - 1),
++        if (input and (range == .all or prompt.y <= range.rows.bottom)) {
++            const last: Row = if (under) |b| (b.up() orelse prompt) else walk.bottom;
++            const command_exit = prompt.pin.rowAndCell().row.command_exit;
++            out[result.len] = .{
++                .row = prompt.y,
++                .end_row = lastRowWithText(prompt, last).y,
++                .exit_code = if (command_exit == 0) null else @intCast(command_exit - 1),
++            };
++            result.len += 1;
++            if (result.len == out.len or above_range) break;
++        }
++
++        // Skip the prompts after this one that an earlier walk passed.
++        if (range == .rows) if (hint) |h| if (h.skip(screen, prompt, range.rows.bottom)) |s| {
++            result.newer += s.count;
++            learner.skipped(s);
++            below = s.last;
++            walk.current = s.to;
 +        };
-+        result.len += 1;
-+        if (result.len == out.len or above_range) break;
-+    }
++    } else if (range == .rows) learner.ended(range.rows, below);
++    if (range == .rows) if (hint) |h| learner.teach(h, screen);
 +    std.mem.reverse(Block, out[0..result.len]);
 +    return result;
 +}
 +
-+/// What a walk up the screen learned after passing the newest row of
-+/// history: where the nearest prompt above it is, or that there is none.
-+/// The next walk can jump from that row straight to the prompt (or stop
-+/// there): history rows change only by being pruned (which marks the pins
-+/// garbage) or by a resize, erase or reset (which the page list counts).
++/// What walks up the screen learned about history, which changes only by
++/// being pruned (which marks the pins garbage) or by a resize, erase or
++/// reset (which the page list counts), so that the next walk can skip it:
++/// - after passing the newest row of history, where the nearest prompt
++///   above it is, or that there is none;
++/// - spans of prompts in history: from one prompt, the prompts after it
++///   up to `last`, and the prompt after that.
 +/// Keep one per terminal. Its pins are tracked by the screen's page list
 +/// and freed with it.
 +pub const Hint = struct {
@@ -392,14 +499,21 @@ index 000000000..a0cacdd21
 +    /// A row of history...
 +    from: ?*Pin = null,
 +    /// ...and the first row of the nearest prompt at or above it, unless
-+    /// `none`: no prompt at or above it.
++    /// `none`: no prompt at or above it...
 +    prompt: ?*Pin = null,
 +    none: bool = false,
++    /// ...that many rows above it.
++    dy: u32 = 0,
 +    /// The page list's history_generation when it was learned.
 +    generation: u32 = 0,
 +    valid: bool = false,
 +
-+    const Jump = struct { from: Pin, to: ?Pin };
++    /// The prompts below the rows a walk was asked for, and the prompts at
++    /// the top of them.
++    below: Span = .{},
++    above: Span = .{},
++
++    const Jump = struct { from: Pin, to: ?Pin, dy: u32 };
 +
 +    fn jump(self: *Hint, screen: *const Screen) ?Jump {
 +        if (!self.valid or self.screen != screen) return null;
@@ -411,23 +525,169 @@ index 000000000..a0cacdd21
 +            self.valid = false;
 +            return null;
 +        }
-+        return .{ .from = from, .to = to };
++        return .{ .from = from, .to = to, .dy = self.dy };
 +    }
 +
-+    fn remember(self: *Hint, screen: *Screen, from: Pin, prompt: ?Pin) void {
++    fn remember(self: *Hint, screen: *Screen, from: Row, prompt: ?Row) void {
 +        const pages = &screen.pages;
-+        // Pins of another screen stay with its page list.
-+        if (self.screen != screen) self.* = .{ .screen = screen };
++        self.own(screen);
 +        self.valid = false;
-+        if (self.from == null) self.from = pages.trackPin(from) catch return;
-+        self.from.?.* = from;
++        if (self.from == null) self.from = pages.trackPin(from.pin) catch return;
++        self.from.?.* = from.pin;
 +        if (prompt) |p| {
-+            if (self.prompt == null) self.prompt = pages.trackPin(p) catch return;
-+            self.prompt.?.* = p;
++            if (self.prompt == null) self.prompt = pages.trackPin(p.pin) catch return;
++            self.prompt.?.* = p.pin;
 +        }
 +        self.none = prompt == null;
++        self.dy = if (prompt) |p| from.y - p.y else 0;
 +        self.generation = pages.history_generation;
 +        self.valid = true;
++    }
++
++    fn own(self: *Hint, screen: *const Screen) void {
++        // Pins of another screen stay with its page list.
++        if (self.screen != screen) self.* = .{ .screen = screen };
++    }
++
++    /// A walk that found `prompt` may go on from `to`, as if it had just
++    /// found `last`, with `count` more blocks found on the way.
++    const Skip = struct { count: u32, last: Row, to: ?Row };
++
++    /// Where a walk that found `prompt` can go on from, without finding
++    /// any prompt at or above row `bottom` on the way.
++    fn skip(self: *Hint, screen: *const Screen, prompt: Row, bottom: u32) ?Skip {
++        if (self.screen != screen) return null;
++        inline for (.{ &self.below, &self.above }) |span| {
++            if (span.skip(screen, prompt, bottom)) |s| return s;
++        }
++        return null;
++    }
++
++    /// Prompts in history: after `from`, the prompts up to `last` (`from`
++    /// itself when there are none), `count` of them with a command, and
++    /// then `to`, unless `none`: no prompt above `last`.
++    const Span = struct {
++        from: ?*Pin = null,
++        last: ?*Pin = null,
++        to: ?*Pin = null,
++        none: bool = false,
++        count: u32 = 0,
++        /// How many rows `last` and `to` are above `from`.
++        last_dy: u32 = 0,
++        to_dy: u32 = 0,
++        generation: u32 = 0,
++        valid: bool = false,
++
++        fn skip(self: *Span, screen: *const Screen, prompt: Row, bottom: u32) ?Skip {
++            if (!self.valid or !prompt.eql(self.from.?.*)) return null;
++            const last = self.last.?.*;
++            const to: ?Pin = if (self.none) null else self.to.?.*;
++            const prompts = isPrompt(self.from.?.*) and isPrompt(last) and
++                if (to) |p| isPrompt(p) else true;
++            if (self.generation != screen.pages.history_generation or !prompts or
++                @max(self.last_dy, self.to_dy) > prompt.y)
++            {
++                self.valid = false;
++                return null;
++            }
++            // The prompts skipped must all be below the rows asked for.
++            if (self.last_dy > 0 and prompt.y - self.last_dy <= bottom) return null;
++            return .{
++                .count = self.count,
++                .last = .{ .pin = last, .y = prompt.y - self.last_dy },
++                .to = if (to) |p| .{ .pin = p, .y = prompt.y - self.to_dy } else null,
++            };
++        }
++
++        fn remember(self: *Span, pages: *PageList, from: Row, last: Row, to: ?Row, count: u32) void {
++            self.valid = false;
++            inline for (.{ .{ &self.from, from }, .{ &self.last, last } }) |pair| {
++                if (pair[0].* == null) pair[0].* = pages.trackPin(pair[1].pin) catch return;
++                pair[0].*.?.* = pair[1].pin;
++            }
++            if (to) |p| {
++                if (self.to == null) self.to = pages.trackPin(p.pin) catch return;
++                self.to.?.* = p.pin;
++            }
++            self.none = to == null;
++            self.count = count;
++            self.last_dy = from.y - last.y;
++            self.to_dy = if (to) |p| from.y - p.y else 0;
++            self.generation = pages.history_generation;
++            self.valid = true;
++        }
++    };
++
++    fn isPrompt(pin: Pin) bool {
++        return !pin.garbage and pin.rowAndCell().row.semantic_prompt != .none;
++    }
++};
++
++/// Gathers, during a walk for some rows, the spans of prompts in history
++/// that Hint keeps: below the rows, the prompts from the newest in history
++/// to the one above them; at their top, the top prompt in them and the one
++/// above.
++const SpanLearner = struct {
++    /// Rows above this one are history.
++    active_top: u32,
++    below: Learning = .{},
++    above: Learning = .{},
++
++    const Learning = struct {
++        from: ?Row = null,
++        last: ?Row = null,
++        to: ?Row = null,
++        count: u32 = 0,
++        done: bool = false,
++    };
++
++    fn saw(self: *SpanLearner, rows: anytype, prompt: Row, under: ?Row, input: bool) void {
++        if (prompt.y > rows.bottom) {
++            if (prompt.y >= self.active_top) return;
++            if (self.below.from == null) {
++                self.below.from = prompt;
++                self.below.last = prompt;
++            } else {
++                if (input) self.below.count += 1;
++                self.below.last = prompt;
++            }
++            return;
++        }
++        if (self.below.from != null and !self.below.done) {
++            self.below.to = prompt;
++            self.below.done = true;
++        }
++        if (prompt.y < rows.top) self.top(rows, under, prompt);
++    }
++
++    fn skipped(self: *SpanLearner, s: Hint.Skip) void {
++        if (self.below.from == null or self.below.done) return;
++        self.below.count += s.count;
++        self.below.last = s.last;
++    }
++
++    /// The walk ended: no prompt above `last`, the last one it found.
++    fn ended(self: *SpanLearner, rows: anytype, last: ?Row) void {
++        if (self.below.from != null and !self.below.done) self.below.done = true;
++        self.top(rows, last, null);
++    }
++
++    /// `to` is the first prompt above `rows`, or none.
++    fn top(self: *SpanLearner, rows: anytype, under: ?Row, to: ?Row) void {
++        const from = under orelse return;
++        if (self.above.done or from.y < rows.top or from.y > rows.bottom or
++            from.y >= self.active_top) return;
++        self.above = .{ .from = from, .last = from, .to = to, .done = true };
++    }
++
++    fn teach(self: *const SpanLearner, hint: *Hint, screen: *Screen) void {
++        inline for (.{ .{ &hint.below, self.below }, .{ &hint.above, self.above } }) |pair| {
++            const l = pair[1];
++            if (l.done) if (l.from) |from| {
++                hint.own(screen);
++                pair[0].remember(&screen.pages, from, l.last.?, l.to, l.count);
++            };
++        }
 +    }
 +};
 +
@@ -457,7 +717,7 @@ index 000000000..a0cacdd21
 +    /// The newest row of history, while this search has not passed it.
 +    history: ?Pin,
 +    /// The newest row of history once this search passed it.
-+    passed: ?Pin = null,
++    passed: ?Row = null,
 +    jump: ?Hint.Jump = null,
 +
 +    fn init(screen: *Screen, hint: ?*Hint) ?Walk {
@@ -477,18 +737,18 @@ index 000000000..a0cacdd21
 +        var start: ?Row = null;
 +        while (self.current) |row| {
 +            if (self.history) |h| if (row.eql(h)) {
-+                self.passed = h;
++                self.passed = row;
 +                self.history = null;
 +            };
 +            if (start == null) if (self.jump) |j| if (row.eql(j.from)) {
 +                self.jump = null;
 +                // No prompt from here up.
 +                const to = j.to orelse break;
-+                // Never down, which would find prompts twice.
-+                if (self.screen.pages.pointFromPin(.screen, to)) |pt| if (pt.coord().y <= row.y) {
-+                    self.current = .{ .pin = to, .y = @intCast(pt.coord().y) };
++                // Never below the screen's first row.
++                if (j.dy <= row.y) {
++                    self.current = .{ .pin = to, .y = row.y - j.dy };
 +                    continue;
-+                };
++                }
 +            };
 +            switch (row.pin.rowAndCell().row.semantic_prompt) {
 +                .none => if (start) |s| return self.found(s),
@@ -506,13 +766,13 @@ index 000000000..a0cacdd21
 +    }
 +
 +    fn found(self: *Walk, prompt: Row) Row {
-+        self.learn(prompt.pin);
++        self.learn(prompt);
 +        return prompt;
 +    }
 +
 +    /// After passing the newest row of history, the first prompt above it
 +    /// (or that there is none) is worth remembering.
-+    fn learn(self: *Walk, prompt: ?Pin) void {
++    fn learn(self: *Walk, prompt: ?Row) void {
 +        if (self.passed) |from| if (self.hint) |h| h.remember(self.screen, from, prompt);
 +        self.passed = null;
 +    }
@@ -948,6 +1208,116 @@ index 000000000..a0cacdd21
 +    try testing.expectEqual(1, listing.len);
 +    try testing.expectEqual(0, listing.newer);
 +    try testing.expectEqual(@as(u32, 4), out[0].row);
++}
++
++/// Lists the blocks on every screenful from the bottom up and back down
++/// with and without `hint` and expects the same.
++fn expectHintedScrolling(screen: *Screen, hint: *Hint) !void {
++    const rows: u32 = @intCast(screen.pages.rows);
++    const total: u32 = @intCast(screen.pages.total_rows);
++    var top: u32 = total - rows;
++    while (true) : (top -= 1) {
++        try expectHintedRange(screen, hint, .{ .rows = .{ .top = top, .bottom = top + rows - 1 } });
++        if (top == 0) break;
++    }
++    while (top + rows <= total) : (top += 3) {
++        try expectHintedRange(screen, hint, .{ .rows = .{ .top = top, .bottom = top + rows - 1 } });
++    }
++}
++
++test "blocks: a hinted walk scrolled back skips the prompts below the screen" {
++    const alloc = testing.allocator;
++    var t = try testTerminal(alloc, 5);
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++    const screen = t.screens.active;
++    var hint: Hint = .{};
++
++    s.nextSlice(comptime Session.prompt ++ Session.command("ls") ++ "x\r\n" ** 20 ++ Session.finished("0"));
++    s.nextSlice(comptime Session.prompt ++ Session.command("a") ++ Session.finished("1"));
++    s.nextSlice(comptime Session.prompt ++ Session.command("b") ++ "y\r\n" ** 3 ++ Session.finished("2"));
++    s.nextSlice(comptime Session.prompt ++ Session.command("c") ++ Session.finished("3"));
++    s.nextSlice(comptime Session.prompt ++ Session.command("yes") ++ "y\r\n" ** 40);
++
++    // Rows 8-12, inside the output of ls (rows 0-21): the blocks after it
++    // are below the screen.
++    const range: Range = .{ .rows = .{ .top = 8, .bottom = 12 } };
++    try expectHintedRange(screen, &hint, range);
++    try testing.expect(hint.below.valid);
++    // The walk learned to go from the running command's prompt over the
++    // three after it to the one above the screen.
++    try testing.expectEqual(@as(u32, 3), hint.below.count);
++    try testing.expect(!hint.below.none);
++    try testing.expect(!hint.above.valid);
++
++    // While output streams, each listing jumps over them and is the same.
++    var i: usize = 0;
++    while (i < 10) : (i += 1) {
++        s.nextSlice("y\r\n" ** 7);
++        var out: [8]Block = undefined;
++        const listing = list(screen, range, &out, &hint);
++        try testing.expectEqual(@as(usize, 1), listing.len);
++        try testing.expectEqual(@as(u32, 4), listing.newer);
++        try testing.expectEqual(Block{ .row = 0, .end_row = 21, .exit_code = 0 }, out[0]);
++        try expectHintedRange(screen, &hint, range);
++    }
++
++    try expectHintedScrolling(screen, &hint);
++    s.nextSlice(comptime Session.finished("0") ++ Session.prompt ++ Session.command("pwd") ++ "/\r\n" ++ Session.finished("0"));
++    s.nextSlice(comptime Session.prompt);
++    try expectHintedScrolling(screen, &hint);
++    try t.resize(alloc, 30, 7);
++    try expectHintedScrolling(screen, &hint);
++}
++
++test "blocks: hinted walks over many commands, scrolled anywhere" {
++    const alloc = testing.allocator;
++    var t = try testTerminal(alloc, 6);
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++    const screen = t.screens.active;
++    var hint: Hint = .{};
++
++    var i: usize = 0;
++    while (i < 12) : (i += 1) {
++        s.nextSlice(comptime Session.prompt ++ Session.command("seq"));
++        var j: usize = 0;
++        while (j < (i * 7) % 11) : (j += 1) s.nextSlice("line\r\n");
++        s.nextSlice(comptime Session.finished("0"));
++        if (i % 3 == 0) s.nextSlice(comptime Session.prompt); // an empty prompt
++        try expectHintedScrolling(screen, &hint);
++    }
++    s.nextSlice(comptime Session.prompt);
++    try expectHintedScrolling(screen, &hint);
++}
++
++test "blocks: the exit status goes to the prompt found when output started" {
++    const alloc = testing.allocator;
++    var t = try testTerminal(alloc, 5);
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++
++    s.nextSlice(comptime Session.prompt ++ Session.command("yes") ++ "y\r\n" ** 50);
++    try testing.expect(t.running_command.valid);
++    const prompt = t.running_command.pin.?.*;
++    s.nextSlice(comptime Session.finished("4"));
++    try testing.expectEqual(@as(u9, 5), prompt.rowAndCell().row.command_exit);
++    s.nextSlice(comptime Session.prompt);
++    try testing.expect(!t.running_command.valid);
++
++    // After a resize the prompt is found from the cursor again.
++    s.nextSlice(comptime Session.command("ls") ++ "x\r\n");
++    try t.resize(alloc, 30, 5);
++    s.nextSlice(comptime Session.finished("6"));
++    s.nextSlice(comptime Session.prompt);
++    var out: [4]Block = undefined;
++    const n = list(t.screens.active, .all, &out, null).len;
++    try testing.expectEqual(2, n);
++    try testing.expectEqual(@as(?u8, 4), out[0].exit_code);
++    try testing.expectEqual(@as(?u8, 6), out[1].exit_code);
 +}
 diff --git a/src/terminal/main.zig b/src/terminal/main.zig
 index 87a9aded9..cfd8041b2 100644

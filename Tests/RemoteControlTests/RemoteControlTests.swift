@@ -1,3 +1,4 @@
+import AgentHooks
 import Darwin
 import XCTest
 @testable import RemoteControl
@@ -104,6 +105,56 @@ final class ControlSocketTests: XCTestCase {
             answered.fulfill()
         }
         wait(for: [answered], timeout: 5)
+    }
+
+    /// Clients that connect and send nothing hold up no thread and nobody else.
+    func testIdleConnectionsDoNotHoldUpARequest() throws {
+        let path = NSTemporaryDirectory() + "pc-idle-\(getpid()).sock"
+        let server = ControlServer(path: path) { request, reply in reply(.ok(request.command)) }
+        try server.start()
+        defer { server.stop() }
+        let address = try XCTUnwrap(HookSocket.address(path))
+        var idle: [Int32] = []
+        for _ in 0..<10 {
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            XCTAssertTrue(HookSocket.connect(fd, to: address))
+            idle.append(fd)
+        }
+        defer { idle.forEach { close($0) } }
+        let answered = expectation(description: "answer")
+        DispatchQueue.global().async {
+            XCTAssertEqual(ControlClient.send(ControlRequest(command: "ls"), to: path, timeout: 3), .ok("ls"))
+            answered.fulfill()
+        }
+        wait(for: [answered], timeout: 5)
+    }
+
+    /// A folder that is not a real folder of the user's (here a symbolic link) is not used.
+    func testRefusesAnUnsafeFolder() throws {
+        let real = NSTemporaryDirectory() + "pc-real-\(getpid())"
+        let link = NSTemporaryDirectory() + "pc-link-\(getpid())"
+        try FileManager.default.createDirectory(atPath: real, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: real)
+        defer {
+            try? FileManager.default.removeItem(atPath: link)
+            try? FileManager.default.removeItem(atPath: real)
+        }
+        let server = ControlServer(path: link + "/c.sock") { _, reply in reply(.ok()) }
+        XCTAssertThrowsError(try server.start()) { XCTAssertEqual($0 as? ControlServer.Failure, .unsafeFolder) }
+    }
+
+    /// Another app took the path since: stopping leaves that app's socket.
+    func testStopLeavesASocketThatIsNoLongerItsOwn() throws {
+        let path = NSTemporaryDirectory() + "pc-stop-\(getpid()).sock"
+        let first = ControlServer(path: path) { _, reply in reply(.ok()) }
+        try first.start()
+        unlink(path)
+        let second = ControlServer(path: path) { _, reply in reply(.ok()) }
+        try second.start()
+        first.stop()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        second.stop()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
     }
 
     func testNobodyListeningIsUnreachable() {

@@ -14,7 +14,6 @@ enum PaneAnimation {
     /// Tabs only fade, through: the old one out, then the new one in (see
     /// `PaneMotion.tabFadeOpacity`, which eases each half). Moving a whole terminal reads as
     /// scrolling it.
-    static let tabCurve = UnitCurve.linear
     static let tabDuration: TimeInterval = {
         #if DEBUG
         if let slow = ProcessInfo.processInfo.environment["PROMPTTY_TAB_FADE"].flatMap(Double.init) { return slow }
@@ -31,8 +30,6 @@ extension EnvironmentValues {
     @Entry var paneMotionProgress: CGFloat = 1
     /// The sidebar is collapsed out of sight (its peek shows the tabs instead).
     @Entry var sidebarOutOfSight = false
-    /// How far the current tab cross-fade has run: 0 at its start, 1 at rest.
-    @Entry var tabFadeProgress: CGFloat = 1
     /// How the terminals below follow their cards' sizes: held while the sidebar slides,
     /// throttled while a split divider is dragged.
     @Entry var terminalResizeMode: TerminalSurfaceView.ResizeMode = .live
@@ -131,6 +128,8 @@ struct ClosingPaneCard: View {
 final class TabFadeState {
     private(set) var generation = 0
     private(set) var outgoing: TabID?
+    /// When the current fade began (`Date.timeIntervalSinceReferenceDate`).
+    private(set) var startedAt: TimeInterval = 0
     private var shown: TabID?
 
     /// A new generation restarts the fade. A tab that was closed has nothing to fade out.
@@ -139,6 +138,7 @@ final class TabFadeState {
         defer { shown = selected }
         if animate, let old = shown, tabs.contains(old), selected != nil {
             outgoing = old
+            startedAt = Date.timeIntervalSinceReferenceDate
             generation += 1
         } else {
             outgoing = nil
@@ -149,18 +149,42 @@ final class TabFadeState {
 
 /// One tab's panes in the stack of tabs: the selected tab is shown, the tab it replaced stays
 /// visible underneath while the new one fades in, and every other tab is hidden.
+///
+/// Each tab works out its own opacity from the fade's clock, and only the two in a fade follow
+/// it: the fade's progress handed down to the stack of tabs as an environment value, every
+/// frame, laid out the whole window again, every tab's panes included. A clock rather than an
+/// animation started by a change, so a tab made with the fade (a new tab) starts it hidden too.
 struct TabPanes: View {
     let tab: WorkspaceModel.Tab
     let selected: Bool
+    /// Fading out, until the fade ends.
     let outgoing: Bool
+    /// When the fade under way began; nil when none is.
+    let fadeStartedAt: TimeInterval?
     let chrome: WindowChromeModel
     let actions: ChromeActions
-    @Environment(\.tabFadeProgress) private var progress
+    /// The size the tab had when last shown.
+    @State private var shownSize: CGSize?
 
     var body: some View {
-        let opacity = PaneMotion.tabFadeOpacity(selected: selected, outgoing: outgoing, progress: progress)
-        PaneTreeView(tab: tab, visible: selected || opacity > 0, chrome: chrome, actions: actions)
-            .opacity(Double(opacity))
+        let selected = selected, outgoing = outgoing
+        let visible = selected || outgoing
+        // Out of sight, the tab keeps the size it had when shown: resized with the window (or the
+        // sidebar), every hidden tab was laid out again at each frame. It takes the size once
+        // shown.
+        let frozen = visible ? nil : shownSize
+        let start = visible ? fadeStartedAt : nil
+        TimelineView(.animation(paused: start == nil)) { context in
+            let progress = start.map { CGFloat((context.date.timeIntervalSinceReferenceDate - $0) / PaneAnimation.tabDuration) } ?? 1
+            PaneTreeView(tab: tab, visible: visible, chrome: chrome, actions: actions)
+                .frame(width: frozen?.width, height: frozen?.height)
+                // A frozen tab sizes nothing: the window may be smaller than it now.
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+                .onGeometryChange(for: CGSize.self, of: \.size) { size in
+                    if visible || shownSize == nil { shownSize = size }
+                }
+                .opacity(Double(PaneMotion.tabFadeOpacity(selected: selected, outgoing: outgoing, progress: progress)))
+        }
             .zIndex(selected ? 1 : 0)
             .allowsHitTesting(selected)
             .accessibilityHidden(!selected)

@@ -185,6 +185,48 @@ final class ZshIntegrationTests: XCTestCase {
         XCTAssertTrue(parsed.reserved.contains("if"))
         XCTAssertTrue(parsed.exports.contains("HOME"))
     }
+
+    /// The state file is written again only when what it lists changed: the app rereads it whenever
+    /// it is written.
+    func testTheStateFileIsRewrittenOnlyWhenItChanges() throws {
+        try XCTSkipUnless(FileManager.default.isExecutableFile(atPath: "/bin/zsh"))
+        let home = dir.appendingPathComponent("home-state", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let installed = try ZshIntegration.install(in: dir.appendingPathComponent("zsh"))
+        let state = dir.appendingPathComponent("state-key")
+        let snapshot = { (name: String) in "command cp \"$PROMPTTY_STATE\" '\(self.dir.appendingPathComponent(name).path)'" }
+        let script = [
+            "_promptty_init",
+            // A prompt with nothing new leaves the file alone (the marker stays).
+            "print -rn -- marker >| \"$PROMPTTY_STATE\"", "_promptty_precmd", snapshot("same"),
+            // A new alias, a renamed one (same count), a new export, a new PATH: each rewrites it.
+            "alias zz=ls", "_promptty_precmd", snapshot("alias"),
+            "print -rn -- marker >| \"$PROMPTTY_STATE\"", "unalias zz; alias yy=ls", "_promptty_precmd", snapshot("renamed"),
+            "print -rn -- marker >| \"$PROMPTTY_STATE\"", "export PROMPTTY_TEST_EXPORT=1", "_promptty_precmd", snapshot("export"),
+            "print -rn -- marker >| \"$PROMPTTY_STATE\"", "PATH=/bin:/usr/bin", "_promptty_precmd", snapshot("path"),
+            // A deleted file is written again.
+            "command rm -f \"$PROMPTTY_STATE\"", "_promptty_precmd",
+        ].joined(separator: "; ")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = ["-i", "-c", script]
+        var env = ZshIntegration.environment(integrationDirectory: installed, stateFile: state, userZDOTDIR: nil)
+        env["HOME"] = home.path
+        env["PATH"] = "/usr/bin:/bin"
+        p.environment = env
+        p.standardOutput = Pipe()
+        p.standardError = Pipe()
+        try p.run()
+        p.waitUntilExit()
+        let read = { (name: String) in try String(contentsOf: self.dir.appendingPathComponent(name), encoding: .utf8) }
+        XCTAssertEqual(try read("same"), "marker")
+        XCTAssertTrue(ShellStateFile.parse(try read("alias")).aliases.contains("zz"))
+        XCTAssertTrue(ShellStateFile.parse(try read("renamed")).aliases.contains("yy"))
+        XCTAssertTrue(ShellStateFile.parse(try read("export")).exports.contains("PROMPTTY_TEST_EXPORT"))
+        XCTAssertEqual(ShellStateFile.parse(try read("path")).path, ["/bin", "/usr/bin"])
+        XCTAssertTrue(ShellStateFile.parse(try String(contentsOf: state, encoding: .utf8)).builtins.contains("cd"))
+    }
+
     /// A driven run's history file replaces the one .zshrc sets up: the shell reports it, and the
     /// user's file is neither read into the new list nor written back to on exit.
     func testAHistoryFileOfPrompTTYsReplacesTheUsersOwn() throws {
@@ -245,6 +287,16 @@ final class ShellStateFileTests: XCTestCase {
         XCTAssertEqual(s.historyFile, "/Users/me/My History")
         XCTAssertEqual(s.path, ["/a b", "/c"])
         XCTAssertTrue(s.aliases.isEmpty)
+    }
+
+    func testComparesCommandNamesWithoutMergingThem() {
+        let a = ShellStateFile.parse("alias ll\nfunction nvm\nexport EDITOR\n")
+        var b = a
+        b.exports = ["PAGER"]
+        XCTAssertTrue(a.hasSameCommandNames(as: b))
+        b.functions.insert("other")
+        XCTAssertFalse(a.hasSameCommandNames(as: b))
+        XCTAssertFalse(a.hasSameCommandNames(as: nil))
     }
 
     func testEmptyPathEntriesAreDropped() {

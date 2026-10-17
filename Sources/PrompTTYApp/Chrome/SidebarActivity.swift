@@ -18,7 +18,7 @@ struct TabActivityMarks: Equatable {
     @MainActor
     init(tab: WorkspaceModel.Tab, selected: Bool, actions: ChromeActions) {
         for pane in tab.orderedPanes {
-            let display = actions.activity(for: pane.id).display
+            let display = actions.display(for: pane.id)
             if display == .working { working = true }
             guard !selected else { continue }
             switch display {
@@ -70,6 +70,7 @@ private struct WorkingDotsLayer: NSViewRepresentable {
         var color: NSColor = .white
         var animated = true
         private var dots: [CALayer] = []
+        private var laidOutSize: CGSize = .zero
 
         override init(frame: NSRect) {
             super.init(frame: frame)
@@ -78,8 +79,12 @@ private struct WorkingDotsLayer: NSViewRepresentable {
 
         @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+        /// Only a new size restarts the dots, as `LoopingLayerView` does: the sidebar lays its rows
+        /// out again often, and a restart makes the dots jump.
         override func layout() {
             super.layout()
+            guard bounds.size != laidOutSize else { return }
+            laidOutSize = bounds.size
             restart()
         }
 

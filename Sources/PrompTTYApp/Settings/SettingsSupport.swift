@@ -20,19 +20,35 @@ enum MonospacedFonts {
     }
 }
 
-/// Theme swatches read lazily from the bundled theme files and cached.
+/// Theme swatches read from the bundled theme files and cached. Every theme's is read off the main
+/// thread as soon as Settings opens, for the lists that sort themes into light and dark; until
+/// then a swatch is read when it is shown.
 @MainActor
+@Observable
 final class ThemeSwatches {
     let catalog: ThemeCatalog
-    private var cache: [String: ThemeSwatch?] = [:]
+    @ObservationIgnored private var cache: [String: ThemeSwatch?] = [:]
+    /// Every theme's swatch is in the cache.
+    private(set) var allRead = false
 
-    init(catalog: ThemeCatalog) { self.catalog = catalog }
+    init(catalog: ThemeCatalog) {
+        self.catalog = catalog
+        Task { [weak self] in
+            let all = await Task.detached(priority: .userInitiated) { catalog.allSwatches() }.value
+            self?.read(all)
+        }
+    }
 
     func swatch(for name: String) -> ThemeSwatch? {
         if let cached = cache[name] { return cached }
         let s = catalog.swatch(for: name)
-        cache[name] = s
+        cache.updateValue(s, forKey: name)
         return s
+    }
+
+    private func read(_ all: [String: ThemeSwatch]) {
+        for name in catalog.names { cache.updateValue(all[name], forKey: name) }
+        allRead = true
     }
 }
 

@@ -14,12 +14,17 @@ struct WindowRootView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tabFade = TabFadeState()
+    /// The tab fade that has finished.
+    @State private var fadeSettled = 0
     /// The collapsed sidebar, shown over the panes while the pointer is on it.
     @State private var peeking = false
     @State private var peekTimer: Task<Void, Never>?
     /// The terminals keep their sizes while the sidebar slides (see `holdTerminalSizes`).
     @State private var terminalSizesHeld = false
     @State private var terminalSizesRelease: Task<Void, Never>?
+    /// The collapsed sidebar has slid out: its rows leave the hierarchy, so they stop observing
+    /// the panes and animating out of sight. Expanding puts them back at once, to slide in.
+    @State private var sidebarSettledAway = false
 
     private var hidden: Bool { settings.settings.tabListHidden }
     private var layout: TabLayout { workspace.tabLayout }
@@ -77,7 +82,15 @@ struct WindowRootView: View {
         let width = settings.settings.sidebarWidth
         return ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
-                SidebarView(state: state, workspace: workspace, chrome: chrome, actions: actions)
+                Group {
+                    if !collapsed || !sidebarSettledAway {
+                        SidebarView(state: state, workspace: workspace, chrome: chrome, actions: actions)
+                            // Put back as the sidebar opens: it slides in with its frame.
+                            .transition(.move(edge: .leading))
+                    } else {
+                        Color.clear
+                    }
+                }
                     .frame(width: width)
                     // Narrowing to nothing with the sidebar pinned to its trailing edge: it slides
                     // out to the left.
@@ -116,6 +129,14 @@ struct WindowRootView: View {
             }
         }
         .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.08), value: showsPeek)
+        .task(id: hidden) {
+            guard hidden else {
+                sidebarSettledAway = false
+                return
+            }
+            try? await Task.sleep(for: .seconds(PaneAnimation.sidebarSpring.settlingDuration))
+            if !Task.isCancelled { sidebarSettledAway = true }
+        }
     }
 
     /// Also while a tab is renamed from it, or its icon changed: a tile's popover takes the pointer
@@ -163,19 +184,17 @@ struct WindowRootView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
             let generation = tabFade.update(selected: state.selectedTabID, tabs: state.tabs.map(\.id), animate: !reduceMotion)
+            let fading = generation != fadeSettled
             ZStack {
                 ForEach(state.tabs, id: \.id) { tab in
-                    TabPanes(tab: tab, selected: tab.id == state.selectedTabID, outgoing: tab.id == tabFade.outgoing,
-                             chrome: chrome, actions: actions)
+                    TabPanes(tab: tab, selected: tab.id == state.selectedTabID, outgoing: fading && tab.id == tabFade.outgoing,
+                             fadeStartedAt: fading ? tabFade.startedAt : nil, chrome: chrome, actions: actions)
                 }
             }
-            .keyframeAnimator(initialValue: CGFloat(1), trigger: generation) { content, progress in
-                content.environment(\.tabFadeProgress, progress)
-            } keyframes: { _ in
-                KeyframeTrack {
-                    MoveKeyframe(0)
-                    LinearKeyframe(1, duration: PaneAnimation.tabDuration, timingCurve: PaneAnimation.tabCurve)
-                }
+            // The old tab is let go (hidden, its terminals occluded) once it has faded out.
+            .task(id: generation) {
+                try? await Task.sleep(for: .seconds(PaneAnimation.tabDuration))
+                if !Task.isCancelled { fadeSettled = generation }
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: chrome.banner?.id)

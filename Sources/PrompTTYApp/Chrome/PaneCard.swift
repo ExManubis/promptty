@@ -28,7 +28,11 @@ struct PaneCard: View {
     @ViewBuilder
     private var surface: some View {
         let shape = RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
-        if translucent {
+        if translucent, !visible {
+            // A tab out of sight is drawn at no opacity, but its glass would still be rendered,
+            // and again at every frame it changes size, as while the sidebar slides.
+            Color.clear
+        } else if translucent {
             let lit = focused || !tab.hasSplits
             Color.clear.glassEffect(.clear.tint(Color(nsColor: chrome.panelColor).opacity(Self.glassTint(dark: chrome.panelIsDark, lit: lit))), in: shape)
                 // Smoked: a thin dark layer in the glass, so the desktop's color shows through the
@@ -38,27 +42,10 @@ struct PaneCard: View {
                 // Rex's edges. The glass lights its own top and bottom edges: in dark, as bright along
                 // the top as Rex's, and brighter along the bottom, so the bottom is shaded back down a
                 // little. A faint line, added to the color under it so it keeps the hue, traces the
-                // sides, which the glass leaves unlit.
-                .overlay(shape.strokeBorder(LinearGradient(stops: [
-                    .init(color: .white.opacity(chrome.panelIsDark ? 0.04 : 0.45), location: 0),
-                    .init(color: .white.opacity(chrome.panelIsDark ? 0.05 : 0.2), location: 0.03),
-                    .init(color: .white.opacity(chrome.panelIsDark ? 0.05 : 0.1), location: 0.97),
-                    .init(color: .white.opacity(chrome.panelIsDark ? 0 : 0.1), location: 1),
-                ], startPoint: .top, endPoint: .bottom), lineWidth: 0.75).blendMode(.plusLighter))
-                .overlay(shape.strokeBorder(LinearGradient(stops: [
-                    .init(color: .clear, location: 0.985),
-                    .init(color: Color(nsColor: chrome.panelColor).opacity(chrome.panelIsDark ? Self.bottomShade : 0), location: 1),
-                ], startPoint: .top, endPoint: .bottom), lineWidth: 1))
-                .overlay {
-                    VStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        LinearGradient(colors: [.clear, .white.opacity(chrome.panelIsDark ? 0.05 : 0.08)], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 5)
-                    }
-                    .clipShape(shape)
-                    .blendMode(.plusLighter)
-                    .allowsHitTesting(false)
-                }
+                // sides, which the glass leaves unlit. (Layers, so a card changing size redraws
+                // nothing: see `PaneEdges`.)
+                .overlay(PaneEdges(panelColor: chrome.panelColor, dark: chrome.panelIsDark, bottomShade: Self.bottomShade)
+                    .allowsHitTesting(false))
         } else {
             shape.fill(Color(nsColor: chrome.panelColor))
         }

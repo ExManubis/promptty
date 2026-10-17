@@ -29,3 +29,25 @@ final class ListeningPortsTests: XCTestCase {
         XCTAssertEqual(ListeningPorts.find(root: 999_999), [])
     }
 }
+
+final class ProcessTreeTests: XCTestCase {
+    func testWalksDescendantsBreadthFirstUpToTheLimit() {
+        let tree = ProcessTree([(pid: 10, parent: 1), (pid: 11, parent: 10), (pid: 12, parent: 10), (pid: 13, parent: 11), (pid: 20, parent: 1)])
+        XCTAssertEqual(tree.descendants(of: 10, limit: 64), [10, 11, 12, 13])
+        XCTAssertEqual(tree.descendants(of: 10, limit: 2), [10, 11])
+        XCTAssertEqual(tree.descendants(of: 13, limit: 64), [13])
+        XCTAssertTrue(tree.hasChildren(10))
+        XCTAssertFalse(tree.hasChildren(13))
+    }
+
+    func testIgnoresAProcessThatIsItsOwnParent() {
+        // The kernel's pid 0 lists itself as its parent.
+        let tree = ProcessTree([(pid: 0, parent: 0), (pid: 1, parent: 0)])
+        XCTAssertEqual(tree.descendants(of: 0, limit: 64), [0, 1])
+    }
+
+    func testSnapshotHasThisProcessUnderItsParent() throws {
+        let tree = try XCTUnwrap(ProcessTree.snapshot())
+        XCTAssertTrue(tree.descendants(of: getppid(), limit: 10_000).contains(getpid()))
+    }
+}

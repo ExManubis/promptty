@@ -100,11 +100,17 @@ struct BlockButtons: View {
 
 /// Over a scrolled-back terminal that printed more below: how much, and a way down to it.
 struct NewOutputPill: View {
-    let count: Int
+    /// Changes as lines arrive; the view stays.
+    @MainActor @Observable final class Model {
+        var count = 0
+    }
+
+    let model: Model
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        let count = model.count
+        return Button(action: action) {
             Label(Self.label(count), systemImage: "arrow.down")
                 .font(.system(size: 12, weight: .medium))
                 .monospacedDigit()

@@ -1,8 +1,8 @@
 import Foundation
 
 /// What panes showed when the app quit, kept beside the session so restored tabs open with their
-/// output above a fresh prompt. One file per tab (its focused pane), named in the session file;
-/// the shell integration prints it once and deletes it.
+/// output above a fresh prompt. One file per pane, named in the session file; the shell
+/// integration prints it once and deletes it.
 public struct ScrollbackArchive: Sendable {
     /// Lines kept per pane: enough to see what happened, small enough to print at once.
     public static let maxLines = 2000
@@ -18,12 +18,20 @@ public struct ScrollbackArchive: Sendable {
     /// The text to keep from a pane: its last `maxLines` lines without the trailing blank ones (the
     /// empty prompt), then a dim line saying when it was saved. Nil when there is nothing to keep.
     public static func archived(_ text: String, savedAt date: Date, maxLines: Int = maxLines) -> String? {
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { line in
-            line.hasSuffix("\r") ? line.dropLast() : line
+        // From the end back, so a long text is not split whole for its last lines.
+        var lines: [Substring] = []
+        var end = text.endIndex
+        while lines.count < maxLines {
+            let newline = text.utf8[..<end].lastIndex(of: UInt8(ascii: "\n"))
+            let start = newline.map { text.utf8.index(after: $0) } ?? text.startIndex
+            var line = text[start..<end]
+            if line.hasSuffix("\r") { line = line.dropLast() }
+            if !lines.isEmpty || !Self.isBlank(line) { lines.append(line) }
+            guard let newline else { break }
+            end = newline
         }
-        while let last = lines.last, Self.isBlank(last) { lines.removeLast() }
         guard !lines.isEmpty else { return nil }
-        if lines.count > maxLines { lines.removeFirst(lines.count - maxLines) }
+        lines.reverse()
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d, HH:mm"
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -33,8 +41,8 @@ public struct ScrollbackArchive: Sendable {
     }
 
     /// Writes the archives and removes every other file in the folder (earlier quits') but those
-    /// in `keeping` (restored tabs never shown, whose shells have not printed theirs yet). `texts`:
-    /// a name for each tab's text. Returns the names written.
+    /// in `keeping` (restored panes never shown, whose shells have not printed theirs yet). `texts`:
+    /// a name for each pane's text. Returns the names written.
     @discardableResult
     public func replace(with texts: [String: String], keeping: Set<String> = []) -> Set<String> {
         let fm = FileManager.default

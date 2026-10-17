@@ -363,6 +363,11 @@ public final class TerminalSurfaceView: NSView {
             guard resizeMode != oldValue else { return }
             trailingResize?.cancel()
             trailingResize = nil
+            // libghostty redraws its layer whenever the layer's bounds change, there and then on
+            // the main thread, waiting for the GPU: every frame of a slide, for the same screen.
+            // Held, the screen stays put at the top left (the layer's gravity) and is not redrawn
+            // until the size is let go.
+            if oldValue == .held { layer?.setNeedsDisplay() }
             sizeDidChange()
         }
     }
@@ -372,6 +377,9 @@ public final class TerminalSurfaceView: NSView {
     private var trailingResize: Task<Void, Never>?
 
     private func sizeDidChange(force: Bool = false) {
+        // Here, not once: libghostty puts in a layer of its own (redrawn on bounds changes) when
+        // its surface is created, which may be after the mode was set.
+        layer?.needsDisplayOnBoundsChange = resizeMode != .held
         guard let surface else { return }
         let scale = window?.backingScaleFactor ?? 2.0
         let w = UInt32(max(1, (bounds.width * scale).rounded()))

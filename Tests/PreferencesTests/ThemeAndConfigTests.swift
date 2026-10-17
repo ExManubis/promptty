@@ -21,6 +21,23 @@ final class ThemeCatalogTests: XCTestCase {
         XCTAssertNil(swatch?.palette[5])
     }
 
+    func testReadsEveryThemesSwatchFromItsDirectory() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Self.flexokiDark.write(to: dir.appendingPathComponent("Flexoki Dark"), atomically: true, encoding: .utf8)
+        try "palette = 1=#ffffff".write(to: dir.appendingPathComponent("broken"), atomically: true, encoding: .utf8)
+        try "".write(to: dir.appendingPathComponent(".hidden"), atomically: true, encoding: .utf8)
+
+        let catalog = ThemeCatalog(directory: dir)
+        XCTAssertEqual(catalog.names, ["broken", "Flexoki Dark"])
+        XCTAssertTrue(catalog.contains("Flexoki Dark"))
+        XCTAssertFalse(catalog.contains(".hidden"))
+        let all = catalog.allSwatches()
+        XCTAssertEqual(Array(all.keys), ["Flexoki Dark"])
+        XCTAssertEqual(all["Flexoki Dark"], catalog.swatch(for: "Flexoki Dark"))
+    }
+
     func testParseNeedsBackgroundAndForeground() {
         XCTAssertNil(ThemeCatalog.parse("palette = 1=#ffffff"))
     }

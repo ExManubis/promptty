@@ -43,10 +43,14 @@ struct ThemeList: View {
     @State private var query = ""
     @State private var showAll = false
 
+    /// Light or dark themes only: needs every theme's swatch, read off the main thread.
+    private var filtersByLightness: Bool { prefersDark != nil && !showAll && query.isEmpty }
+
     private var names: [String] {
-        swatches.catalog.names.filter { name in
+        if filtersByLightness, !swatches.allRead { return [] }
+        return swatches.catalog.names.filter { name in
             if !query.isEmpty, !name.localizedCaseInsensitiveContains(query) { return false }
-            guard let prefersDark, !showAll, query.isEmpty else { return true }
+            guard let prefersDark, filtersByLightness else { return true }
             guard let bg = swatches.swatch(for: name)?.background else { return false }
             return (bg.luminance < 0.5) == prefersDark
         }
@@ -74,41 +78,51 @@ struct ThemeList: View {
 
             Divider()
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 1) {
-                        ForEach(names, id: \.self) { name in
-                            Button {
-                                selection = name
-                                onPick()
-                            } label: {
-                                HStack(spacing: 10) {
-                                    ThemeSwatchView(swatch: swatches.swatch(for: name))
-                                    Text(name).lineLimit(1)
-                                    Spacer()
-                                    if name == selection {
-                                        Image(systemName: "checkmark")
-                                            .font(.system(size: 11, weight: .semibold))
-                                            .foregroundStyle(Color.accentColor)
-                                    }
-                                }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
-                                .contentShape(Rectangle())
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .fill(name == selection ? Color.accentColor.opacity(0.14) : .clear)
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .id(name)
-                        }
-                    }
-                    .padding(6)
-                }
-                .onAppear { proxy.scrollTo(selection, anchor: .center) }
+            if filtersByLightness, !swatches.allRead {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                list
             }
         }
         .frame(width: 320, height: 420)
+    }
+
+    private var list: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 1) {
+                    ForEach(names, id: \.self) { name in
+                        Button {
+                            selection = name
+                            onPick()
+                        } label: {
+                            HStack(spacing: 10) {
+                                ThemeSwatchView(swatch: swatches.swatch(for: name))
+                                Text(name).lineLimit(1)
+                                Spacer()
+                                if name == selection {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(name == selection ? Color.accentColor.opacity(0.14) : .clear)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .id(name)
+                    }
+                }
+                .padding(6)
+            }
+            .onAppear { proxy.scrollTo(selection, anchor: .center) }
+        }
     }
 }

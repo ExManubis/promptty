@@ -27,9 +27,63 @@ final class SessionSnapshotTests: XCTestCase {
         let tab = w.addTab(title: "left", workingDirectory: "/left")
         let right = tab.split(tab.focusedPaneID, direction: .right, workingDirectory: "/right")
         right.title = "right"
-        XCTAssertEqual(ws.snapshot().windows[0].tabs[0], TabSnapshot(title: "right", customTitle: nil, workingDirectory: "/right"))
+        XCTAssertEqual(ws.snapshot().windows[0].tabs[0].title, "right")
+        XCTAssertEqual(ws.snapshot().windows[0].tabs[0].workingDirectory, "/right")
         tab.focus(tab.root.leaves[0])
-        XCTAssertEqual(ws.snapshot().windows[0].tabs[0], TabSnapshot(title: "left", customTitle: nil, workingDirectory: "/left"))
+        XCTAssertEqual(ws.snapshot().windows[0].tabs[0].title, "left")
+        XCTAssertEqual(ws.snapshot().windows[0].tabs[0].workingDirectory, "/left")
+    }
+
+    func testATabWithOnePaneHasNoLayout() {
+        let ws = Workspace()
+        ws.addWindow().addTab(title: "a", workingDirectory: "/a")
+        XCTAssertNil(ws.snapshot().windows[0].tabs[0].layout)
+    }
+
+    /// Each pane comes back where it was, in its folder, with its label and scrollback file, and
+    /// the focused one focused.
+    func testASplitTabComesBackSplit() throws {
+        let ws = Workspace()
+        let w = ws.addWindow()
+        let tab = w.addTab(title: "left", workingDirectory: "/left")
+        let left = tab.focusedPane
+        left.label = "server"
+        let right = tab.split(left.id, direction: .right, workingDirectory: "/right")
+        let below = tab.split(right.id, direction: .down, workingDirectory: "/gone")
+        below.label = "logs"
+        tab.setRatio(at: SplitPath(steps: []), 0.3)
+        tab.focus(right.id)
+        right.title = "vim"
+        let files = [left.id: "l.vt", below.id: "b.vt"]
+        let snap = ws.snapshot { files[$0.id] }
+        XCTAssertEqual(snap.windows[0].tabs[0].scrollback, nil)
+
+        let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: JSONEncoder().encode(snap))
+        let restored = Workspace.restore(from: decoded, directoryExists: { $0 != "/gone" }, fallbackDirectory: "/home").windows[0].tabs[0]
+        XCTAssertEqual(restored.root.leaves.count, 3)
+        guard case .split(.horizontal, let ratio, .leaf, .split(.vertical, _, .leaf, .leaf)) = restored.root else {
+            return XCTFail("\(restored.root)")
+        }
+        XCTAssertEqual(ratio, 0.3, accuracy: 0.001)
+        let panes = restored.orderedPanes
+        XCTAssertEqual(panes.map(\.workingDirectory), ["/left", "/right", "/home"])
+        XCTAssertEqual(panes.map(\.label), ["server", nil, "logs"])
+        XCTAssertEqual(panes.map(\.restoredScrollback), ["l.vt", nil, "b.vt"])
+        XCTAssertEqual(restored.focusedPaneID, panes[1].id)
+        XCTAssertEqual(restored.title, "vim")
+    }
+
+    /// A pinned tab comes back as its pin, one pane, whatever it was split into.
+    func testASplitPinnedTabComesBackAsItsPin() {
+        let ws = Workspace()
+        let w = ws.addWindow()
+        let tab = w.addTab(title: "", workingDirectory: "/repo")
+        _ = tab.split(tab.focusedPaneID, direction: .right, workingDirectory: "/other")
+        w.pin(tab.id, TabPin(directory: "/repo", command: "claude"))
+        let restored = Workspace.restore(from: ws.snapshot(), directoryExists: { _ in true }).windows[0].tabs[0]
+        XCTAssertFalse(restored.hasSplits)
+        XCTAssertEqual(restored.workingDirectory, "/repo")
+        XCTAssertEqual(restored.focusedPane.startupCommand, "claude")
     }
 
     func testRoundTripThroughJSON() throws {

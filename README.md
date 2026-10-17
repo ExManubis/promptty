@@ -30,8 +30,9 @@
   as Markdown or rerun. ⌃⌘↑ jumps straight to the last failure. ⌘F finds anything in the
   scrollback, every match highlighted. Scrolled back while a command keeps printing, a pill says
   how many new lines are below; click it to jump down.
-- **Pick up where you left off.** Quit and reopen PrompTTY: every tab comes back in its folder
-  with what it printed before, colors included, above a fresh prompt (zsh).
+- **Pick up where you left off.** Quit and reopen PrompTTY: every tab comes back with its splits,
+  each pane in its folder, with its label and what it printed before, colors included, above a
+  fresh prompt (zsh).
 - **Projects and pinned tabs.** Group tabs into projects. Pin a tab running `claude` or
   `npm run dev` and it comes back, still running, the next time you open PrompTTY.
 - **Jump to a folder.** ⌘J lists the folders you work in, most used and most recent first:
@@ -49,7 +50,8 @@
   the session.
 - **Type into every pane at once.** ⌥⇧⌘I broadcasts what you type to all panes of a tab (handy
   for the same command on several servers); each pane wears an orange border while it's on.
-- **Undo a closed tab.** ⇧⌘T brings back the last ten closed tabs, splits and folders included.
+- **Undo a closed tab.** ⇧⌘T brings back the last ten closed tabs, splits and folders included,
+  also the tabs of a closed window (pinned ones pinned again), and with no window open.
 - **Safe by default.** ⌘-click opens links and `path:line:col`, but never runs programs.
   Programs must ask before using your clipboard, and password prompts get secure input.
 
@@ -88,8 +90,8 @@ promptty ls --json                                        # each pane's recent c
 
 `-p`/`-b` names a pane by its label, its id (with or without `block:`) or the end of its id; `-c`
 a command by its id or the end of it. Panes set `TERM_PROGRAM=PrompTTY`. Exit status: 0 ok,
-1 failed, 2 usage, 3 no such pane or command (or more than one), 4 PrompTTY not reachable, 5 `wait`
-timed out. Turn it off in
+1 failed (also `wait` when the pane closes first), 2 usage, 3 no such pane or command (or more than
+one), 4 PrompTTY not reachable, 5 `wait` timed out. Turn it off in
 **Settings › Tabs › Command line**.
 
 ## Connect your agents

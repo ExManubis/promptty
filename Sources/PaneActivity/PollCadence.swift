@@ -4,9 +4,11 @@ import Foundation
 /// foreground check, its screen read) runs at its own interval, however often the timer fires.
 public struct PollCadence<Key: Hashable> {
     private var last: [Key: Date] = [:]
-    /// A timer with tolerance fires a little early or late; an interval counts as elapsed this
-    /// close to its end, so a 0.5 s job does not slip to the tick after.
-    private let slack: TimeInterval
+    /// A timer with tolerance fires late by up to its tolerance, and the tick after may be on time
+    /// again; an interval counts as elapsed this close to its end, so a 0.5 s job on a 0.25 s timer
+    /// does not slip to the tick after. Set it to just under half the timer's interval: more than
+    /// the timer's tolerance, well less than a whole tick, so no job runs a tick early.
+    public var slack: TimeInterval
 
     public init(slack: TimeInterval = 0.06) { self.slack = slack }
 

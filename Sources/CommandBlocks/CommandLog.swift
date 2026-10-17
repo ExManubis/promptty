@@ -37,16 +37,20 @@ public struct CommandLog: Equatable, Sendable {
     public static func newID() -> String { prefix + UUID().uuidString.lowercased() }
 
     /// A command starts; `id` is one handed out before it ran (a new tab's command), else a new one.
+    /// Returns its id, and the commands still marked running that it ended: they never reported
+    /// their end (the shell was replaced), so they are over now, without an exit code.
     @discardableResult
-    public mutating func start(_ command: String, id: String? = nil, at date: Date = Date()) -> String {
-        // A command still marked running never reported its end (the shell was replaced): it is
-        // over now.
-        for i in records.indices where records[i].running { records[i].finished = date }
+    public mutating func start(_ command: String, id: String? = nil, at date: Date = Date()) -> (id: String, ended: [CommandRecord]) {
+        var ended: [CommandRecord] = []
+        for i in records.indices where records[i].running {
+            records[i].finished = date
+            ended.append(records[i])
+        }
         let id = id ?? Self.newID()
         records.append(CommandRecord(id: id, command: command, started: date, finished: nil, exitCode: nil, ordinal: count))
         count += 1
         if records.count > Self.limit { records.removeFirst(records.count - Self.limit) }
-        return id
+        return (id, ended)
     }
 
     /// The running command ended; returns it, or nil when none was running.

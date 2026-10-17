@@ -11,6 +11,8 @@ protocol ChromeActions: AnyObject {
     func shell(for pane: PaneID) -> PaneShell?
     /// What runs in a pane and what happened there unseen (observes that pane alone).
     func activity(for pane: PaneID) -> PaneActivity.Visible
+    /// What a pane's activity shows, without its program or tool (observes that alone).
+    func display(for pane: PaneID) -> PaneActivity.Display
     /// The link under the pointer in a pane (observes that pane alone).
     func hoveredLink(for pane: PaneID) -> String?
     /// What a program in a pane waits to do with the clipboard (observes that pane alone).
@@ -35,7 +37,7 @@ protocol ChromeActions: AnyObject {
     func closeFind(in pane: PaneID)
     /// Whether secure keyboard input is on for a pane (observes that pane alone).
     func isSecure(_ pane: PaneID) -> Bool
-    /// The agents of every tab, in every window (observable).
+    /// The agents of every tab, in every window (each tab's observed alone).
     var agentList: AgentList { get }
     /// Brings a pane forward, in whichever window it is.
     func reveal(_ pane: PaneID)
@@ -95,14 +97,42 @@ protocol ChromeActions: AnyObject {
 }
 
 /// The agents on the sidebar's tab rows, worked out by the coordinator when panes, what runs in
-/// them or their repositories change, not by the views that show them.
+/// them or their repositories change, not by the views that show them. A box per tab, as
+/// `PaneStatus` is per pane: a row observes its own tab's agents, not every tab's.
 @MainActor
-@Observable
 final class AgentList {
-    /// Every tab running an agent, in every window.
-    var tabs: [TabID: TabAgentSummary] = [:]
+    /// Every tab running an agent, in every window (not observed).
+    private(set) var tabs: [TabID: TabAgentSummary] = [:]
+    private var boxes: [TabID: Box] = [:]
 
-    func summary(for tab: TabID) -> TabAgentSummary? { tabs[tab] }
+    @MainActor
+    @Observable
+    final class Box {
+        var summary: TabAgentSummary?
+        init(_ summary: TabAgentSummary?) { self.summary = summary }
+    }
+
+    /// A tab's agents (observes that tab alone). The box is made on first use, so a row reading
+    /// it before the tab has agents sees them when it does.
+    func summary(for tab: TabID) -> TabAgentSummary? {
+        if let box = boxes[tab] { return box.summary }
+        let box = Box(tabs[tab])
+        boxes[tab] = box
+        return box.summary
+    }
+
+    /// Publishes the agents, changing only the boxes of tabs whose agents changed. Boxes of tabs
+    /// not in `liveTabs` (closed) are dropped.
+    func update(_ new: [TabID: TabAgentSummary], liveTabs: Set<TabID>) {
+        for (id, box) in boxes {
+            if !liveTabs.contains(id) {
+                boxes[id] = nil
+            } else if box.summary != new[id] {
+                box.summary = new[id]
+            }
+        }
+        tabs = new
+    }
 }
 
 /// What a tab row shows of the agents in its tab: the most urgent one, and how many others.

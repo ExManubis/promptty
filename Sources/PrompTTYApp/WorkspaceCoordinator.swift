@@ -4,11 +4,9 @@ import Carbon.HIToolbox
 import CommandBlocks
 import CommandEditing
 import GhosttyBridge
-import Observation
 import PaneActivity
 import RemoteControl
 import Preferences
-import UniformTypeIdentifiers
 import WorkspaceModel
 
 /// Owns the mapping between the model, window controllers, and surfaces, and is libghostty's action sink.
@@ -28,19 +26,28 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     )
     /// Schedules a session save.
     var onModelChanged: (() -> Void)?
+    /// The scrollback archive the session file names.
+    private(set) lazy var persistence = SessionPersistence(workspace: workspace, preferences: preferences) { [weak self] in
+        self?.controllers[$0]
+    }
+    /// The agents of every tab, for the sidebars' tab rows, and their repositories.
+    let agents: AgentDirectory
 
     init(runtime: GhosttyRuntime, workspace: Workspace, preferences: PreferencesController) {
         self.runtime = runtime
         self.workspace = workspace
         self.preferences = preferences
+        agents = AgentDirectory(workspace: workspace, activity: activity)
+        lastAppSettings = preferences.settings
         activity.panes = { [weak self] in self?.watchedPanes() ?? [] }
         activity.isSeen = { [weak self] in self?.isSeen($0) ?? false }
         activity.onNotice = { [weak self] pane, notice in self?.post(notice, for: pane) }
         activity.onSeen = { Notifications.remove(for: $0) }
         activity.allPanes = { [weak self] in Set(self?.allPaneIDs ?? []) }
-        activity.afterTick = { [weak self] in self?.lookUpRepositories() }
+        activity.afterTick = { [weak self] in self?.agents.lookUpRepositories() }
         secureInput.global = preferences.settings.secureKeyboardEntry
         activity.marksUnseenOutput = preferences.settings.markUnseenOutput
+        ChromeTint.opacity = CGFloat(preferences.settings.windowOpacity)
         secureInput.onChange = { [weak self] in self?.refreshSecureIndicators() }
     }
 
@@ -69,7 +76,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         activity.start()
         startHooks()
         startControl()
-        refreshAgents()
+        agents.refresh()
     }
 
     /// Listens for agents' hooks (`promptty-hook`, run by Claude Code inside a pane). Without the
@@ -101,10 +108,9 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     }
 
     private var controlServer: ControlServer?
-    /// `promptty wait`: replies waiting for a command to end, by its id.
-    var commandWaiters: [String: [(CommandRecord) -> Void]] = [:]
-    /// Ids handed out for a command before its pane's shell runs it, and that pane.
-    var pendingCommands: [String: (pane: PaneID, command: String)] = [:]
+    /// The commands `promptty` handed out ids for, and who waits for them; told of every pane
+    /// that closes.
+    let controlCommands = ControlCommands()
 
     /// Listens for `promptty`. Requests are answered on the main thread.
     func startControl() {
@@ -198,75 +204,6 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     /// Notices posted, for the debug driver.
     var postedNotices: [String] = []
     #endif
-
-    /// The agents of every tab, in every window, for the sidebars' tab rows.
-    let agentList = AgentList()
-    private var agentsScheduled = false
-    /// The folders the agents work in, as the list last found them.
-    private var agentFolders: Set<String> = []
-    private var repositories = RepositoryCache()
-
-    /// The list is worked out again on the next turn of the run loop: changes made together are
-    /// one update.
-    private func scheduleAgents() {
-        guard !agentsScheduled else { return }
-        agentsScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated { self?.refreshAgents() }
-        }
-    }
-
-    /// Works the agents out, watching what that read (the windows, tabs and panes, the panes'
-    /// folders, what runs in each), and publishes them when they changed.
-    private func refreshAgents() {
-        agentsScheduled = false
-        let tabs = withObservationTracking { agentSummaries() } onChange: { [weak self] in
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.scheduleAgents() } }
-        }
-        if tabs != agentList.tabs { agentList.tabs = tabs }
-        lookUpRepositories()
-    }
-
-    /// Each tab's most urgent agent, and how many others it has.
-    private func agentSummaries() -> [TabID: TabAgentSummary] {
-        var folders = Set<String>()
-        var summaries: [TabID: TabAgentSummary] = [:]
-        for window in workspace.windows {
-            for tab in window.tabs {
-                let entries = tab.orderedPanes.compactMap { pane -> AgentEntry? in
-                    let status = activity.status(for: pane.id)
-                    guard let program = status.activity.program, program.isAgent else { return nil }
-                    // The agent's own folder: it may differ from the shell's (`cd x && claude`).
-                    let folder = activity.agentDirectory(for: pane.id) ?? pane.workingDirectory
-                    folders.insert(folder)
-                    return AgentEntry(pane: pane.id, display: status.activity.display,
-                                      repository: repositories.repository(for: folder) ?? Repository(root: folder, branch: nil),
-                                      status: status)
-                }
-                guard let shown = AgentListing.mostUrgent(entries.map { ($0.pane, $0.display) }, focused: tab.focusedPaneID),
-                      let entry = entries.first(where: { $0.pane == shown }) else { continue }
-                summaries[tab.id] = TabAgentSummary(entry: entry, others: entries.count - 1)
-            }
-        }
-        agentFolders = folders
-        return summaries
-    }
-
-    /// Looks up the repositories of the agents' folders off the main thread: new folders at once,
-    /// the others again every few seconds (an agent may switch branches). Called after every
-    /// activity tick too.
-    private func lookUpRepositories() {
-        for folder in repositories.due(agentFolders, at: Date()) {
-            Task.detached(priority: .utility) { [weak self] in
-                let repository = Repository.find(for: folder, in: DiskFiles())
-                await self?.found(repository, for: folder)
-            }
-        }
-    }
-
-    private func found(_ repository: Repository, for folder: String) {
-        if repositories.resolved(folder, repository, at: Date()) { scheduleAgents() }
-    }
 
     /// A notification was clicked: its pane comes forward, focused.
     func reveal(_ pane: PaneID) {
@@ -368,11 +305,23 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         preferences.update { $0.tabListHidden.toggle() }
     }
 
-    private var lastTintStrength: Double?
+    private var lastAppSettings: Preferences.Settings
 
     /// Applies app-only settings after a change. Layout, sidebar width and visibility are
     /// observed by SwiftUI directly; the model's layout is kept in step for the session file.
+    /// Dragging the Frame color or Opacity slider changes settings at every step, so a change to
+    /// only those recolors the chrome and touches nothing else.
     func applyAppSettings(_ settings: Preferences.Settings) {
+        let old = lastAppSettings
+        lastAppSettings = settings
+        if old.tintStrength != settings.tintStrength || old.windowOpacity != settings.windowOpacity {
+            ChromeTint.opacity = CGFloat(settings.windowOpacity)
+            for c in controllers.values { applyConfiguredTint(to: c) }
+        }
+        var rest = old
+        rest.tintStrength = settings.tintStrength
+        rest.windowOpacity = settings.windowOpacity
+        if rest == settings { return }
         activity.marksUnseenOutput = settings.markUnseenOutput
         let layout = TabLayout(settings.tabLayout)
         if workspace.tabLayout != layout {
@@ -382,11 +331,6 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         if secureInput.global != settings.secureKeyboardEntry {
             secureInput.global = settings.secureKeyboardEntry
             refreshSecureIndicators()
-        }
-        if lastTintStrength != settings.tintStrength || ChromeTint.opacity != CGFloat(settings.windowOpacity) {
-            lastTintStrength = settings.tintStrength
-            ChromeTint.opacity = CGFloat(settings.windowOpacity)
-            configDidReload()
         }
         for c in controllers.values {
             c.focusSelectedPane()
@@ -452,6 +396,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         }
         if let closed = state.closedTab(tab) { closedTabs.push(closed) }
         for pane in tab.orderedPanes { controller.removeSurface(for: pane.id) }
+        controlCommands.panesClosed(tab.orderedPanes.map(\.id))
         state.closeTab(id: id)
         if state.isEmpty {
             controller.window?.close()
@@ -461,75 +406,30 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
-    /// At quit: writes what each tab's focused pane shows to the scrollback archive, and returns the
-    /// file kept for each tab. A restored tab never shown keeps the file it came with. Nothing
-    /// (and no files) when the setting is off.
-    func archiveScrollback() -> [TabID: String] {
-        let archive = ScrollbackArchive(directory: AppPaths.scrollback)
-        let settings = preferences.settings
-        guard settings.restoreSession, settings.restoreScrollback else {
-            archive.clear()
-            return [:]
-        }
-        let now = Date()
-        var texts: [String: String] = [:]
-        var kept = Set<String>()
-        var names: [TabID: String] = [:]
-        for state in workspace.windows {
-            guard let controller = controllers[state.id] else { continue }
-            for tab in state.tabs {
-                let pane = tab.focusedPane
-                if let surface = controller.surfaces[pane.id] {
-                    guard let text = surface.allText(styled: true),
-                          let archived = ScrollbackArchive.archived(text, savedAt: now) else { continue }
-                    let name = "\(tab.id.rawValue.uuidString).vt"
-                    texts[name] = archived
-                    names[tab.id] = name
-                } else if let pending = pane.restoredScrollback {
-                    kept.insert(pending)
-                    names[tab.id] = pending
-                }
-            }
-        }
-        archive.replace(with: texts, keeping: kept)
-        lastArchive = names
-        return names
-    }
-
-    private var lastArchive: [TabID: String] = [:]
-
-    /// The archive files written last, for a session saved in between: each tab's, or the one a
-    /// restored tab came with (until its shell prints it).
-    var archivedScrollback: [TabID: String] {
-        guard preferences.settings.restoreSession, preferences.settings.restoreScrollback else { return [:] }
-        var names: [TabID: String] = [:]
-        for state in workspace.windows {
-            for tab in state.tabs {
-                if let name = lastArchive[tab.id] ?? tab.focusedPane.restoredScrollback { names[tab.id] = name }
-            }
-        }
-        return names
-    }
-
     /// The drop-down terminal on the global shortcut; set by the app delegate.
-    var quickTerminal: QuickTerminal?
+    var quickTerminal: QuickTerminal? {
+        didSet {
+            quickTerminal?.onShortcutUnavailable = { [weak self] shortcut in
+                self?.showTransientBanner("The quick terminal's shortcut \(shortcut) is taken by another app. Choose another in Settings › Keyboard.")
+            }
+        }
+    }
 
     /// The tabs closed most recently, for Reopen Closed Tab.
     private(set) var closedTabs = ClosedTabStack()
 
     /// Opens the most recently closed tab again: in its window if that is still open, else in
-    /// `fallback`'s.
+    /// `fallback`'s, else in a new window when none is open.
     func reopenClosedTab(fallback: WindowState?) {
         guard let closed = closedTabs.pop() else { return NSSound.beep() }
-        guard let state = workspace.windows.first(where: { $0.id == closed.window }) ?? fallback ?? workspace.windows.first,
-              let controller = controllers[state.id] else { return }
+        let state = workspace.windows.first(where: { $0.id == closed.window }) ?? fallback ?? workspace.windows.first ?? workspace.addWindow()
         state.reopen(closed, projectExists: { [workspace] in workspace.project(id: $0) != nil },
                      directoryExists: { path in
                          var isDirectory: ObjCBool = false
                          return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
                      })
-        controller.reload()
-        controller.window?.makeKeyAndOrderFront(nil)
+        if let controller = controllers[state.id] { controller.reload() } else { open(state) }
+        controllers[state.id]?.window?.makeKeyAndOrderFront(nil)
         modelDidChange()
     }
 
@@ -714,6 +614,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         let removed = tab.reset(workingDirectory: exists ? pin.directory : NSHomeDirectory(),
                                 startupCommand: runningCommand && exists ? pin.command : nil)
         for pane in removed { controller.removeSurface(for: pane) }
+        controlCommands.panesClosed(removed)
         controller.reload()
         modelDidChange()
     }
@@ -724,9 +625,12 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         // would hold secure input on for the whole system.
         if let state = workspace.windows.first(where: { $0.id == id }) {
             secureInput.remove(state.paneIDs)
+            // ⇧⌘T brings them back, last tab first.
+            for tab in state.tabs { if let closed = state.closedTab(tab) { closedTabs.push(closed) } }
         }
         for view in controller.allSurfaces() { view.teardown() }
         controller.stopShells()
+        if let state = workspace.windows.first(where: { $0.id == id }) { controlCommands.panesClosed(state.paneIDs) }
         workspace.removeWindow(id: id)
         modelDidChange()
     }
@@ -773,6 +677,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             return
         }
         controller.removeSurface(for: pane, closingOutOf: tab.id)
+        controlCommands.panesClosed([pane])
         tab.closePane(pane)
         controller.reload()
         modelDidChange()
@@ -828,270 +733,11 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
-    // MARK: Links
-
-    /// Carries out what `LinkTarget` decided; a refusal or a failure beeps. Nothing is ever run.
-    private func openLink(_ decision: LinkDecision) {
-        switch decision {
-        case .open(let url):
-            if !NSWorkspace.shared.open(url) { NSSound.beep() }
-        case .openAsText(let url):
-            guard let editor = NSWorkspace.shared.urlForApplication(toOpen: .plainText) else {
-                NSSound.beep()
-                return
-            }
-            NSWorkspace.shared.open([url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration()) { _, error in
-                if error != nil { NSSound.beep() }
-            }
-        case .reveal(let url):
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        case .confirm(let url):
-            let alert = NSAlert()
-            alert.messageText = "Open this link?"
-            alert.informativeText = url.absoluteString
-            // The first button is the default one.
-            alert.addButton(withTitle: "Cancel")
-            alert.addButton(withTitle: "Open")
-            if alert.runModal() == .alertSecondButtonReturn, !NSWorkspace.shared.open(url) { NSSound.beep() }
-        case .refuse:
-            NSSound.beep()
-        }
-    }
+    // MARK: Clipboard
 
     /// The clipboard policy may have changed: requests asked under the old one are refused.
     func denyClipboardRequests() {
         for controller in controllers.values { controller.denyClipboardRequests() }
-    }
-
-    // MARK: Lookup
-
-    private func locate(_ view: TerminalSurfaceView) -> (WindowState, Tab, Pane, TerminalWindowController)? {
-        guard let id = view.token?.base as? PaneID,
-              let (state, tab) = workspace.tab(containing: id),
-              let pane = tab.pane(id),
-              let controller = controllers[state.id] else { return nil }
-        return (state, tab, pane, controller)
-    }
-
-    private var keyWindowState: WindowState? {
-        controllers.values.first { $0.window?.isKeyWindow == true }?.state ?? workspace.windows.first
-    }
-
-    // MARK: GhosttyActionSink
-
-    func handle(_ action: GhosttyAction, target: GhosttyActionTarget) -> Bool {
-        // The quick terminal is no pane: it closes itself and copes with nothing else.
-        if case .surface(let view) = target, view.token?.base is QuickTerminal.Token {
-            switch action {
-            case .closeSurface, .showChildExited:
-                DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { self?.quickTerminal?.surfaceClosed() } }
-                return true
-            case .scrollbar, .cellSize, .render, .mouseOverLink, .initialSize:
-                return true
-            default:
-                return false
-            }
-        }
-        // The screen moved in the scrollback, the scrollback grew, or rows changed height: the
-        // command blocks moved. These arrive constantly in a stream, so no `locate` for them.
-        switch action {
-        case .scrollbar(let total, _, _):
-            if case .surface(let view) = target {
-                view.onLayoutChange?()
-                if let pane = view.token?.base as? PaneID { activity.rowsReported(pane, total: total) }
-            }
-            return true
-        case .cellSize:
-            if case .surface(let view) = target { view.onLayoutChange?() }
-            return true
-        case .mouseOverLink(let link):
-            // On every mouse move over text, so straight to the pane's card.
-            if case .surface(let view) = target { view.onLinkHover?(link) }
-            return true
-        case .progressReport(let state, let percent):
-            // Often while a program runs, so straight to the pane's box.
-            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
-            let kind: PaneProgress.Kind?
-            switch state {
-            case .remove: kind = nil
-            case .set: kind = .set
-            case .error: kind = .error
-            case .indeterminate: kind = .indeterminate
-            case .pause: kind = .pause
-            }
-            activity.reportProgress(pane, kind: kind, percent: percent)
-            return true
-        case .startSearch(let needle):
-            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
-            let status = activity.status(for: pane)
-            if status.find == nil { status.setFind(PaneFind()) }
-            status.updateFind { $0.focusRequest += 1 }
-            // Use Selection for Find: the terminal names the text but leaves looking for it to us.
-            if !needle.isEmpty {
-                status.updateFind { $0.needle = needle }
-                view.performBindingAction("search:\(needle)")
-            }
-            return true
-        case .endSearch:
-            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
-            activity.status(for: pane).setFind(nil)
-            return true
-        case .searchTotal(let total):
-            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
-            activity.status(for: pane).updateFind { $0.total = total }
-            return true
-        case .searchSelected(let selected):
-            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
-            activity.status(for: pane).updateFind { $0.selected = selected }
-            return true
-        default: break
-        }
-        let located: (WindowState, Tab, Pane, TerminalWindowController)?
-        if case .surface(let view) = target { located = locate(view) } else { located = nil }
-        let state = located?.0 ?? keyWindowState
-
-        switch action {
-        case .newWindow:
-            newWindow(workingDirectory: located?.2.workingDirectory)
-            return true
-        case .newTab:
-            guard let state else { return false }
-            newTab(in: state)
-            return true
-        case .closeTab(let mode):
-            guard let state else { return false }
-            let selected = located?.1.id ?? state.selectedTabID
-            guard let selected else { return false }
-            switch mode {
-            case .this: closeTab(selected)
-            case .others: state.tabs.map(\.id).filter { $0 != selected }.forEach(closeTab)
-            case .right:
-                guard let i = state.index(of: selected) else { return false }
-                state.tabs.dropFirst(i + 1).map(\.id).forEach(closeTab)
-            }
-            return true
-        case .closeWindow:
-            guard let state else { return false }
-            controllers[state.id]?.window?.performClose(nil)
-            return true
-        case .quit:
-            NSApp.terminate(nil)
-            return true
-        case .gotoTab(let g):
-            guard let state else { return false }
-            let target: GotoTabTarget
-            switch g {
-            case .index(let n): target = .index(n)
-            case .previous: target = .previous
-            case .next: target = .next
-            case .last: target = .last
-            }
-            let moved = state.gotoTab(target)
-            if moved { controllers[state.id]?.reload(); modelDidChange() }
-            return moved
-        case .moveTab(let amount):
-            guard let state else { return false }
-            let moved = state.moveSelectedTab(by: amount)
-            if moved { controllers[state.id]?.reload(); modelDidChange() }
-            return moved
-        case .setTitle(let title), .setTabTitle(let title):
-            guard let located else { return false }
-            // Agents animate a spinner in their title many times a second. Every change redraws
-            // the tab row, the Agents entry and the window title, and each redraw blocks the main
-            // thread on the window server, which also presents the terminal's frames: a working
-            // agent made typing and its own animation stutter. Without the spinner the title
-            // rarely changes, and an unchanged title changes nothing.
-            let shown = Pane.terminalTitle(title)
-            guard located.2.title != shown else { return true }
-            located.2.title = shown
-            located.3.reload()
-            return true
-        case .pwd(let dir):
-            guard let located else { return false }
-            // The integration's ready signal is a report under a reserved path, not a directory.
-            if located.3.shell(for: located.2.id)?.directoryReported(dir) == true { return true }
-            located.2.workingDirectory = dir
-            located.3.reload()
-            modelDidChange()
-            return true
-        case .initialSize(let w, let h):
-            guard let located else { return false }
-            located.3.applyInitialTerminalSize(CGSize(width: Double(w), height: Double(h)))
-            return true
-        case .scrollbar, .cellSize:
-            return true // handled above, before the pane lookup
-        case .render, .configChange:
-            return true
-        case .colorChange(let kind, let r, let g, let b):
-            // Only the focused pane of the selected tab (OSC 11) tints its own window.
-            guard kind == .background, let located, located.0.selectedTabID == located.1.id,
-                  located.1.focusedPaneID == located.2.id else { return false }
-            let color = NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
-            located.3.setColors(frame: ChromeTint.frame(forTerminalBackground: color, strength: preferences.settings.tintStrength), panel: color)
-            return true
-        case .showChildExited(let code, _):
-            guard let located else { return false }
-            located.3.chrome.exitedPanes[located.2.id] = code
-            return true
-        case .closeSurface(let processAlive):
-            guard let located else { return false }
-            let paneID = located.2.id
-            if processAlive, preferences.settings.confirmCloseRunning {
-                let message = located.1.hasSplits ? "Close this pane?" : "Close this tab?"
-                located.3.confirmClose(message: message, informativeText: "A process is still running in it.") { [weak self] in
-                    self?.closePane(paneID)
-                }
-            } else {
-                closePane(paneID)
-            }
-            return true
-        case .desktopNotification(let title, let body):
-            // A program (an agent waiting for the user) asks for attention: marked and notified
-            // where the user is not looking; where they are, they see it already.
-            guard let located else {
-                Notifications.post(title: title.isEmpty ? "PrompTTY" : title, body: body, pane: nil)
-                return true
-            }
-            activity.attention(located.2.id, message: [title, body].filter { !$0.isEmpty }.joined(separator: ": "))
-            return true
-        case .ringBell:
-            if let located, activity.attention(located.2.id, message: nil) { return true }
-            NSSound.beep()
-            return true
-        case .commandFinished(let code, let duration):
-            guard let located else { return false }
-            activity.exitReported(located.2.id, code: Int(code))
-            activity.clearProgress(located.2.id)
-            located.3.shell(for: located.2.id)?.commandFinished(code: code, durationNs: duration)
-            located.3.blocks(for: located.2.id)?.setNeedsRefresh()
-            return true
-        case .secureInput(let request):
-            guard let located else { return false }
-            let pane = located.2.id
-            switch request {
-            case .on: secureInput.setRequested(pane, true)
-            case .off: secureInput.setRequested(pane, false)
-            case .toggle: secureInput.setRequested(pane, !secureInput.isRequested(pane))
-            }
-            refreshSecureIndicators()
-            return true
-        case .openURL(let kind, let text):
-            // Always true, even when refused: false would make libghostty `open` the text itself,
-            // past every refusal of `LinkTarget`.
-            let decision = LinkTarget.decide(text, kind: kind, relativeTo: located?.2.workingDirectory)
-            // Carried out on the next turn of the run loop, never inside this callback: a ⌘-click
-            // reaches here with libghostty holding the terminal's lock, and the confirmation's
-            // modal alert (or another app coming forward) takes the keys from the window, whose
-            // focus change calls back into libghostty for that same lock on this thread.
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated { self?.openLink(decision) }
-            }
-            return true
-        case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .mouseOverLink, .progressReport, .unhandled,
-             .startSearch, .endSearch, .searchTotal, .searchSelected:
-            // Config, mouse-shape and mouse-visibility actions are handled by the runtime.
-            return false
-        }
     }
 }
 
