@@ -107,7 +107,7 @@ public struct ShortcutMap: Equatable, Sendable {
     public static let defaults: [ShortcutAction: Shortcut] = [
         .newWindow: s("cmd+n"),
         .closeWindow: s("shift+cmd+w"),
-        .commandPalette: s("shift+cmd+p"),
+        .commandPalette: s("cmd+k"),
         .quickTerminal: s("opt+return"),
         .newTab: s("cmd+t"),
         .closeTab: s("opt+cmd+w"),
@@ -132,7 +132,7 @@ public struct ShortcutMap: Equatable, Sendable {
         .copy: s("cmd+c"),
         .paste: s("cmd+v"),
         .selectAll: s("cmd+a"),
-        .clear: s("cmd+k"),
+        .clear: s("opt+cmd+k"),
         .biggerFont: s("cmd+="),
         .smallerFont: s("cmd+-"),
         .actualSizeFont: s("cmd+0"),

@@ -36,7 +36,7 @@
 - **Quick terminal.** ⌥↩ from any app drops a terminal down from the top of the screen; the
   same keys (or clicking elsewhere) put it away, its shell still running. Change the keys or turn
   it off in Settings › Keyboard.
-- **Command palette.** ⇧⌘P finds any tab in any window and runs any command by name, with its
+- **Command palette.** ⌘K finds any tab in any window and runs any command by name, with its
   shortcut beside it.
 - **Splits.** Split right or down, drag to resize, zoom one pane to fill the tab.
 - **Type into every pane at once.** ⌥⇧⌘I broadcasts what you type to all panes of a tab (handy
@@ -69,7 +69,7 @@ included), and Option works as Alt. Every shortcut can be changed in **Settings 
 
 | Action | Keys |
 |---|---|
-| Command palette | ⇧⌘P |
+| Command palette | ⌘K |
 | Quick terminal, from any app | ⌥↩ |
 | New window / close window | ⌘N / ⇧⌘W |
 | New tab / close tab | ⌘T / ⌥⌘W |
@@ -83,6 +83,7 @@ included), and Option works as Alt. Every shortcut can be changed in **Settings 
 | Broadcast input to all panes of the tab | ⌥⇧⌘I |
 | Select previous / next command | ⌘↑ / ⌘↓ |
 | Select previous / next failed command | ⌃⌘↑ / ⌃⌘↓ |
+| Clear the screen | ⌥⌘K |
 | Copy the command's output / the command | ⌥⌘C / ⇧⌘C |
 | Rerun the selected command | ⇧⌘R |
 | Find in the scrollback / next / previous | ⌘F / ⌘G / ⇧⌘G |

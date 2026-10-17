@@ -154,7 +154,8 @@ final class ShortcutMapTests: XCTestCase {
         XCTAssertEqual(m.shortcut(for: .equalizePanes), s("ctrl+cmd+="))
         XCTAssertEqual(m.shortcut(for: .toggleTabLayout), s("ctrl+cmd+s"))
         XCTAssertEqual(m.shortcut(for: .gotoTab9), s("cmd+9"))
-        XCTAssertEqual(m.shortcut(for: .clear), s("cmd+k"))
+        XCTAssertEqual(m.shortcut(for: .clear), s("opt+cmd+k"))
+        XCTAssertEqual(m.shortcut(for: .commandPalette), s("cmd+k"))
         XCTAssertEqual(m.shortcut(for: .biggerFont), s("cmd+="))
     }
 

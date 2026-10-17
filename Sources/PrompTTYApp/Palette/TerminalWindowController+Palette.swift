@@ -3,7 +3,7 @@ import PaneActivity
 import Preferences
 import WorkspaceModel
 
-/// The command palette (⇧⌘P) over this window.
+/// The command palette (⌘K) over this window.
 extension TerminalWindowController {
     @objc func togglePalette(_ sender: Any?) {
         if chrome.palette != nil { return closePalette(running: nil) }

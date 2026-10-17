@@ -17,7 +17,7 @@ struct PaletteEntry: Identifiable {
     let run: () -> Void
 }
 
-/// The command palette (⇧⌘P): every tab in every window, every menu command and a few more
+/// The command palette (⌘K): every tab in every window, every menu command and a few more
 /// things, fuzzy-filtered by typing. Built when it opens; nothing it lists changes while it is up.
 @MainActor
 @Observable
@@ -56,7 +56,7 @@ struct CommandPaletteView: View {
     let cancel: () -> Void
 
     static let width: CGFloat = 640
-    static let rowHeight: CGFloat = 40
+    static let rowHeight: CGFloat = 36
     private static let maxRows = 9
     private static let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
 
@@ -64,15 +64,15 @@ struct CommandPaletteView: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(.secondary)
                 PickerField(text: Binding(get: { model.query }, set: { model.query = $0 }),
                             placeholder: "Search tabs, commands and hosts…", onCommand: handle,
-                            font: .systemFont(ofSize: 20))
+                            font: .systemFont(ofSize: 18))
                     .frame(height: 28)
             }
             .padding(.horizontal, 20)
-            .frame(height: 60)
+            .frame(height: 54)
 
             Divider().opacity(0.5)
 
@@ -85,7 +85,7 @@ struct CommandPaletteView: View {
                         }
                         if model.results.isEmpty {
                             Text("No results")
-                                .font(.system(size: 15))
+                                .font(.system(size: 14))
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, minHeight: Self.rowHeight * 2)
                         }
@@ -115,7 +115,10 @@ struct CommandPaletteView: View {
             .frame(height: 38)
         }
         .frame(width: Self.width)
+        // Darker than plain glass, so the list reads over busy output; dark in light mode too.
+        .background(Color.black.opacity(0.45), in: Self.shape)
         .glassEffect(.regular, in: Self.shape)
+        .environment(\.colorScheme, .dark)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Command Palette")
     }
@@ -144,16 +147,16 @@ private struct PaletteRow: View {
         Button(action: open) {
             HStack(spacing: 12) {
                 Image(systemName: entry.icon)
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 26, height: 26)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 24, height: 24)
                     .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 Text(entry.title)
-                    .font(.system(size: 15))
+                    .font(.system(size: 14))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let subtitle = entry.subtitle {
                     Text(subtitle)
-                        .font(.system(size: 13))
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.head)
@@ -191,8 +194,8 @@ private struct Keycaps: View {
         HStack(spacing: 3) {
             ForEach(Array(Self.keys(shortcut).enumerated()), id: \.offset) { _, key in
                 Text(key)
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(minWidth: 20, minHeight: 20)
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(minWidth: 19, minHeight: 19)
                     .padding(.horizontal, key.count > 1 ? 4 : 0)
                     .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
             }
