@@ -15,22 +15,26 @@ public enum ShortcutGroup: String, CaseIterable, Sendable {
 
 /// Every app command that has an editable shortcut.
 public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
-    case newWindow, closeWindow
-    case newTab, closeTab, nextTab, previousTab
+    case newWindow, closeWindow, commandPalette, quickTerminal
+    case newTab, closeTab, nextTab, previousTab, reopenClosedTab
     case gotoTab1, gotoTab2, gotoTab3, gotoTab4, gotoTab5, gotoTab6, gotoTab7, gotoTab8, gotoTab9
     case toggleSidebar, toggleTabLayout
     case splitRight, splitDown, closePane
-    case focusPaneLeft, focusPaneUp, focusPaneRight, focusPaneDown, equalizePanes, zoomPane
+    case focusPaneLeft, focusPaneUp, focusPaneRight, focusPaneDown, equalizePanes, zoomPane, toggleBroadcast
     case copy, paste, selectAll, clear, biggerFont, smallerFont, actualSizeFont
     case selectPreviousCommand, selectNextCommand, selectPreviousFailed, selectNextFailed
     case copyOutput, copyCommand, rerunCommand
+    case find, findNext, findPrevious, useSelectionForFind
 
     public var title: String {
         switch self {
         case .newWindow: return "New Window"
         case .closeWindow: return "Close Window"
+        case .commandPalette: return "Command Palette"
+        case .quickTerminal: return "Quick Terminal (from any app)"
         case .newTab: return "New Tab"
         case .closeTab: return "Close Tab"
+        case .reopenClosedTab: return "Reopen Closed Tab"
         case .nextTab: return "Next Tab"
         case .previousTab: return "Previous Tab"
         case .gotoTab1, .gotoTab2, .gotoTab3, .gotoTab4, .gotoTab5, .gotoTab6, .gotoTab7, .gotoTab8, .gotoTab9:
@@ -46,6 +50,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .focusPaneDown: return "Focus Pane Below"
         case .equalizePanes: return "Equalize Panes"
         case .zoomPane: return "Zoom Pane"
+        case .toggleBroadcast: return "Broadcast Input to All Panes"
         case .copy: return "Copy"
         case .paste: return "Paste"
         case .selectAll: return "Select All"
@@ -60,23 +65,32 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .selectPreviousFailed: return "Select Previous Failed Command"
         case .selectNextFailed: return "Select Next Failed Command"
         case .rerunCommand: return "Rerun Command"
+        case .find: return "Find"
+        case .findNext: return "Find Next"
+        case .findPrevious: return "Find Previous"
+        case .useSelectionForFind: return "Use Selection for Find"
         }
     }
 
     public var group: ShortcutGroup {
         switch self {
-        case .newWindow, .closeWindow: return .window
-        case .newTab, .closeTab, .nextTab, .previousTab, .toggleSidebar, .toggleTabLayout,
+        case .newWindow, .closeWindow, .commandPalette, .quickTerminal: return .window
+        case .newTab, .closeTab, .nextTab, .previousTab, .reopenClosedTab, .toggleSidebar, .toggleTabLayout,
              .gotoTab1, .gotoTab2, .gotoTab3, .gotoTab4, .gotoTab5, .gotoTab6, .gotoTab7, .gotoTab8, .gotoTab9:
             return .tabs
-        case .splitRight, .splitDown, .closePane, .focusPaneLeft, .focusPaneUp, .focusPaneRight, .focusPaneDown, .equalizePanes, .zoomPane:
+        case .splitRight, .splitDown, .closePane, .focusPaneLeft, .focusPaneUp, .focusPaneRight, .focusPaneDown, .equalizePanes, .zoomPane, .toggleBroadcast:
             return .panes
         case .copy, .paste, .selectAll, .clear, .biggerFont, .smallerFont, .actualSizeFont,
              .selectPreviousCommand, .selectNextCommand, .copyOutput, .copyCommand,
-             .selectPreviousFailed, .selectNextFailed, .rerunCommand:
+             .selectPreviousFailed, .selectNextFailed, .rerunCommand, .find, .findNext, .findPrevious, .useSelectionForFind:
             return .terminal
         }
     }
+
+    /// Whether the shortcut must contain ⌘, so ⌃ and ⌥ keys always reach the terminal. The quick
+    /// terminal's is system-wide, taken before any app (PrompTTY's terminals too) sees it: any
+    /// modifier will do.
+    public var needsCommand: Bool { self != .quickTerminal }
 
     /// 1–9 for the Go to Tab actions.
     public var tabNumber: Int? {
@@ -93,8 +107,11 @@ public struct ShortcutMap: Equatable, Sendable {
     public static let defaults: [ShortcutAction: Shortcut] = [
         .newWindow: s("cmd+n"),
         .closeWindow: s("shift+cmd+w"),
+        .commandPalette: s("cmd+k"),
+        .quickTerminal: s("opt+return"),
         .newTab: s("cmd+t"),
         .closeTab: s("opt+cmd+w"),
+        .reopenClosedTab: s("shift+cmd+t"),
         .nextTab: s("shift+cmd+]"),
         .previousTab: s("shift+cmd+["),
         .gotoTab1: s("cmd+1"), .gotoTab2: s("cmd+2"), .gotoTab3: s("cmd+3"),
@@ -111,10 +128,11 @@ public struct ShortcutMap: Equatable, Sendable {
         .focusPaneDown: s("opt+cmd+down"),
         .equalizePanes: s("ctrl+cmd+="),
         .zoomPane: s("shift+cmd+return"),
+        .toggleBroadcast: s("opt+shift+cmd+i"),
         .copy: s("cmd+c"),
         .paste: s("cmd+v"),
         .selectAll: s("cmd+a"),
-        .clear: s("cmd+k"),
+        .clear: s("opt+cmd+k"),
         .biggerFont: s("cmd+="),
         .smallerFont: s("cmd+-"),
         .actualSizeFont: s("cmd+0"),
@@ -125,6 +143,10 @@ public struct ShortcutMap: Equatable, Sendable {
         .selectPreviousFailed: s("ctrl+cmd+up"),
         .selectNextFailed: s("ctrl+cmd+down"),
         .rerunCommand: s("shift+cmd+r"),
+        .find: s("cmd+f"),
+        .findNext: s("cmd+g"),
+        .findPrevious: s("shift+cmd+g"),
+        .useSelectionForFind: s("cmd+e"),
     ]
 
     /// Fixed menu shortcuts that cannot be assigned: Quit, Hide, Hide Others, Minimize, Settings, Full Screen.
@@ -139,7 +161,7 @@ public struct ShortcutMap: Equatable, Sendable {
         // Apply overrides in a stable order; drop any that break an invariant.
         for action in ShortcutAction.allCases {
             guard let candidate = overrides[action.rawValue],
-                  candidate.containsCommand,
+                  action.needsCommand ? candidate.containsCommand : !candidate.modifiers.isEmpty,
                   !Self.reserved.contains(candidate) else { continue }
             map[action] = candidate
         }
@@ -167,12 +189,15 @@ public struct ShortcutMap: Equatable, Sendable {
 
     public enum ValidationError: Error, Equatable, Sendable {
         case missingCommand
+        /// A global shortcut with no modifier at all (a bare key).
+        case missingModifier
         case reserved
         case conflict(ShortcutAction)
     }
 
     public func validate(_ shortcut: Shortcut, for action: ShortcutAction) -> ValidationError? {
-        if !shortcut.containsCommand { return .missingCommand }
+        if action.needsCommand, !shortcut.containsCommand { return .missingCommand }
+        if shortcut.modifiers.isEmpty { return .missingModifier }
         if Self.reserved.contains(shortcut) { return .reserved }
         if let owner = self.action(for: shortcut), owner != action { return .conflict(owner) }
         return nil
@@ -182,7 +207,7 @@ public struct ShortcutMap: Equatable, Sendable {
     /// previous shortcut (a swap). Invalid shortcuts change nothing.
     public func assigning(_ shortcut: Shortcut, to action: ShortcutAction) -> ShortcutMap {
         switch validate(shortcut, for: action) {
-        case .missingCommand, .reserved:
+        case .missingCommand, .missingModifier, .reserved:
             return self
         case .conflict(let owner):
             var copy = self

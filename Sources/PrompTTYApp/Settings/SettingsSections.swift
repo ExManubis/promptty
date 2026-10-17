@@ -122,7 +122,25 @@ struct TabsSection: View {
 
             Section("Windows") {
                 Toggle("Reopen windows and tabs at launch", isOn: $model.settings.restoreSession)
+                Toggle("Keep each tab's output when quitting", isOn: $model.settings.restoreScrollback)
+                    .disabled(!model.settings.restoreSession)
+                    .help("Reopened tabs show what they printed before, above a fresh prompt (zsh).")
                 Toggle("Ask before closing a running process", isOn: $model.settings.confirmCloseRunning)
+            }
+
+            Section {
+                Toggle("Mark tabs that printed while you looked elsewhere", isOn: $model.settings.markUnseenOutput)
+                Toggle("Notify when a long command finishes", isOn: $model.settings.notifyCommands)
+                Picker("Long means at least", selection: $model.settings.notifyAfterSeconds) {
+                    ForEach([3.0, 5, 10, 30, 60, 300], id: \.self) { seconds in
+                        Text(seconds < 60 ? "\(Int(seconds)) seconds" : "\(Int(seconds / 60)) min").tag(seconds)
+                    }
+                }
+                .disabled(!model.settings.notifyCommands)
+            } header: {
+                Text("Notifications")
+            } footer: {
+                Text("Only for commands in a tab or window you are not looking at. Agents always tell you when they finish or need you.")
             }
 
             Section("Clipboard access by programs") {
@@ -191,6 +209,8 @@ struct KeyboardSection: View {
                     Text("Off").tag(OptionAsAlt.off)
                 }
                 Toggle("Vim-style navigation", isOn: $model.settings.vimNavigation)
+                Toggle("Quick terminal drops down from any app", isOn: $model.settings.quickTerminal)
+                    .help("Its shortcut is set below, under Window.")
             } header: {
                 Text("Terminal")
             } footer: {
@@ -271,6 +291,8 @@ struct KeyboardSection: View {
         switch error {
         case .missingCommand:
             return "\(shortcut.displayString) has no ⌘. Shortcuts need ⌘ so that keys like ⌃ and ⌥ always reach the terminal."
+        case .missingModifier:
+            return "\(shortcut.displayString) needs ⌘, ⌥, ⌃ or ⇧: it works in every app."
         case .reserved:
             return "\(shortcut.displayString) belongs to macOS or the app menu and can't be reassigned."
         case .conflict(let other):

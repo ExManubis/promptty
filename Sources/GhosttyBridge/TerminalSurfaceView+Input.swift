@@ -56,6 +56,7 @@ extension TerminalSurfaceView {
             var key = makeKey(event, action: action)
             key.composing = hadMarkedText || markedText.length > 0
             _ = ghostty_surface_key(surface, key)
+            broadcast(key)
         } else if hadMarkedText {
             // A composition was committed (Enter/Space in a Japanese IME, the next jamo in Korean).
             // Send only the text, detached from the committing key so it is not also encoded
@@ -67,7 +68,18 @@ extension TerminalSurfaceView {
             text.withCString { ptr in
                 key.text = ptr
                 _ = ghostty_surface_key(surface, key)
+                broadcast(key)
             }
+        }
+    }
+
+    /// The same key to every terminal input is broadcast to (`broadcastPeers`). Called while
+    /// `key.text` is still valid.
+    private func broadcast(_ key: ghostty_input_key_s) {
+        guard let peers = broadcastPeers?(), !peers.isEmpty else { return }
+        for peer in peers {
+            guard let other = peer.surface else { continue }
+            _ = ghostty_surface_key(other, key)
         }
     }
 
@@ -83,6 +95,7 @@ extension TerminalSurfaceView {
         text.withCString { ptr in
             key.text = ptr
             _ = ghostty_surface_key(surface, key)
+            broadcast(key)
         }
     }
 
@@ -90,6 +103,7 @@ extension TerminalSurfaceView {
         guard let surface else { return }
         let key = makeKey(event, action: GHOSTTY_ACTION_RELEASE)
         _ = ghostty_surface_key(surface, key)
+        broadcast(key)
     }
 
     public override func flagsChanged(with event: NSEvent) {
@@ -326,5 +340,6 @@ extension TerminalSurfaceView: @preconcurrency NSTextInputClient {
         }
         guard let surface else { return }
         text.withCString { ptr in ghostty_surface_text(surface, ptr, UInt(strlen(ptr))) }
+        for peer in broadcastPeers?() ?? [] { peer.sendText(text) }
     }
 }

@@ -13,6 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var appearanceObservation: NSKeyValueObservation?
     private var sessionStore: SessionStore!
     private var saver: DebouncedSaver!
+    private var scrollbackTimer: Timer?
+    private var quickTerminal: QuickTerminal?
+    /// What the quick terminal was last set up with, so unrelated settings changes leave it be.
+    private var quickTerminalSetup: (on: Bool, shortcut: Shortcut)?
     private var preferences: PreferencesController!
     private var layoutObserver: NSObjectProtocol?
     private var notificationRouter: NotificationRouter?
@@ -96,9 +100,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 NSApp.mainMenu = MainMenu.build(shortcuts: self.preferences.shortcuts)
             }
         }
-        preferences.onAppSettingsChanged = { [weak self] in self?.coordinator.applyAppSettings($0) }
+        let quick = QuickTerminal(runtime: runtime)
+        quickTerminal = quick
+        coordinator.quickTerminal = quick
+        applyQuickTerminal()
+        preferences.onAppSettingsChanged = { [weak self] in
+            self?.coordinator.applyAppSettings($0)
+            self?.applyQuickTerminal()
+        }
         saver = DebouncedSaver(delay: .seconds(1)) { [weak self] in self?.saveSession() }
         coordinator.onModelChanged = { [weak self] in self?.saver.schedule() }
+        scrollbackTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.saveSession(archivingScrollback: true) }
+        }
+        scrollbackTimer?.tolerance = 30
         runtime.sink = coordinator
         // Output in any terminal wakes the runtime (`.render` is never sent on macOS). The 120 Hz
         // link runs only in the key window, so that is the only one told.
@@ -180,16 +195,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         coordinator?.secureInput.shutDown()
         coordinator?.stopHooks()
         saver?.flush()
-        saveSession()
+        saveSession(archivingScrollback: true)
     }
 
-    private func saveSession() {
+    /// `archivingScrollback`: also write what each tab shows (at quit, and now and then, so a crash
+    /// loses little); otherwise the files written last are named.
+    private func saveSession(archivingScrollback: Bool = false) {
+        let names = archivingScrollback ? coordinator?.archiveScrollback() ?? [:] : coordinator?.archivedScrollback ?? [:]
         do {
-            try sessionStore.save(workspace.snapshot())
+            try sessionStore.save(workspace.snapshot { names[$0.id] })
         } catch {
             NSLog("PrompTTY: could not save session: \(error)")
         }
     }
+
+    /// Registers the quick terminal's global shortcut for the current settings. A driven debug
+    /// run registers none: it would take the keys of whoever uses the machine.
+    private func applyQuickTerminal() {
+        guard let quickTerminal, let preferences else { return }
+        let setup = (on: preferences.settings.quickTerminal && !AppPaths.isDriven, shortcut: preferences.shortcuts.shortcut(for: .quickTerminal))
+        if let last = quickTerminalSetup, last.on == setup.on, last.shortcut == setup.shortcut { return }
+        quickTerminalSetup = setup
+        var settings = preferences.settings
+        settings.quickTerminal = setup.on
+        quickTerminal.apply(settings, shortcut: setup.shortcut)
+    }
+
+    @objc func toggleQuickTerminal(_ sender: Any?) { quickTerminal?.toggle() }
 
     // MARK: Menu actions (responder chain)
 

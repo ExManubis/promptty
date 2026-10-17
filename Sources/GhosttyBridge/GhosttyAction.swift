@@ -66,6 +66,14 @@ public enum GhosttyAction: Equatable, Sendable {
     case secureInput(SecureInputRequest)
     /// A program reports progress (OSC 9;4); `percent` is nil when it gave none.
     case progressReport(ProgressState, percent: Int?)
+    /// Search in the scrollback opened, with its text if it was started with some (Use Selection
+    /// for Find).
+    case startSearch(needle: String)
+    case endSearch
+    /// Matches in all; nil while counting.
+    case searchTotal(Int?)
+    /// The current match, 0-based; nil when none is.
+    case searchSelected(Int?)
     /// Synthesized from `close_surface_cb`, not a `ghostty_action_tag_e`.
     case closeSurface(processAlive: Bool)
     case unhandled(tag: UInt32)
@@ -147,6 +155,16 @@ public enum GhosttyAction: Equatable, Sendable {
             case GHOSTTY_SECURE_INPUT_OFF: self = .secureInput(.off)
             default: self = .secureInput(.toggle)
             }
+        case GHOSTTY_ACTION_START_SEARCH:
+            self = .startSearch(needle: Self.string(c.action.start_search.needle))
+        case GHOSTTY_ACTION_END_SEARCH:
+            self = .endSearch
+        case GHOSTTY_ACTION_SEARCH_TOTAL:
+            let total = c.action.search_total.total
+            self = .searchTotal(total < 0 ? nil : Int(total))
+        case GHOSTTY_ACTION_SEARCH_SELECTED:
+            let selected = c.action.search_selected.selected
+            self = .searchSelected(selected < 0 ? nil : Int(selected))
         case GHOSTTY_ACTION_PROGRESS_REPORT:
             let p = c.action.progress_report
             let state: ProgressState

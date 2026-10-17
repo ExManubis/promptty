@@ -59,12 +59,21 @@ struct ProgramIcon: View {
 /// when an agent asks for permission. Only the orange dot moves.
 struct ActivityIndicator: View {
     let display: PaneActivity.Display
+    /// The tab printed while unseen: shown when nothing more urgent is (a hollow ring around the
+    /// running dot, or a ring alone).
+    var newOutput = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
             switch display {
+            case .idle where newOutput, .running where newOutput:
+                Circle()
+                    .strokeBorder(Color.accentColor, lineWidth: 1.5)
+                    .overlay { if display == .running { Circle().fill(ProgramStack.color(for: display)).padding(2.5) } }
+                    .frame(width: 9, height: 9)
+                    .help("New output")
             case .idle:
                 Color.clear
             case .permission:
@@ -81,8 +90,8 @@ struct ActivityIndicator: View {
         }
         .frame(width: 9, height: 9)
         .accessibilityElement()
-        .accessibilityLabel(Self.label(for: display))
-        .accessibilityHidden(display == .idle)
+        .accessibilityLabel([Self.label(for: display), newOutput ? "New output" : ""].filter { !$0.isEmpty }.joined(separator: ", "))
+        .accessibilityHidden(display == .idle && !newOutput)
     }
 
     static func label(for display: PaneActivity.Display) -> String {

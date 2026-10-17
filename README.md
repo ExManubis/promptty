@@ -15,13 +15,33 @@
 - **Agents at a glance.** PrompTTY spots Claude Code, Codex, Amp, Cline and others running in
   a pane. Each tab shows whether its agent is working, waiting for permission or done, and you
   get a notification when it needs you.
+- **New output, marked.** A tab that printed while you looked elsewhere gets a ring by its name
+  until you open it (a `tail -f`, a log, a build).
+- **Long commands tell you when they're done.** A command that ran 10 seconds or more in a tab you
+  aren't looking at posts a notification with how it ended and how long it took (Settings › Tabs
+  sets how long is long, or turns it off).
+- **Remote hosts.** A tab running `ssh` shows the host it's connected to, and the command palette
+  lists every host in `~/.ssh/config` to open in a new tab.
+- **Dev servers at a glance.** A tab whose programs listen on a port shows it (`:3000`) under its
+  name; click it to open `localhost:3000` in your browser.
 - **A smarter prompt.** In zsh, an input bar replaces the shell prompt: history, suggestions,
   Tab completion, syntax coloring, vi mode and fuzzy history search (⌃R).
 - **Command blocks.** Every command and its output is a block you can jump between, copy, copy
-  as Markdown or rerun. ⌃⌘↑ jumps straight to the last failure.
+  as Markdown or rerun. ⌃⌘↑ jumps straight to the last failure. ⌘F finds anything in the
+  scrollback, every match highlighted.
+- **Pick up where you left off.** Quit and reopen PrompTTY: every tab comes back in its folder
+  with what it printed before, colors included, above a fresh prompt (zsh).
 - **Projects and pinned tabs.** Group tabs into projects. Pin a tab running `claude` or
   `npm run dev` and it comes back, still running, the next time you open PrompTTY.
+- **Quick terminal.** ⌥↩ from any app drops a terminal down from the top of the screen; the
+  same keys (or clicking elsewhere) put it away, its shell still running. Change the keys or turn
+  it off in Settings › Keyboard.
+- **Command palette.** ⌘K finds any tab in any window and runs any command by name, with its
+  shortcut beside it.
 - **Splits.** Split right or down, drag to resize, zoom one pane to fill the tab.
+- **Type into every pane at once.** ⌥⇧⌘I broadcasts what you type to all panes of a tab (handy
+  for the same command on several servers); each pane wears an orange border while it's on.
+- **Undo a closed tab.** ⇧⌘T brings back the last ten closed tabs, splits and folders included.
 - **Safe by default.** ⌘-click opens links and `path:line:col`, but never runs programs.
   Programs must ask before using your clipboard, and password prompts get secure input.
 
@@ -44,23 +64,30 @@ If you move PrompTTY.app, install the hooks again.
 
 ## Keys
 
-PrompTTY only takes shortcuts with ⌘, so ⌃ and ⌥ combinations reach your programs (Neovim
+PrompTTY only takes shortcuts with ⌘ (the quick terminal's ⌥↩ aside), so ⌃ and ⌥ combinations reach your programs (Neovim
 included), and Option works as Alt. Every shortcut can be changed in **Settings › Keyboard**.
 
 | Action | Keys |
 |---|---|
+| Command palette | ⌘K |
+| Quick terminal, from any app | ⌥↩ |
 | New window / close window | ⌘N / ⇧⌘W |
 | New tab / close tab | ⌘T / ⌥⌘W |
+| Reopen the last closed tab | ⇧⌘T |
 | Next / previous tab, go to tab 1–9 | ⇧⌘] / ⇧⌘[, ⌘1…⌘9 |
 | Toggle sidebar / sidebar or strip | ⌘B / ⌃⌘S |
 | Split right / split down | ⌘D / ⇧⌘D |
 | Close pane | ⌘W |
 | Move focus between panes | ⌥⌘← ↑ → ↓ (or ⌥H J K L) |
 | Equalize / zoom panes | ⌃⌘= / ⇧⌘↩ |
+| Broadcast input to all panes of the tab | ⌥⇧⌘I |
 | Select previous / next command | ⌘↑ / ⌘↓ |
 | Select previous / next failed command | ⌃⌘↑ / ⌃⌘↓ |
+| Clear the screen | ⌥⌘K |
 | Copy the command's output / the command | ⌥⌘C / ⇧⌘C |
 | Rerun the selected command | ⇧⌘R |
+| Find in the scrollback / next / previous | ⌘F / ⌘G / ⇧⌘G |
+| Find the selected text | ⌘E |
 | Search history | ⌃R |
 
 ## Settings

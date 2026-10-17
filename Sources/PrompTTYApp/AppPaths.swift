@@ -24,6 +24,8 @@ enum AppPaths {
     }()
 
     static var session: URL { support.appendingPathComponent("session.json") }
+    /// What tabs showed when the app quit (`ScrollbackArchive`).
+    static var scrollback: URL { support.appendingPathComponent("scrollback", isDirectory: true) }
     static var folderHistory: URL { support.appendingPathComponent("folder-history.jsonl") }
 
     /// Where agents' hooks reach the app (`PROMPTTY_SOCKET` in every pane): `hooks.sock` in the
@@ -40,6 +42,16 @@ enum AppPaths {
         }
         #endif
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/settings.json")
+    }()
+
+    /// The folder holding the user's ssh config (`~/.ssh`); a debug run uses `<dir>/home/.ssh`.
+    static let sshDirectory: URL = {
+        #if DEBUG
+        if let dir = ProcessInfo.processInfo.environment["PROMPTTY_DEBUG_DIR"], !dir.isEmpty {
+            return URL(fileURLWithPath: dir, isDirectory: true).appendingPathComponent("home/.ssh", isDirectory: true)
+        }
+        #endif
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh", isDirectory: true)
     }()
 
     /// The hook helper inside the app bundle; nil when the bundle has none.

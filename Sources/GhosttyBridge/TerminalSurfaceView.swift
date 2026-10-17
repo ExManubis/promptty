@@ -54,6 +54,10 @@ public final class TerminalSurfaceView: NSView {
     /// mouse move over text, so it goes straight to whoever shows it.
     public var onLinkHover: ((String?) -> Void)?
 
+    /// While input is broadcast: the other terminals that get every key, text and paste this one
+    /// gets from the user. Nil (or empty) when nothing is broadcast.
+    public var broadcastPeers: (() -> [TerminalSurfaceView])?
+
     /// A program asks to read or write the clipboard and waits for the user's answer
     /// (`answerClipboardRequest`), or that question is gone (nil).
     public var onClipboardRequest: ((ClipboardTicket?) -> Void)?
@@ -275,6 +279,7 @@ public final class TerminalSurfaceView: NSView {
             return
         }
         performBindingAction("paste_from_clipboard")
+        for peer in broadcastPeers?() ?? [] { peer.performBindingAction("paste_from_clipboard") }
     }
     @objc public override func selectAll(_ sender: Any?) { performBindingAction("select_all") }
 

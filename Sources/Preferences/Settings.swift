@@ -56,9 +56,22 @@ public struct Settings: Equatable, Sendable {
     public var tabListHidden = false
     public var newTabDirectory = NewTabDirectory.currentPane
     public var restoreSession = true
+    /// Restored tabs show what they printed before the app quit (zsh panes).
+    public var restoreScrollback = true
     public var confirmCloseRunning = true
 
+    // Notifications
+    /// A command that ran at least `notifyAfterSeconds` and finished where the user was not
+    /// looking posts a notification.
+    public var notifyCommands = true
+    public var notifyAfterSeconds: Double = 10
+    /// A tab that printed while the user looked elsewhere shows a dot until it is selected.
+    public var markUnseenOutput = true
+    public static let notifyAfterRange: ClosedRange<Double> = 3...3600
+
     // Keyboard
+    /// The quick terminal drops down on its global shortcut (`ShortcutAction.quickTerminal`).
+    public var quickTerminal = true
     public var optionAsAlt = OptionAsAlt.both
     /// ⌥H/J/K/L focus panes and ⌥⇧J/K switch tabs (`VimNavigation`), taken from the terminal.
     public var vimNavigation = true
@@ -84,6 +97,7 @@ public struct Settings: Equatable, Sendable {
         s.fontSize = min(Self.fontSizeRange.upperBound, max(Self.fontSizeRange.lowerBound, fontSize))
         s.sidebarWidth = min(Self.sidebarWidthRange.upperBound, max(Self.sidebarWidthRange.lowerBound, sidebarWidth))
         s.tintStrength = min(1, max(0, tintStrength))
+        s.notifyAfterSeconds = min(Self.notifyAfterRange.upperBound, max(Self.notifyAfterRange.lowerBound, notifyAfterSeconds))
         return s
     }
 
@@ -102,6 +116,7 @@ extension Settings: Codable {
         case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, tabLayout, sidebarWidth, tabListHidden
         case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, secureKeyboardEntry, shortcuts
         case clipboardRead, clipboardWrite, clipboardReadPrograms, clipboardWritePrograms
+        case notifyCommands, notifyAfterSeconds, restoreScrollback, markUnseenOutput, quickTerminal
     }
 
     public init(from decoder: Decoder) throws {
@@ -127,7 +142,12 @@ extension Settings: Codable {
         s.tabListHidden = value(.tabListHidden, s.tabListHidden)
         s.newTabDirectory = value(.newTabDirectory, s.newTabDirectory)
         s.restoreSession = value(.restoreSession, s.restoreSession)
+        s.restoreScrollback = value(.restoreScrollback, s.restoreScrollback)
         s.confirmCloseRunning = value(.confirmCloseRunning, s.confirmCloseRunning)
+        s.notifyCommands = value(.notifyCommands, s.notifyCommands)
+        s.notifyAfterSeconds = value(.notifyAfterSeconds, s.notifyAfterSeconds)
+        s.markUnseenOutput = value(.markUnseenOutput, s.markUnseenOutput)
+        s.quickTerminal = value(.quickTerminal, s.quickTerminal)
         s.optionAsAlt = value(.optionAsAlt, s.optionAsAlt)
         s.vimNavigation = value(.vimNavigation, s.vimNavigation)
         s.secureKeyboardEntry = value(.secureKeyboardEntry, s.secureKeyboardEntry)
@@ -167,7 +187,12 @@ extension Settings: Codable {
         try c.encode(tabListHidden, forKey: .tabListHidden)
         try c.encode(newTabDirectory, forKey: .newTabDirectory)
         try c.encode(restoreSession, forKey: .restoreSession)
+        try c.encode(restoreScrollback, forKey: .restoreScrollback)
         try c.encode(confirmCloseRunning, forKey: .confirmCloseRunning)
+        try c.encode(notifyCommands, forKey: .notifyCommands)
+        try c.encode(notifyAfterSeconds, forKey: .notifyAfterSeconds)
+        try c.encode(markUnseenOutput, forKey: .markUnseenOutput)
+        try c.encode(quickTerminal, forKey: .quickTerminal)
         try c.encode(optionAsAlt, forKey: .optionAsAlt)
         try c.encode(vimNavigation, forKey: .vimNavigation)
         try c.encode(secureKeyboardEntry, forKey: .secureKeyboardEntry)

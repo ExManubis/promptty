@@ -48,9 +48,12 @@ struct WindowRootView: View {
                     }
                 }
             }
+
+            CommandPaletteOverlay(chrome: chrome, actions: actions)
         }
         .ignoresSafeArea()
         .animation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.1), value: layout)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: chrome.palette == nil)
         // Kept open from a peek, the sidebar is already there: it stays put instead of sliding
         // in again.
         .animation(sidebarAnimates ? .spring(PaneAnimation.sidebarSpring) : nil, value: hidden)

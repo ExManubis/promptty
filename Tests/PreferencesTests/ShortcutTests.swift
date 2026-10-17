@@ -122,8 +122,18 @@ final class ShortcutMapTests: XCTestCase {
         for action in ShortcutAction.allCases {
             let shortcut = ShortcutMap.defaults[action]
             XCTAssertNotNil(shortcut, "\(action)")
-            XCTAssertTrue(shortcut?.containsCommand ?? false, "\(action)")
+            if action.needsCommand { XCTAssertTrue(shortcut?.containsCommand ?? false, "\(action)") }
         }
+    }
+
+    func testTheQuickTerminalTakesAnyModifierButNotABareKey() {
+        let m = ShortcutMap(overrides: [:])
+        XCTAssertEqual(m.shortcut(for: .quickTerminal), s("opt+return"))
+        XCTAssertNil(m.validate(s("ctrl+opt+t"), for: .quickTerminal))
+        XCTAssertEqual(m.validate(Shortcut(key: "return", modifiers: [])!, for: .quickTerminal), .missingModifier)
+        XCTAssertEqual(m.validate(s("opt+return"), for: .splitRight), .missingCommand)
+        XCTAssertEqual(ShortcutMap(overrides: ["quickTerminal": s("ctrl+space")]).shortcut(for: .quickTerminal), s("ctrl+space"))
+        XCTAssertEqual(ShortcutMap(overrides: ["quickTerminal": Shortcut(key: "space", modifiers: [])!]).shortcut(for: .quickTerminal), s("opt+return"))
     }
 
     func testDefaultsAreUniqueAndAvoidReserved() {
@@ -144,7 +154,8 @@ final class ShortcutMapTests: XCTestCase {
         XCTAssertEqual(m.shortcut(for: .equalizePanes), s("ctrl+cmd+="))
         XCTAssertEqual(m.shortcut(for: .toggleTabLayout), s("ctrl+cmd+s"))
         XCTAssertEqual(m.shortcut(for: .gotoTab9), s("cmd+9"))
-        XCTAssertEqual(m.shortcut(for: .clear), s("cmd+k"))
+        XCTAssertEqual(m.shortcut(for: .clear), s("opt+cmd+k"))
+        XCTAssertEqual(m.shortcut(for: .commandPalette), s("cmd+k"))
         XCTAssertEqual(m.shortcut(for: .biggerFont), s("cmd+="))
     }
 

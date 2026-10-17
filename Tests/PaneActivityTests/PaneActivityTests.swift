@@ -51,8 +51,8 @@ final class PaneActivityTests: XCTestCase {
     func testAShortCommandFinishedUnseenIsMarkedButDoesNotNotify() {
         var a = PaneActivity()
         a.observe(.command, at: t0, seen: false)
-        a.observe(.shell, at: at(3), seen: false)
-        XCTAssertNil(a.observe(.shell, at: at(3.5), seen: false))
+        a.observe(.shell, at: at(2), seen: false)
+        XCTAssertNil(a.observe(.shell, at: at(2.5), seen: false))
         XCTAssertEqual(a.display, .finished)
     }
 

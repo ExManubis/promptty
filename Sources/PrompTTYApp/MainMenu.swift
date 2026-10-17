@@ -17,6 +17,7 @@ enum MainMenu {
         static let newTab = #selector(TerminalWindowController.newTab(_:))
         static let newProject = #selector(TerminalWindowController.newProject(_:))
         static let closeTab = #selector(TerminalWindowController.closeTab(_:))
+        static let reopenClosedTab = #selector(TerminalWindowController.reopenClosedTab(_:))
         static let togglePinTab = #selector(TerminalWindowController.togglePinTab(_:))
         static let closePane = #selector(TerminalWindowController.closePane(_:))
         static let previousTab = #selector(TerminalWindowController.previousTab(_:))
@@ -30,6 +31,7 @@ enum MainMenu {
         static let focusPaneDown = #selector(TerminalWindowController.focusPaneDown(_:))
         static let equalizePanes = #selector(TerminalWindowController.equalizePanes(_:))
         static let zoomPane = #selector(TerminalWindowController.zoomPane(_:))
+        static let toggleBroadcast = #selector(TerminalWindowController.toggleBroadcast(_:))
         static let clearTerminal = #selector(TerminalWindowController.clearTerminal(_:))
         static let selectPreviousCommand = #selector(TerminalWindowController.selectPreviousCommand(_:))
         static let selectNextCommand = #selector(TerminalWindowController.selectNextCommand(_:))
@@ -39,6 +41,12 @@ enum MainMenu {
         static let selectNextFailed = #selector(TerminalWindowController.selectNextFailedCommand(_:))
         static let copyCommandMarkdown = #selector(TerminalWindowController.copyCommandMarkdown(_:))
         static let rerunCommand = #selector(TerminalWindowController.rerunCommand(_:))
+        static let togglePalette = #selector(TerminalWindowController.togglePalette(_:))
+        static let toggleQuickTerminal = #selector(AppDelegate.toggleQuickTerminal(_:))
+        static let find = #selector(TerminalWindowController.find(_:))
+        static let findNext = #selector(TerminalWindowController.findNext(_:))
+        static let findPrevious = #selector(TerminalWindowController.findPrevious(_:))
+        static let useSelectionForFind = #selector(TerminalWindowController.useSelectionForFind(_:))
     }
 
     static func build(shortcuts: ShortcutMap) -> NSMenu {
@@ -81,6 +89,7 @@ enum MainMenu {
         file.addItem(item("Close Pane", Action.closePane, .closePane))
         file.addItem(item("Close Tab", Action.closeTab, .closeTab))
         file.addItem(item("Close Window", #selector(NSWindow.performClose(_:)), .closeWindow))
+        file.addItem(item("Reopen Closed Tab", Action.reopenClosedTab, .reopenClosedTab))
         menu.addItem(submenu: file, title: "File")
 
         // Standard selectors so text fields (tab rename, Settings) keep working; the terminal view
@@ -91,6 +100,13 @@ enum MainMenu {
         edit.addItem(item("Select All", #selector(NSText.selectAll(_:)), .selectAll))
         edit.addItem(.separator())
         edit.addItem(item("Clear", Action.clearTerminal, .clear))
+        edit.addItem(.separator())
+        let find = NSMenu(title: "Find")
+        find.addItem(item("Find…", Action.find, .find))
+        find.addItem(item("Find Next", Action.findNext, .findNext))
+        find.addItem(item("Find Previous", Action.findPrevious, .findPrevious))
+        find.addItem(item("Use Selection for Find", Action.useSelectionForFind, .useSelectionForFind))
+        edit.addItem(submenu: find, title: "Find")
         edit.addItem(.separator())
         // Command blocks: what each command printed, from the shell integration's marks.
         edit.addItem(item("Select Previous Command", Action.selectPreviousCommand, .selectPreviousCommand))
@@ -105,6 +121,11 @@ enum MainMenu {
         menu.addItem(submenu: edit, title: "Edit")
 
         let view = NSMenu(title: "View")
+        view.addItem(item("Command Palette", Action.togglePalette, .commandPalette))
+        // No key equivalent: its shortcut is system-wide (`GlobalHotKey`), and a menu item would
+        // take ⌥↩ from the terminal even with the quick terminal off.
+        view.addItem(item("Quick Terminal", Action.toggleQuickTerminal))
+        view.addItem(.separator())
         view.addItem(item("Bigger", Action.biggerFont, .biggerFont))
         view.addItem(item("Smaller", Action.smallerFont, .smallerFont))
         view.addItem(item("Actual Size", Action.actualSizeFont, .actualSizeFont))
@@ -136,6 +157,7 @@ enum MainMenu {
         window.addItem(item("Focus Pane Below", Action.focusPaneDown, .focusPaneDown))
         window.addItem(item("Equalize Panes", Action.equalizePanes, .equalizePanes))
         window.addItem(item("Zoom Pane", Action.zoomPane, .zoomPane))
+        window.addItem(item("Broadcast Input to All Panes", Action.toggleBroadcast, .toggleBroadcast))
         window.addItem(.separator())
         window.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         menu.addItem(submenu: window, title: "Window")

@@ -21,6 +21,7 @@ struct PickerPanel<Rows: View>: View {
     let onCommand: (PickerField.Command) -> Bool
     /// ⌃R in the filter field, for the pickers that take it (history search).
     var onControlR: (() -> Void)?
+    var width: CGFloat = 320
     @ViewBuilder let rows: () -> Rows
 
     static var rowHeight: CGFloat { 24 }
@@ -90,7 +91,7 @@ struct PickerPanel<Rows: View>: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
         }
-        .frame(width: 320)
+        .frame(width: width)
     }
 }
 
@@ -170,6 +171,7 @@ struct PickerField: NSViewRepresentable {
     /// Returns false to let the field handle the key as text editing.
     let onCommand: (Command) -> Bool
     var onControlR: (() -> Void)?
+    var font: NSFont = .systemFont(ofSize: 13)
 
     func makeNSView(context: Context) -> NSTextField {
         let field = FocusingTextField()
@@ -177,7 +179,7 @@ struct PickerField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = .systemFont(ofSize: 13)
+        field.font = font
         field.delegate = context.coordinator
         field.cell?.lineBreakMode = .byTruncatingTail
         return field

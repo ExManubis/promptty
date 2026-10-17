@@ -20,6 +20,19 @@ protocol ChromeActions: AnyObject {
     func alwaysAllowClipboard(_ ticket: ClipboardTicket, for program: String, in pane: PaneID)
     /// A pane's progress report, if it has one (observes that pane alone).
     func progress(for pane: PaneID) -> PaneProgress?
+    /// Whether a pane printed while the user looked elsewhere (observes that pane alone).
+    func hasUnseenOutput(_ pane: PaneID) -> Bool
+    /// Where a pane's ssh is connected (observes that pane alone).
+    func remoteHost(for pane: PaneID) -> String?
+    /// The ports a pane's programs listen on (observes that pane alone).
+    func ports(for pane: PaneID) -> [Int]
+    /// Opens http://localhost:<port> in the browser.
+    func openPort(_ port: Int)
+    /// A pane's find bar, nil while closed (observes that pane alone).
+    func findState(for pane: PaneID) -> PaneFind?
+    func setFindText(_ text: String, in pane: PaneID)
+    func findNavigate(in pane: PaneID, forward: Bool)
+    func closeFind(in pane: PaneID)
     /// Whether secure keyboard input is on for a pane (observes that pane alone).
     func isSecure(_ pane: PaneID) -> Bool
     /// The agents of every tab, in every window (observable).
@@ -70,6 +83,8 @@ protocol ChromeActions: AnyObject {
     /// Removes a project after asking; its tabs stay, in no project.
     func requestRemoveProject(_ id: ProjectID)
     func toggleSidebar()
+    /// Closes the command palette, then runs what was picked in it.
+    func closePalette(running entry: PaletteEntry?)
     /// The window's traffic lights, which go with the sidebar when it collapses.
     func setTrafficLightsShown(_ shown: Bool)
     func split(_ pane: PaneID, direction: SplitDirection)

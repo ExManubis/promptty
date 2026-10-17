@@ -187,7 +187,12 @@ struct TabRow: View {
                         .truncationMode(.tail)
                 }
                 // In the sidebar, a tab running an agent says what its most urgent agent does.
-                if style == .full, let agents { AgentStatusLine(summary: agents) }
+                if style == .full, let agents {
+                    AgentStatusLine(summary: agents)
+                } else if style == .full {
+                    // Otherwise, the ports its servers listen on.
+                    TabPortsLine(panes: stackPanes, actions: actions)
+                }
             }
             // The rest of the row's width, so the lines truncate only when they must.
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -195,8 +200,13 @@ struct TabRow: View {
             ZStack(alignment: .trailing) {
                 HStack(spacing: 6) {
                     TabProgressRing(panes: stackPanes, actions: actions)
-                    // The strip's pills stay as they were: no dot.
-                    if style == .full { ActivityIndicator(display: display) }
+                    // The strip's pills show only new output, no activity dot.
+                    let newOutput = !selected && stackPanes.contains { actions.hasUnseenOutput($0) }
+                    if style == .full {
+                        ActivityIndicator(display: display, newOutput: newOutput)
+                    } else if newOutput {
+                        ActivityIndicator(display: .idle, newOutput: true)
+                    }
                 }
                 .opacity(hovering && !renaming ? 0 : 1)
                 Button { actions.requestCloseTab(tab.id) } label: {
@@ -257,6 +267,14 @@ struct TabRow: View {
                 .help(pin.command.map { "Back to \(Tab.abbreviate(pin.directory)), running \($0)" } ?? "Back to \(Tab.abbreviate(pin.directory))")
             Button("Edit Pinned Command…") { actions.editPinnedCommand(tab.id) }
             Button("Change Icon…") { chrome.iconPickerTab = tab.id }
+        }
+        let ports = Array(Set(stackPanes.flatMap { actions.ports(for: $0) })).sorted()
+        if !ports.isEmpty {
+            Divider()
+            ForEach(ports, id: \.self) { port in
+                Button("Open localhost:\(port)") { actions.openPort(port) }
+            }
+            Divider()
         }
         Button("New Tab", action: actions.newTab)
         Divider()

@@ -15,6 +15,16 @@ enum KeyboardLayout {
         return nil
     }
 
+    /// The virtual key code of the key that types `key` unshifted on the current layout, or of a
+    /// named key (`space`, `return`, …); nil when no key types it.
+    static func keyCode(for key: String) -> UInt16? {
+        let named: [String: UInt16] = ["space": 49, "return": 36, "tab": 48, "escape": 53, "delete": 51,
+                                       "left": 123, "right": 124, "down": 125, "up": 126]
+        if let code = named[key] { return code }
+        guard let layout = currentLayoutData() else { return nil }
+        return (UInt16(0)..<UInt16(128)).first { translate($0, shift: false, layout: layout) == key }
+    }
+
     private static func currentLayoutData() -> Data? {
         guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
               let raw = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }

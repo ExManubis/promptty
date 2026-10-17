@@ -16,6 +16,7 @@ struct PaneCard: View {
     let actions: ChromeActions
 
     private var focused: Bool { tab.focusedPaneID == pane.id }
+    private var broadcasting: Bool { chrome.broadcastTabs.contains(tab.id) }
 
     /// A hairline edge; in a split tab the focused pane's edge is brighter so it stands out.
     private var borderOpacity: Double {
@@ -46,7 +47,9 @@ struct PaneCard: View {
             ClipboardBanner(pane: pane.id, actions: actions)
             LinkPreview(pane: pane.id, actions: actions)
             SecureLock(pane: pane.id, actions: actions)
+            FindBar(pane: pane.id, actions: actions)
             if zoomed { ZoomBadge() }
+            if broadcasting { BroadcastBadge() }
 
             if let code = chrome.exitedPanes[pane.id] {
                 // A pinned tab's last pane is restarted, not closed.
@@ -63,8 +66,10 @@ struct PaneCard: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: ChromeMetrics.paneCornerRadius, style: .continuous)
-                .strokeBorder(Color.primary.opacity(borderOpacity), lineWidth: 1)
+                .strokeBorder(broadcasting ? Color.orange.opacity(focused ? 0.95 : 0.6) : Color.primary.opacity(borderOpacity),
+                              lineWidth: broadcasting ? 2 : 1)
                 .animation(PaneAnimation.focusFade, value: borderOpacity)
+                .animation(PaneAnimation.focusFade, value: broadcasting)
                 .allowsHitTesting(false)
         }
         .environment(\.colorScheme, chrome.panelIsDark ? .dark : .light)
@@ -213,6 +218,24 @@ private struct SecureLock: View {
         if actions.isSecure(pane) {
             PaneBadge(symbol: "lock.fill", help: "Secure keyboard entry is on", alignment: .topTrailing)
         }
+    }
+}
+
+/// While input is broadcast to every pane of the tab: a label at the top of each pane, so it is
+/// never on unnoticed.
+private struct BroadcastBadge: View {
+    var body: some View {
+        Label("Broadcasting", systemImage: "dot.radiowaves.left.and.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.orange.opacity(0.9), in: Capsule())
+            .padding(8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .allowsHitTesting(false)
+            .help("Input goes to every pane of this tab. Turn it off in Window › Broadcast Input to All Panes.")
+            .accessibilityLabel("Broadcasting input to all panes")
     }
 }
 

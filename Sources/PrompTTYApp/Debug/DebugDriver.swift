@@ -283,8 +283,10 @@ final class DebugDriver {
     private func snapshot(name: String, in directory: URL) -> String {
         guard let createImage = Self.createImage else { return "error: CGWindowListCreateImage unavailable" }
         var lines: [String] = []
-        // Child panels (the bar's completion list) are not in `orderedWindows`.
-        let windows = NSApp.orderedWindows.filter(\.isVisible) + NSApp.windows.filter { $0.isVisible && $0.parent != nil }
+        // Child panels (the bar's completion list) and floating panels (the quick terminal) are not
+        // in `orderedWindows`.
+        let ordered = NSApp.orderedWindows.filter(\.isVisible)
+        let windows = ordered + NSApp.windows.filter { window in window.isVisible && !ordered.contains { $0 === window } }
         for (i, window) in windows.enumerated() {
             // kCGWindowListOptionIncludingWindow = 1 << 3; boundsIgnoreFraming = 1 << 0, bestResolution = 1 << 3.
             // A child window (a popover, the completion list) is translucent: it is captured with

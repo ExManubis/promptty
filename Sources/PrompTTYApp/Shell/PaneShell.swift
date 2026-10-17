@@ -147,6 +147,10 @@ final class PaneShell {
     /// The bar's editor. Long-lived like the terminal: hosts move it, never recreate it.
     @ObservationIgnored private(set) lazy var editor: CommandEditorView = makeEditor()
 
+    /// A command the user ran from the bar (not a pinned tab's startup command): broadcast input
+    /// sends it to the tab's other panes.
+    @ObservationIgnored var onUserCommand: ((String) -> Void)?
+
     /// Called when the pane reaches a prompt (`.idle`) or leaves it.
     @ObservationIgnored var onPhaseChange: ((ShellPhase) -> Void)?
     @ObservationIgnored weak var surface: TerminalSurfaceView?
@@ -343,7 +347,9 @@ final class PaneShell {
     /// still shown) it runs at the next prompt, so typing ahead of a fast command loses nothing.
     private func submit(_ command: String) {
         switch bar {
-        case .active: run(command)
+        case .active:
+            run(command)
+            onUserCommand?(command)
         case .inactive: queuedSubmit = true
         case .hidden: break
         }
@@ -365,6 +371,17 @@ final class PaneShell {
         editor.textView.commandRan()
         state.submitted()
         phaseChanged()
+    }
+
+    /// A command broadcast from another pane of the tab: run at a prompt, else typed for whatever
+    /// runs (an ssh session's shell) and entered.
+    func receiveBroadcast(_ command: String) {
+        if state.phase == .idle, bar == .active {
+            run(command, recordingHistory: false)
+        } else if let surface {
+            if !command.isEmpty { surface.sendText(command) }
+            surface.sendReturn()
+        }
     }
 
     /// Puts `command` in the bar in place of its text, for the user to run with Return: only at a

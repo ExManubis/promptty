@@ -16,7 +16,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     let chrome = WindowChromeModel()
     unowned let coordinator: WorkspaceCoordinator
     private let runtime: GhosttyRuntime
-    private var surfaces: [PaneID: TerminalSurfaceView] = [:]
+    private(set) var surfaces: [PaneID: TerminalSurfaceView] = [:]
     /// Each pane's shell session (prompt state, header, history), created with its surface.
     private var shells: [PaneID: PaneShell] = [:]
     /// Source surfaces for panes created by a split, consumed when their surface is made.
@@ -96,6 +96,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     /// Re-syncs window-level state with the model. Called by the coordinator after every mutation;
     /// SwiftUI follows the observable model on its own.
     func reload() {
+        pruneBroadcast()
         guard let tab = state.selectedTab else { return }
         if shownTabID != tab.id {
             shownTabID = tab.id
@@ -127,8 +128,13 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func surfaceView(for pane: Pane) -> TerminalSurfaceView? {
         if let existing = surfaces[pane.id] { return existing }
         guard state.tab(containing: pane.id) != nil else { return nil }
-        let environment = ShellIntegration.environment(for: pane.id)
+        var environment = ShellIntegration.environment(for: pane.id)
         let integrated = !environment.isEmpty
+        // What the pane showed before the app quit, printed by the integration at startup.
+        if integrated, let name = pane.restoredScrollback {
+            environment["PROMPTTY_RESTORE"] = ScrollbackArchive(directory: AppPaths.scrollback).url(for: name).path
+        }
+        pane.restoredScrollback = nil
         // Every pane, whatever its shell: where an agent's hooks report, and for which pane.
         let hookEnvironment = HookEnvironment.variables(pane: pane.id.rawValue, socket: AppPaths.hookSocket)
         // A pinned tab's command: run from the bar at the first prompt, or typed ahead into a
@@ -150,6 +156,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         let shell = PaneShell(pane: pane.id, directory: pane.workingDirectory, integrated: integrated,
                               startupCommand: integrated ? startup : nil)
         shell.surface = view
+        shell.onUserCommand = { [weak self] command in self?.broadcastCommand(command, from: pane.id) }
         shells[pane.id] = shell
         bind(view, to: pane.id)
         return view
@@ -168,6 +175,13 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func denyClipboardRequests() { surfaces.values.forEach { $0.resetClipboardPolicy() } }
     func progress(for pane: PaneID) -> PaneProgress? { coordinator.activity.status(for: pane).progress }
     func isSecure(_ pane: PaneID) -> Bool { coordinator.activity.status(for: pane).secure }
+    func ports(for pane: PaneID) -> [Int] { coordinator.activity.status(for: pane).ports }
+    func hasUnseenOutput(_ pane: PaneID) -> Bool { coordinator.activity.status(for: pane).unseenOutput }
+    func remoteHost(for pane: PaneID) -> String? { coordinator.activity.status(for: pane).remoteHost }
+    func openPort(_ port: Int) {
+        guard let url = URL(string: "http://localhost:\(port)") else { return }
+        NSWorkspace.shared.open(url)
+    }
     var agentList: AgentList { coordinator.agentList }
     func reveal(_ pane: PaneID) { coordinator.reveal(pane) }
     func screenText(for pane: PaneID) -> String? { surfaces[pane]?.visibleText() }
@@ -217,6 +231,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             return self.coordinator.preferences.settings.clipboardPrograms(kind).contains(program.id)
         }
         view.onLinkHover = { [weak self] link in self?.coordinator.activity.status(for: pane).hover(over: link) }
+        view.broadcastPeers = { [weak self] in self?.broadcastPeers(of: pane) ?? [] }
         // Dropped files: into the bar while it is shown, else typed for the program, quoted.
         view.onFileDrop = { [weak self, weak view] urls in
             if let shell = self?.shells[pane], shell.bar != .hidden {
@@ -593,6 +608,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         requestCloseTab(id)
     }
 
+    @objc func reopenClosedTab(_ sender: Any?) { coordinator.reopenClosedTab(fallback: state) }
+
     @objc func togglePinTab(_ sender: Any?) {
         guard let tab = state.selectedTab else { return }
         if tab.pin == nil { pinTab(tab.id, at: nil) } else { unpinTab(tab.id, at: nil) }
@@ -693,6 +710,16 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
              #selector(selectPreviousFailedCommand(_:)), #selector(selectNextFailedCommand(_:)),
              #selector(copyCommandMarkdown(_:)), #selector(rerunCommand(_:)):
             return focusedBlocks?.hasBlocks ?? false
+        case #selector(find(_:)), #selector(findNext(_:)), #selector(findPrevious(_:)):
+            return focusedSurface != nil
+        case #selector(useSelectionForFind(_:)):
+            return focusedSurface?.hasSelection ?? false
+        case #selector(toggleBroadcast(_:)):
+            let tab = state.selectedTab
+            item.state = tab.map { chrome.broadcastTabs.contains($0.id) } == true ? .on : .off
+            return tab?.hasSplits ?? false
+        case #selector(reopenClosedTab(_:)):
+            return coordinator.canReopenClosedTab
         case #selector(togglePinTab(_:)):
             item.title = state.selectedTab?.pin == nil ? "Pin Tab" : "Unpin Tab"
             return state.selectedTab != nil

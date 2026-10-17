@@ -33,6 +33,41 @@ final class PaneStatus {
         if self.progress != progress { self.progress = progress }
     }
 
+    /// Where an `ssh` in front of the pane is connected (`user@host`); nil when none runs.
+    private(set) var remoteHost: String?
+
+    func setRemoteHost(_ host: String?) {
+        if remoteHost != host { remoteHost = host }
+    }
+
+    /// The pane printed new lines while the user was not looking (not an agent's: those say more).
+    private(set) var unseenOutput = false
+
+    func setUnseenOutput(_ on: Bool) {
+        if unseenOutput != on { unseenOutput = on }
+    }
+
+    /// The TCP ports the pane's programs listen on (a dev server's), lowest first.
+    private(set) var ports: [Int] = []
+
+    func setPorts(_ ports: [Int]) {
+        if self.ports != ports { self.ports = ports }
+    }
+
+    /// The pane's find bar; nil while it is closed.
+    private(set) var find: PaneFind?
+
+    func setFind(_ find: PaneFind?) {
+        if self.find != find { self.find = find }
+    }
+
+    /// Changes the open find bar; nothing while it is closed.
+    func updateFind(_ change: (inout PaneFind) -> Void) {
+        guard var find else { return }
+        change(&find)
+        setFind(find)
+    }
+
     func setSecure(_ on: Bool) {
         if secure != on { secure = on }
     }
@@ -41,6 +76,17 @@ final class PaneStatus {
     func hover(over link: String?) {
         if hoveredLink != link { hoveredLink = link }
     }
+}
+
+/// A pane's find bar: what it looks for and what the terminal found.
+struct PaneFind: Equatable {
+    var needle = ""
+    /// Matches in the scrollback; nil while the terminal counts, or before anything is looked for.
+    var total: Int?
+    /// The current match, 0-based.
+    var selected: Int?
+    /// Bumped to put the keyboard in the field again (⌘F with the bar open).
+    var focusRequest = 0
 }
 
 /// Every pane's activity (what runs in it, what happened there unseen), for the tab rows and pane
@@ -94,14 +140,24 @@ final class ActivityTracker {
     /// When each pane's jobs last ran: the one timer ticks fast, panes the user cannot see run less.
     private var cadence = PollCadence<Job>()
     private struct Job: Hashable {
-        enum Kind: CaseIterable { case shell, foreground, screen }
+        enum Kind: CaseIterable { case shell, foreground, screen, ports }
         let pane: PaneID
         let kind: Kind
     }
     /// The last screen seen per agent pane, as a hash.
     private var screens: [PaneID: Int] = [:]
+    /// Where each pane's `ssh` (or `mosh`) is connected, read from its arguments.
+    private var remoteHosts: [PaneID: String] = [:]
     /// The folder each agent works in, read from its process.
     private var agentDirectories: [PaneID: String] = [:]
+    /// Each pane's scrollback length as last reported, to tell new lines from redraws.
+    private var rowTotals: [PaneID: UInt64] = [:]
+    /// The panes the user saw at the last tick: cheap to ask on every scroll report.
+    private var seenAtTick: Set<PaneID> = []
+    /// Whether panes mark output printed while unseen; set by the coordinator from Settings.
+    var marksUnseenOutput = true
+    /// Panes whose listening ports are being looked up, off the main thread.
+    private var portLookups: Set<PaneID> = []
     /// The panes showing a progress report, for dropping the ones not renewed in time at a tick.
     private var progressing: Set<PaneID> = []
     /// What each pane's agent reported through its hooks (Claude Code's), while they are in charge
@@ -159,6 +215,7 @@ final class ActivityTracker {
         let now = Date()
         var live = Set<PaneID>()
         let watchedPanes = panes()
+        seenAtTick = Set(watchedPanes.lazy.filter(\.seen).map(\.pane))
         let wanted = watchedPanes.contains { $0.visible } ? 0.25 : 1
         if timer != nil, wanted != timerInterval { schedule(every: wanted) }
         for watched in watchedPanes {
@@ -193,6 +250,9 @@ final class ActivityTracker {
             } else {
                 screens[watched.pane] = nil
             }
+            lookUpPorts(watched, at: now)
+            status(for: watched.pane).setRemoteHost(remoteHosts[watched.pane])
+            if watched.seen { statuses[watched.pane]?.setUnseenOutput(false) }
             if watched.seen, activity.hasUnseen {
                 activity.seen()
                 onSeen(watched.pane)
@@ -206,11 +266,16 @@ final class ActivityTracker {
             states[gone] = nil
             clearProgress(gone)
             statuses[gone]?.hover(over: nil)
+            statuses[gone]?.setPorts([])
+            statuses[gone]?.setUnseenOutput(false)
+            rowTotals[gone] = nil
             if let status = statuses[gone], status.activity != PaneActivity().visible { status.activity = PaneActivity().visible }
             shellPIDs[gone] = nil
             identified[gone] = nil
             screens[gone] = nil
             agentDirectories[gone] = nil
+            remoteHosts[gone] = nil
+            statuses[gone]?.setRemoteHost(nil)
             hooks[gone] = nil
             hookPrograms[gone] = nil
             hookScreens[gone] = nil
@@ -234,6 +299,18 @@ final class ActivityTracker {
     }
 
     func clearProgress(_ pane: PaneID) { reportProgress(pane, kind: nil, percent: nil) }
+
+    /// The pane's scrollback (with its screen) is `total` rows now; reported with every scroll, so
+    /// thousands of times a second while a program streams. More rows than before, in a pane the
+    /// user does not see, is new output. A full-screen program redraws without adding rows.
+    func rowsReported(_ pane: PaneID, total: UInt64) {
+        let before = rowTotals[pane]
+        rowTotals[pane] = total
+        guard marksUnseenOutput, let before, total > before else { return }
+        let status = status(for: pane)
+        guard !status.unseenOutput, !seenAtTick.contains(pane), status.activity.program?.isAgent != true else { return }
+        status.setUnseenOutput(true)
+    }
 
     /// The shell reported how a command ended.
     func exitReported(_ pane: PaneID, code: Int) {
@@ -340,6 +417,28 @@ final class ActivityTracker {
         if let notice = activity.agentReported(report, since: hook.since ?? now, at: now, seen: seen) { onNotice(pane, notice) }
     }
 
+    /// Every 3 s where the user looks (5 s elsewhere): the ports the pane's shell and everything
+    /// under it listen on, so a server started in the background counts too. A shell with no
+    /// children is skipped without a look at its sockets.
+    private func lookUpPorts(_ watched: Watched, at now: Date) {
+        let pane = watched.pane
+        guard !portLookups.contains(pane),
+              cadence.isDue(Job(pane: pane, kind: .ports), every: watched.visible ? 3 : 5, at: now),
+              let root = watched.shellPID() ?? shellPIDs[pane] ?? watched.foregroundPID() else { return }
+        portLookups.insert(pane)
+        Task.detached(priority: .utility) { [weak self] in
+            let ports = ListeningPorts.hasChildren(Int32(root)) ? ListeningPorts.find(root: Int32(root)) : []
+            await self?.portsFound(ports, in: pane)
+        }
+    }
+
+    private func portsFound(_ ports: [Int], in pane: PaneID) {
+        portLookups.remove(pane)
+        // Gone while looking: its box is dropped, or about to be.
+        guard states[pane] != nil else { return }
+        status(for: pane).setPorts(ports)
+    }
+
     private func store(_ activity: PaneActivity, for pane: PaneID) {
         states[pane] = activity
         let status = status(for: pane)
@@ -352,6 +451,7 @@ final class ActivityTracker {
             // Pids are reused: what ran before is forgotten once the shell is back.
             identified[watched.pane] = nil
             agentDirectories[watched.pane] = nil
+            remoteHosts[watched.pane] = nil
             return .shell
         }
         if let known = identified[watched.pane], known.pid == pid { return known.foreground }
@@ -368,6 +468,11 @@ final class ActivityTracker {
             .flatMap { ProgramCatalog.identify(executable: $0.executable, arguments: $0.arguments) }
             .map { .program($0) } ?? .command
         identified[watched.pane] = (pid, foreground)
+        if case .program(let program) = foreground, program.id == "ssh", let process {
+            remoteHosts[watched.pane] = SSHCommand.destination(arguments: process.arguments)
+        } else {
+            remoteHosts[watched.pane] = nil
+        }
         if case .program(let program) = foreground, program.isAgent {
             agentDirectories[watched.pane] = ProcessArguments.workingDirectory(pid: Int32(pid))
         } else {

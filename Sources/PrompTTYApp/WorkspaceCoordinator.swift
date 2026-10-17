@@ -38,6 +38,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         activity.allPanes = { [weak self] in Set(self?.allPaneIDs ?? []) }
         activity.afterTick = { [weak self] in self?.lookUpRepositories() }
         secureInput.global = preferences.settings.secureKeyboardEntry
+        activity.marksUnseenOutput = preferences.settings.markUnseenOutput
         secureInput.onChange = { [weak self] in self?.refreshSecureIndicators() }
     }
 
@@ -145,6 +146,12 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     private func post(_ notice: Notice, for pane: PaneID) {
         guard let (state, tab) = workspace.tab(containing: pane) else { return }
+        switch notice.kind {
+        case .finished, .failed:
+            let settings = preferences.settings
+            guard settings.notifyCommands, (notice.duration ?? 0) >= settings.notifyAfterSeconds else { return }
+        default: break
+        }
         // A finished command is the bar's last one; an attention is about whatever runs now.
         // The pane's own title, or its folder as the tab shows it.
         var command = tab.pane(pane).map { pane -> String in
@@ -335,6 +342,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     /// Applies app-only settings after a change. Layout, sidebar width and visibility are
     /// observed by SwiftUI directly; the model's layout is kept in step for the session file.
     func applyAppSettings(_ settings: Preferences.Settings) {
+        activity.marksUnseenOutput = settings.markUnseenOutput
         let layout = TabLayout(settings.tabLayout)
         if workspace.tabLayout != layout {
             workspace.tabLayout = layout
@@ -381,6 +389,16 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         modelDidChange()
     }
 
+    /// A new tab, after the selected one, running `command` at its first prompt (typed ahead into
+    /// a shell without the integration).
+    func newTab(in state: WindowState, running command: String) {
+        let project = state.selectedTab.flatMap(state.project(of:))
+        let tab = state.addTab(title: "", workingDirectory: NSHomeDirectory(), project: project)
+        tab.focusedPane.startupCommand = command
+        controllers[state.id]?.reload()
+        modelDidChange()
+    }
+
     func select(_ id: TabID) {
         guard let state = workspace.window(containing: id) else { return }
         state.select(id: id)
@@ -397,6 +415,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             NSSound.beep()
             return
         }
+        if let closed = state.closedTab(tab) { closedTabs.push(closed) }
         for pane in tab.orderedPanes { controller.removeSurface(for: pane.id) }
         state.closeTab(id: id)
         if state.isEmpty {
@@ -406,6 +425,80 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         }
         modelDidChange()
     }
+
+    /// At quit: writes what each tab's focused pane shows to the scrollback archive, and returns the
+    /// file kept for each tab. A restored tab never shown keeps the file it came with. Nothing
+    /// (and no files) when the setting is off.
+    func archiveScrollback() -> [TabID: String] {
+        let archive = ScrollbackArchive(directory: AppPaths.scrollback)
+        let settings = preferences.settings
+        guard settings.restoreSession, settings.restoreScrollback else {
+            archive.clear()
+            return [:]
+        }
+        let now = Date()
+        var texts: [String: String] = [:]
+        var kept = Set<String>()
+        var names: [TabID: String] = [:]
+        for state in workspace.windows {
+            guard let controller = controllers[state.id] else { continue }
+            for tab in state.tabs {
+                let pane = tab.focusedPane
+                if let surface = controller.surfaces[pane.id] {
+                    guard let text = surface.allText(styled: true),
+                          let archived = ScrollbackArchive.archived(text, savedAt: now) else { continue }
+                    let name = "\(tab.id.rawValue.uuidString).vt"
+                    texts[name] = archived
+                    names[tab.id] = name
+                } else if let pending = pane.restoredScrollback {
+                    kept.insert(pending)
+                    names[tab.id] = pending
+                }
+            }
+        }
+        archive.replace(with: texts, keeping: kept)
+        lastArchive = names
+        return names
+    }
+
+    private var lastArchive: [TabID: String] = [:]
+
+    /// The archive files written last, for a session saved in between: each tab's, or the one a
+    /// restored tab came with (until its shell prints it).
+    var archivedScrollback: [TabID: String] {
+        guard preferences.settings.restoreSession, preferences.settings.restoreScrollback else { return [:] }
+        var names: [TabID: String] = [:]
+        for state in workspace.windows {
+            for tab in state.tabs {
+                if let name = lastArchive[tab.id] ?? tab.focusedPane.restoredScrollback { names[tab.id] = name }
+            }
+        }
+        return names
+    }
+
+    /// The drop-down terminal on the global shortcut; set by the app delegate.
+    var quickTerminal: QuickTerminal?
+
+    /// The tabs closed most recently, for Reopen Closed Tab.
+    private(set) var closedTabs = ClosedTabStack()
+
+    /// Opens the most recently closed tab again: in its window if that is still open, else in
+    /// `fallback`'s.
+    func reopenClosedTab(fallback: WindowState?) {
+        guard let closed = closedTabs.pop() else { return NSSound.beep() }
+        guard let state = workspace.windows.first(where: { $0.id == closed.window }) ?? fallback ?? workspace.windows.first,
+              let controller = controllers[state.id] else { return }
+        state.reopen(closed, projectExists: { [workspace] in workspace.project(id: $0) != nil },
+                     directoryExists: { path in
+                         var isDirectory: ObjCBool = false
+                         return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+                     })
+        controller.reload()
+        controller.window?.makeKeyAndOrderFront(nil)
+        modelDidChange()
+    }
+
+    var canReopenClosedTab: Bool { !closedTabs.isEmpty }
 
     func rename(_ id: TabID, to title: String) {
         guard let state = workspace.window(containing: id), let tab = state.tab(id: id) else { return }
@@ -737,10 +830,28 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     // MARK: GhosttyActionSink
 
     func handle(_ action: GhosttyAction, target: GhosttyActionTarget) -> Bool {
+        // The quick terminal is no pane: it closes itself and copes with nothing else.
+        if case .surface(let view) = target, view.token?.base is QuickTerminal.Token {
+            switch action {
+            case .closeSurface, .showChildExited:
+                DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { self?.quickTerminal?.surfaceClosed() } }
+                return true
+            case .scrollbar, .cellSize, .render, .mouseOverLink, .initialSize:
+                return true
+            default:
+                return false
+            }
+        }
         // The screen moved in the scrollback, the scrollback grew, or rows changed height: the
         // command blocks moved. These arrive constantly in a stream, so no `locate` for them.
         switch action {
-        case .scrollbar, .cellSize:
+        case .scrollbar(let total, _, _):
+            if case .surface(let view) = target {
+                view.onLayoutChange?()
+                if let pane = view.token?.base as? PaneID { activity.rowsReported(pane, total: total) }
+            }
+            return true
+        case .cellSize:
             if case .surface(let view) = target { view.onLayoutChange?() }
             return true
         case .mouseOverLink(let link):
@@ -759,6 +870,29 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             case .pause: kind = .pause
             }
             activity.reportProgress(pane, kind: kind, percent: percent)
+            return true
+        case .startSearch(let needle):
+            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
+            let status = activity.status(for: pane)
+            if status.find == nil { status.setFind(PaneFind()) }
+            status.updateFind { $0.focusRequest += 1 }
+            // Use Selection for Find: the terminal names the text but leaves looking for it to us.
+            if !needle.isEmpty {
+                status.updateFind { $0.needle = needle }
+                view.performBindingAction("search:\(needle)")
+            }
+            return true
+        case .endSearch:
+            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
+            activity.status(for: pane).setFind(nil)
+            return true
+        case .searchTotal(let total):
+            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
+            activity.status(for: pane).updateFind { $0.total = total }
+            return true
+        case .searchSelected(let selected):
+            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
+            activity.status(for: pane).updateFind { $0.selected = selected }
             return true
         default: break
         }
@@ -903,7 +1037,8 @@ final class WorkspaceCoordinator: GhosttyActionSink {
                 MainActor.assumeIsolated { self?.openLink(decision) }
             }
             return true
-        case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .mouseOverLink, .progressReport, .unhandled:
+        case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .mouseOverLink, .progressReport, .unhandled,
+             .startSearch, .endSearch, .searchTotal, .searchSelected:
             // Config, mouse-shape and mouse-visibility actions are handled by the runtime.
             return false
         }
