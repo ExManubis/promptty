@@ -16,32 +16,19 @@ struct TabStripView: View {
         state.selectedTab.flatMap(state.project(of:)).flatMap { id in actions.projects.first { $0.id == id }?.name } ?? "PrompTTY"
     }
 
-    /// A pill's part of its segment: the selected tab's own capsule, or a piece of the run of
-    /// unselected tabs, rounded only at the run's ends.
-    @ViewBuilder
-    private func segment(at index: Int, selected: Bool) -> some View {
-        if selected {
-            let shape = RoundedRectangle(cornerRadius: ChromeMetrics.rowCornerRadius, style: .continuous)
-            shape.fill(Color.primary.opacity(0.13))
-                .overlay(shape.strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5))
-        } else {
-            let radius = ChromeMetrics.rowCornerRadius
-            let startsRun = !continuesRun(before: index)
-            let endsRun = !continuesRun(before: index + 1)
-            UnevenRoundedRectangle(topLeadingRadius: startsRun ? radius : 0, bottomLeadingRadius: startsRun ? radius : 0,
-                                   bottomTrailingRadius: endsRun ? radius : 0, topTrailingRadius: endsRun ? radius : 0,
-                                   style: .continuous)
-                .fill(Color.primary.opacity(0.06))
-        }
-    }
+    /// The tabs' own width, for the glass track to hug them (up to the room there is).
+    @State private var tabsWidth: CGFloat = 0
+    @Namespace private var thumb
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Whether the tab at `index` and the one before it are in the same run of unselected tabs
-    /// (unpinned, neither selected, same project).
-    private func continuesRun(before index: Int) -> Bool {
-        guard index > 0, index < state.tabs.count else { return false }
-        let a = state.tabs[index - 1], b = state.tabs[index]
-        return a.pin == nil && b.pin == nil && a.id != state.selectedTabID && b.id != state.selectedTabID
-            && state.project(of: a) == state.project(of: b)
+    /// The glass thumb under the selected tab, as Safari's and Rex's: it slides to the next one.
+    private var selectionThumb: some View {
+        Capsule()
+            .fill(Color.white.opacity(chrome.panelIsDark ? 0.14 : 0.75))
+            .overlay(Capsule().strokeBorder(LinearGradient(colors: [Color.white.opacity(chrome.panelIsDark ? 0.35 : 0.9), Color.white.opacity(0.04)],
+                                                           startPoint: .top, endPoint: .bottom), lineWidth: 0.75))
+            .shadow(color: .black.opacity(chrome.panelIsDark ? 0.3 : 0.12), radius: 3, y: 1)
+            .matchedGeometryEffect(id: "thumb", in: thumb)
     }
 
     var body: some View {
@@ -62,44 +49,36 @@ struct TabStripView: View {
             .frame(maxWidth: 150, alignment: .leading)
             .padding(.trailing, 6)
             .accessibilityElement(children: .combine)
+            // The tabs in one Liquid Glass track, the selected one on a glass thumb that slides, as
+            // Safari's and Rex's tab bars.
             ScrollView(.horizontal) {
-                // Segmented, as Rex's: a run of unselected tabs shares one rounded segment, split by
-                // hairlines; the selected tab is its own lighter capsule.
-                HStack(spacing: 0) {
+                HStack(spacing: 2) {
                     ForEach(Array(state.tabs.enumerated()), id: \.element.id) { index, tab in
+                        let selected = tab.id == state.selectedTabID
                         if tab.pin != nil {
                             // Pinned tabs: icon-only pills first, as in a browser's tab strip.
-                            TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .tile, chrome: chrome, actions: actions)
+                            TabRow(tab: tab, index: index, selected: selected, style: .tile, chrome: chrome, actions: actions)
                                 .frame(width: 44, height: 28)
-                                .padding(.trailing, 4)
                         } else {
                             // No project headers here: a thin line where one project's tabs end.
                             if index > state.pinnedCount, state.project(of: state.tabs[index - 1]) != state.project(of: tab) {
                                 Divider()
                                     .frame(height: 16)
-                                    .padding(.horizontal, 6)
+                                    .padding(.horizontal, 4)
                             }
-                            // Between two unselected pills, a hairline, as Rex separates its tabs.
-                            else if index > 0, state.tabs[index - 1].pin == nil, tab.id != state.selectedTabID,
-                                    state.tabs[index - 1].id != state.selectedTabID {
-                                // On the segment's fill, so the run stays one piece.
-                                Rectangle()
-                                    .fill(Color.primary.opacity(0.14))
-                                    .frame(width: 1, height: 14)
-                                    .frame(height: 28)
-                                    .background(Color.primary.opacity(0.06))
-                            }
-                            let selected = tab.id == state.selectedTabID
                             TabRow(tab: tab, index: index, selected: selected, style: .compact, chrome: chrome, actions: actions)
                                 .frame(minWidth: 96, maxWidth: 220)
-                                .background { segment(at: index, selected: selected) }
-                                .padding(.horizontal, selected ? 4 : 0)
+                                .background { if selected { selectionThumb } }
                         }
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(3)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tabsWidth = $0 }
             }
             .scrollIndicators(.never)
+            .frame(maxWidth: tabsWidth > 0 ? tabsWidth : nil)
+            .glassEffect(.regular, in: Capsule())
+            .animation(reduceMotion ? nil : .spring(duration: 0.32, bounce: 0.18), value: state.selectedTabID)
             Spacer(minLength: 0)
             ChromeIconButton(symbol: "command", help: "Command Palette", action: actions.openPalette)
             ChromeIconButton(symbol: "plus", help: "New Tab", action: actions.newTab)

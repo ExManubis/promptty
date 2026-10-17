@@ -17,7 +17,7 @@ enum ChromeTint {
     static let frameDark: CGFloat = 0.09
     static let frameLight: CGFloat = 0.93
     /// How opaque the tint over the blur is; the rest is blurred desktop.
-    static let frameAlphaDark: CGFloat = 0.42
+    static let frameAlphaDark: CGFloat = 0.50
     static let frameAlphaLight: CGFloat = 0.38
 
     /// A theme-tinted frame over the blur, with the same transparency as the neutral one.

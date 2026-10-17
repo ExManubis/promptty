@@ -59,7 +59,7 @@ struct TabRow: View {
                 if style != .compact || paneDropTarget {
                     RowBackground(selected: selected, hovering: hovering, dropTarget: paneDropTarget, resting: style == .tile)
                 } else if hovering, !selected {
-                    RoundedRectangle(cornerRadius: ChromeMetrics.rowCornerRadius, style: .continuous).fill(Color.primary.opacity(0.05))
+                    Capsule().fill(Color.primary.opacity(0.06))
                 }
             }
             .contentShape(Rectangle())
