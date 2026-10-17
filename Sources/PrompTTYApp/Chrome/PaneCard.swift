@@ -48,6 +48,9 @@ struct PaneCard: View {
             LinkPreview(pane: pane.id, actions: actions)
             SecureLock(pane: pane.id, actions: actions)
             FindBar(pane: pane.id, actions: actions)
+            if let label = pane.label, actions.findState(for: pane.id) == nil {
+                PaneLabelChip(label: label, besideBadge: actions.isSecure(pane.id))
+            }
             if zoomed { ZoomBadge() }
             if broadcasting { BroadcastBadge() }
 
@@ -236,6 +239,27 @@ private struct BroadcastBadge: View {
             .allowsHitTesting(false)
             .help("Input goes to every pane of this tab. Turn it off in Window › Broadcast Input to All Panes.")
             .accessibilityLabel("Broadcasting input to all panes")
+    }
+}
+
+/// A pane's label, at its top-right, where output lines seldom reach (left of the lock badge when
+/// that shows; hidden while the find bar is there).
+private struct PaneLabelChip: View {
+    let label: String
+    let besideBadge: Bool
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: 11, weight: .semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .glassEffect(.regular, in: Capsule())
+            .padding(.trailing, besideBadge ? 40 : 8)
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .allowsHitTesting(false)
+            .accessibilityLabel("Pane label: \(label)")
     }
 }
 

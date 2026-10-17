@@ -500,6 +500,14 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     var canReopenClosedTab: Bool { !closedTabs.isEmpty }
 
+    /// Labels a pane (an empty label takes it away).
+    func setLabel(_ text: String, of pane: PaneID) {
+        guard let (state, tab) = workspace.tab(containing: pane), let target = tab.pane(pane) else { return }
+        target.label = Pane.label(text)
+        controllers[state.id]?.reload()
+        modelDidChange()
+    }
+
     func rename(_ id: TabID, to title: String) {
         guard let state = workspace.window(containing: id), let tab = state.tab(id: id) else { return }
         tab.customTitle = title

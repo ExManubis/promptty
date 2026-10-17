@@ -223,7 +223,8 @@ extension Tab {
         func layout(_ node: SplitNode) -> ClosedLayout {
             switch node {
             case .leaf(let id):
-                return .pane(workingDirectory: panes[id]?.workingDirectory ?? workingDirectory, focused: id == focusedPaneID)
+                return .pane(workingDirectory: panes[id]?.workingDirectory ?? workingDirectory, focused: id == focusedPaneID,
+                             label: panes[id]?.label)
             case .split(let axis, let ratio, let first, let second):
                 return .split(axis: axis, ratio: ratio, first: layout(first), second: layout(second))
             }
@@ -237,8 +238,8 @@ extension Tab {
         var focused: PaneID?
         func build(_ node: ClosedLayout) -> SplitNode {
             switch node {
-            case .pane(let dir, let isFocused):
-                let pane = Pane(workingDirectory: directory(dir))
+            case .pane(let dir, let isFocused, let label):
+                let pane = Pane(workingDirectory: directory(dir), label: label)
                 made[pane.id] = pane
                 if isFocused { focused = pane.id }
                 return .leaf(pane.id)

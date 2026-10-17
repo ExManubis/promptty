@@ -547,6 +547,13 @@ enum DebugHooks {
             coordinator.showTransientBanner(args.joined(separator: " "))
             return ""
         }
+        // eval label <text> — labels the key window's focused pane (empty: none).
+        driver.hooks["label"] = { args in
+            guard let pane = coordinator.allControllers.first(where: { $0.window?.isKeyWindow == true })?.state.selectedTab?.focusedPaneID
+                    ?? coordinator.allControllers.first?.state.selectedTab?.focusedPaneID else { return "error: no pane" }
+            coordinator.setLabel(args.joined(separator: " "), of: pane)
+            return ""
+        }
         // eval quick — the quick terminal's state.
         driver.hooks["quick"] = { _ in coordinator.quickTerminal?.debugState ?? "no quick terminal" }
         driver.hooks["settings"] = { args in

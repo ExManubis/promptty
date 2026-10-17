@@ -11,9 +11,12 @@ public struct TabSnapshot: Codable, Equatable, Sendable {
     /// The file (`ScrollbackArchive`) with what the tab's focused pane showed; absent when none was
     /// kept.
     public var scrollback: String?
-    public init(title: String, customTitle: String?, workingDirectory: String, pin: TabPin? = nil, project: ProjectID? = nil, scrollback: String? = nil) {
+    /// The focused pane's label; absent when it has none.
+    public var label: String?
+    public init(title: String, customTitle: String?, workingDirectory: String, pin: TabPin? = nil, project: ProjectID? = nil,
+                scrollback: String? = nil, label: String? = nil) {
         self.title = title; self.customTitle = customTitle; self.workingDirectory = workingDirectory; self.pin = pin
-        self.project = project; self.scrollback = scrollback
+        self.project = project; self.scrollback = scrollback; self.label = label
     }
 }
 
@@ -71,7 +74,8 @@ extension Workspace {
             windows: windows.map { w in
                 WindowSnapshot(
                     frame: w.frame,
-                    tabs: w.tabs.map { TabSnapshot(title: $0.title, customTitle: $0.customTitle, workingDirectory: $0.workingDirectory, pin: $0.pin, project: w.project(of: $0), scrollback: scrollback($0)) },
+                    tabs: w.tabs.map { TabSnapshot(title: $0.title, customTitle: $0.customTitle, workingDirectory: $0.workingDirectory, pin: $0.pin, project: w.project(of: $0), scrollback: scrollback($0),
+                                                label: $0.focusedPane.label) },
                     selectedIndex: w.selectedTabID.flatMap(w.index(of:))
                 )
             }
@@ -106,6 +110,7 @@ extension Workspace {
                 w.selectedTabID = nil
                 let tab = w.addTab(title: t.title, workingDirectory: exists ? wanted : fallbackDirectory, customTitle: t.customTitle, project: project)
                 tab.focusedPane.restoredScrollback = t.scrollback
+                tab.focusedPane.label = t.label.flatMap(Pane.label)
                 if let pin = t.pin {
                     w.pin(tab.id, pin)
                     if exists { tab.focusedPane.startupCommand = pin.command }

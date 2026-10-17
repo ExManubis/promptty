@@ -344,6 +344,9 @@ final class BlockOverlayView: NSView {
             item.target = self
             menu.addItem(item)
         }
+        menu.addItem(.separator())
+        // Through the responder chain, to the window.
+        menu.addItem(NSMenuItem(title: "Label Pane…", action: #selector(TerminalWindowController.labelPane(_:)), keyEquivalent: ""))
         return menu
     }
 

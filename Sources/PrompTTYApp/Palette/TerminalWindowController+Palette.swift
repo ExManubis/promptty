@@ -43,14 +43,15 @@ extension TerminalWindowController {
                 let pane = tab.focusedPaneID
                 let agent = coordinator.agentList.summary(for: tab.id)
                 let current = window.id == state.id && tab.id == state.selectedTabID
-                var subtitle = [tab.listSubtitle, agent.map { _ in "agent" }]
+                let labels = tab.orderedPanes.compactMap(\.label)
+                var subtitle = [labels.isEmpty ? nil : labels.joined(separator: ", "), tab.listSubtitle, agent.map { _ in "agent" }]
                 subtitle.append(current ? "this tab" : number > 0 ? "tab in another window" : "tab")
                 let entry = PaletteEntry(
                     id: "tab:\(tab.id)",
                     icon: agent != nil ? "sparkle" : tab.pin != nil ? "pin" : "terminal",
                     title: tab.listTitle,
                     subtitle: subtitle.compactMap { $0 }.joined(separator: " · "),
-                    keywords: "tab \(tab.workingDirectory) \(tab.customTitle ?? "")",
+                    keywords: "tab \(tab.workingDirectory) \(tab.customTitle ?? "") \(labels.joined(separator: " "))",
                     run: { [weak self] in self?.coordinator.reveal(pane) }
                 )
                 if current { selected = entry } else { entries.append(entry) }

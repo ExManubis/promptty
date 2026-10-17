@@ -519,6 +519,25 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         }
     }
 
+    /// Asks for the focused pane's label (empty: none).
+    @objc func labelPane(_ sender: Any?) {
+        guard let window, window.attachedSheet == nil, let pane = state.selectedTab?.focusedPane else { return }
+        let alert = NSAlert()
+        alert.messageText = "Label Pane"
+        alert.informativeText = "A short name shown on the pane, like \"server\" or \"logs\". `promptty -p NAME` finds it by it."
+        let field = NSTextField(string: pane.label ?? "")
+        field.placeholderString = "No label"
+        field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Label")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { [weak self] response in
+            if response == .alertFirstButtonReturn { self?.coordinator.setLabel(field.stringValue, of: pane.id) }
+            self?.focusSelectedPane()
+        }
+    }
+
     var projects: [Project] { coordinator.workspace.projects }
 
     func newTab(inProject project: ProjectID?) {
@@ -718,6 +737,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             let tab = state.selectedTab
             item.state = tab.map { chrome.broadcastTabs.contains($0.id) } == true ? .on : .off
             return tab?.hasSplits ?? false
+        case #selector(labelPane(_:)):
+            item.title = state.selectedTab?.focusedPane.label == nil ? "Label Pane…" : "Rename Pane Label…"
+            return state.selectedTab != nil
         case #selector(reopenClosedTab(_:)):
             return coordinator.canReopenClosedTab
         case #selector(togglePinTab(_:)):

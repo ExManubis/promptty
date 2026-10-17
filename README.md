@@ -38,7 +38,9 @@
   it off in Settings › Keyboard.
 - **Command palette.** ⌘K finds any tab in any window and runs any command by name, with its
   shortcut beside it.
-- **Splits.** Split right or down, drag to resize, zoom one pane to fill the tab.
+- **Splits.** Split right or down, drag to resize, zoom one pane to fill the tab. Name a pane
+  ("server", "logs") with **Window › Label Pane…**; the label sits on the pane and is kept with
+  the session.
 - **Type into every pane at once.** ⌥⇧⌘I broadcasts what you type to all panes of a tab (handy
   for the same command on several servers); each pane wears an orange border while it's on.
 - **Undo a closed tab.** ⇧⌘T brings back the last ten closed tabs, splits and folders included.
