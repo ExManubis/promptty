@@ -96,6 +96,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     /// Re-syncs window-level state with the model. Called by the coordinator after every mutation;
     /// SwiftUI follows the observable model on its own.
     func reload() {
+        pruneBroadcast()
         guard let tab = state.selectedTab else { return }
         if shownTabID != tab.id {
             shownTabID = tab.id
@@ -155,6 +156,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         let shell = PaneShell(pane: pane.id, directory: pane.workingDirectory, integrated: integrated,
                               startupCommand: integrated ? startup : nil)
         shell.surface = view
+        shell.onUserCommand = { [weak self] command in self?.broadcastCommand(command, from: pane.id) }
         shells[pane.id] = shell
         bind(view, to: pane.id)
         return view
@@ -228,6 +230,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             return self.coordinator.preferences.settings.clipboardPrograms(kind).contains(program.id)
         }
         view.onLinkHover = { [weak self] link in self?.coordinator.activity.status(for: pane).hover(over: link) }
+        view.broadcastPeers = { [weak self] in self?.broadcastPeers(of: pane) ?? [] }
         // Dropped files: into the bar while it is shown, else typed for the program, quoted.
         view.onFileDrop = { [weak self, weak view] urls in
             if let shell = self?.shells[pane], shell.bar != .hidden {
@@ -710,6 +713,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             return focusedSurface != nil
         case #selector(useSelectionForFind(_:)):
             return focusedSurface?.hasSelection ?? false
+        case #selector(toggleBroadcast(_:)):
+            let tab = state.selectedTab
+            item.state = tab.map { chrome.broadcastTabs.contains($0.id) } == true ? .on : .off
+            return tab?.hasSplits ?? false
         case #selector(reopenClosedTab(_:)):
             return coordinator.canReopenClosedTab
         case #selector(togglePinTab(_:)):

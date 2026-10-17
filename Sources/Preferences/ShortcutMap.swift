@@ -20,7 +20,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     case gotoTab1, gotoTab2, gotoTab3, gotoTab4, gotoTab5, gotoTab6, gotoTab7, gotoTab8, gotoTab9
     case toggleSidebar, toggleTabLayout
     case splitRight, splitDown, closePane
-    case focusPaneLeft, focusPaneUp, focusPaneRight, focusPaneDown, equalizePanes, zoomPane
+    case focusPaneLeft, focusPaneUp, focusPaneRight, focusPaneDown, equalizePanes, zoomPane, toggleBroadcast
     case copy, paste, selectAll, clear, biggerFont, smallerFont, actualSizeFont
     case selectPreviousCommand, selectNextCommand, selectPreviousFailed, selectNextFailed
     case copyOutput, copyCommand, rerunCommand
@@ -49,6 +49,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .focusPaneDown: return "Focus Pane Below"
         case .equalizePanes: return "Equalize Panes"
         case .zoomPane: return "Zoom Pane"
+        case .toggleBroadcast: return "Broadcast Input to All Panes"
         case .copy: return "Copy"
         case .paste: return "Paste"
         case .selectAll: return "Select All"
@@ -76,7 +77,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .newTab, .closeTab, .nextTab, .previousTab, .reopenClosedTab, .toggleSidebar, .toggleTabLayout,
              .gotoTab1, .gotoTab2, .gotoTab3, .gotoTab4, .gotoTab5, .gotoTab6, .gotoTab7, .gotoTab8, .gotoTab9:
             return .tabs
-        case .splitRight, .splitDown, .closePane, .focusPaneLeft, .focusPaneUp, .focusPaneRight, .focusPaneDown, .equalizePanes, .zoomPane:
+        case .splitRight, .splitDown, .closePane, .focusPaneLeft, .focusPaneUp, .focusPaneRight, .focusPaneDown, .equalizePanes, .zoomPane, .toggleBroadcast:
             return .panes
         case .copy, .paste, .selectAll, .clear, .biggerFont, .smallerFont, .actualSizeFont,
              .selectPreviousCommand, .selectNextCommand, .copyOutput, .copyCommand,
@@ -120,6 +121,7 @@ public struct ShortcutMap: Equatable, Sendable {
         .focusPaneDown: s("opt+cmd+down"),
         .equalizePanes: s("ctrl+cmd+="),
         .zoomPane: s("shift+cmd+return"),
+        .toggleBroadcast: s("opt+shift+cmd+i"),
         .copy: s("cmd+c"),
         .paste: s("cmd+v"),
         .selectAll: s("cmd+a"),
