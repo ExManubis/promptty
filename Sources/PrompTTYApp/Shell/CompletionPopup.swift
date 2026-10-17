@@ -3,18 +3,6 @@ import CommandEditing
 import Observation
 import SwiftUI
 
-/// The file system side of completion: read off the main thread, once per completion list.
-enum DirectoryListing {
-    nonisolated static func entries(inDirectory path: String) -> [(name: String, isDirectory: Bool)] {
-        let url = URL(fileURLWithPath: path, isDirectory: true)
-        let items = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
-        return items.map { item in
-            let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            return (name: item.lastPathComponent, isDirectory: isDirectory == true)
-        }
-    }
-}
-
 @MainActor
 @Observable
 final class CompletionList {

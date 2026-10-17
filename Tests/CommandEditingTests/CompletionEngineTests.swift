@@ -102,6 +102,36 @@ final class CompletionEngineTests: XCTestCase {
     }
 }
 
+final class DirectoryListingTests: XCTestCase {
+    func testSymlinksToFoldersAreFolders() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("DirectoryListingTests-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let target = root.appendingPathComponent("target")
+        let listed = root.appendingPathComponent("listed")
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
+        try fm.createDirectory(at: listed, withIntermediateDirectories: true)
+        try Data().write(to: root.appendingPathComponent("file.txt"))
+        try fm.createDirectory(at: listed.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: listed.appendingPathComponent("linked").path, withDestinationPath: target.path)
+        try fm.createSymbolicLink(atPath: listed.appendingPathComponent("linkedFile").path,
+                                  withDestinationPath: root.appendingPathComponent("file.txt").path)
+        try fm.createSymbolicLink(atPath: listed.appendingPathComponent("dangling").path, withDestinationPath: root.appendingPathComponent("gone").path)
+
+        let entries = Dictionary(uniqueKeysWithValues: DirectoryListing.entries(inDirectory: listed.path).map { ($0.name, $0.isDirectory) })
+        XCTAssertEqual(entries, ["sub": true, "linked": true, "linkedFile": false, "dangling": false])
+
+        var snapshot = CompletionSnapshot(commands: [], exports: [])
+        snapshot.store(DirectoryListing.entries(inDirectory: listed.path), forDirectory: listed.path)
+        let complete = { (text: String) in
+            CompletionEngine.complete(text: text, cursor: (text as NSString).length, directory: listed.path, home: "/Users/me", sources: snapshot)
+        }
+        XCTAssertEqual(complete("cd l")?.candidates, ["linked/"])
+        XCTAssertEqual(complete("ls linked")?.candidates, ["linked/", "linkedFile"])
+        XCTAssertEqual(complete("ls linkedF")?.singleInsertion, "linkedFile ")
+    }
+}
+
 final class GitStatusTests: XCTestCase {
     func testCleanBranch() {
         let s = GitStatus.parse(porcelainV2: "# branch.oid 1234567890abcdef\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n")
