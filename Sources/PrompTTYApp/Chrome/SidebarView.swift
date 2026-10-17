@@ -23,7 +23,7 @@ struct SidebarView: View {
                 ChromeIconButton(symbol: "sidebar.left", help: collapsed ? "Keep Sidebar Open" : "Hide Sidebar", action: actions.toggleSidebar)
                 Spacer(minLength: 0)
                 // Rex's eye: the tabs running agents, and what each does (⌘.).
-                ActivityButton(on: chrome.showsActivity, badge: agentNews, action: actions.toggleActivity)
+                AgentNewsButton(state: state, chrome: chrome, actions: actions)
                     .padding(.trailing, ChromeMetrics.sidebarHorizontalPadding)
             }
             .frame(height: ChromeMetrics.titlebarHeight - (collapsed ? 2 * ChromeMetrics.inset : 0))
@@ -49,14 +49,6 @@ struct SidebarView: View {
         .accessibilityLabel(chrome.showsActivity ? "Activity" : "Tabs")
     }
 
-    /// An agent's tab out of sight has something new: a dot on the eye.
-    private var agentNews: Bool {
-        state.tabs.contains { tab in
-            tab.id != state.selectedTabID && actions.agentList.summary(for: tab.id) != nil
-                && TabActivityMarks(tab: tab, selected: false, actions: actions).badge
-        }
-    }
-
     @ViewBuilder
     private var tabList: some View {
         PinnedTabsGrid(state: state, chrome: chrome, actions: actions)
@@ -71,6 +63,25 @@ struct SidebarView: View {
             TabRow(tab: tab, index: index, selected: tab.id == state.selectedTabID, style: .full, chrome: chrome, actions: actions)
         }
         NewTabRow(action: { actions.newTab(inProject: nil) }, newProject: { actions.newProject(adding: nil) })
+    }
+}
+
+/// The Activity button, with a dot on the eye when an agent's tab out of sight has something new.
+/// A view of its own, so the agents' activity it reads redraws the button, not the sidebar.
+private struct AgentNewsButton: View {
+    let state: WindowState
+    let chrome: WindowChromeModel
+    let actions: ChromeActions
+
+    var body: some View {
+        ActivityButton(on: chrome.showsActivity, badge: agentNews, action: actions.toggleActivity)
+    }
+
+    private var agentNews: Bool {
+        state.tabs.contains { tab in
+            tab.id != state.selectedTabID && actions.agentList.summary(for: tab.id) != nil
+                && TabActivityMarks(tab: tab, selected: false, actions: actions).badge
+        }
     }
 }
 

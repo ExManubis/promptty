@@ -181,6 +181,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func shell(for pane: PaneID) -> PaneShell? { shells[pane] }
     func blocks(for pane: PaneID) -> BlockOverlayView? { surfaces[pane]?.overlay as? BlockOverlayView }
     func activity(for pane: PaneID) -> PaneActivity.Visible { coordinator.activity.activity(for: pane) }
+    func display(for pane: PaneID) -> PaneActivity.Display { coordinator.activity.status(for: pane).display }
     func hoveredLink(for pane: PaneID) -> String? { coordinator.activity.status(for: pane).hoveredLink }
     func clipboardRequest(for pane: PaneID) -> ClipboardTicket? { coordinator.activity.status(for: pane).clipboardRequest }
     func answerClipboardRequest(_ decision: ClipboardDecision, id: Int, in pane: PaneID) { surfaces[pane]?.answerClipboardRequest(decision, id: id) }

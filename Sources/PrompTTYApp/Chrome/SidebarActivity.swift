@@ -18,7 +18,7 @@ struct TabActivityMarks: Equatable {
     @MainActor
     init(tab: WorkspaceModel.Tab, selected: Bool, actions: ChromeActions) {
         for pane in tab.orderedPanes {
-            let display = actions.activity(for: pane.id).display
+            let display = actions.display(for: pane.id)
             if display == .working { working = true }
             guard !selected else { continue }
             switch display {

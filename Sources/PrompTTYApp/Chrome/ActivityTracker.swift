@@ -12,7 +12,12 @@ import WorkspaceModel
 @Observable
 final class PaneStatus {
     /// The pane's activity as views show it; set only when that changes.
-    fileprivate(set) var activity = PaneActivity().visible
+    fileprivate(set) var activity = PaneActivity().visible {
+        didSet { if display != activity.display { display = activity.display } }
+    }
+    /// What the activity shows alone (working, waiting, finished…), for the tab rows' marks: an
+    /// agent moving from one tool to the next does not reach them.
+    private(set) var display = PaneActivity().visible.display
     /// The link under the pointer, shown at the pane's corner; nil when there is none.
     private(set) var hoveredLink: String?
 

@@ -225,7 +225,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         let tabs = withObservationTracking { agentSummaries() } onChange: { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.scheduleAgents() } }
         }
-        if tabs != agentList.tabs { agentList.tabs = tabs }
+        agentList.update(tabs, liveTabs: Set(workspace.windows.flatMap { $0.tabs.map(\.id) }))
         lookUpRepositories()
     }
 
