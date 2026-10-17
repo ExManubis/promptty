@@ -140,7 +140,7 @@ struct TabRow: View {
         agents.flatMap { tab.pane($0.entry.pane) } ?? tab.focusedPane
     }
 
-    /// A sidebar row, one line as Rex's: the program's tile (a blue dot on it for what happened
+    /// A sidebar row, one line as Rex's: the programs' tiles (a blue dot on them for what happened
     /// out of sight), the title and folder, "•••" while an agent works.
     private var sidebarRowContent: some View {
         let lead = leadPane
@@ -150,7 +150,8 @@ struct TabRow: View {
         let (title, folder) = agents != nil ? (tab.listTitle, nil)
             : PaneTitle.titleAndFolder(pane: lead, program: program, customTitle: tab.customTitle)
         return HStack(spacing: 9) {
-            SidebarTabIcon(program: program, badge: marks.badge)
+            // The panes' programs as the strip's tiles, the focused one in front.
+            SidebarTabIcon(cards: stackCards, badge: marks.badge)
                 .animation(.easeOut(duration: 0.2), value: marks.badge)
             if renaming {
                 TextField("Tab name", text: $draft)

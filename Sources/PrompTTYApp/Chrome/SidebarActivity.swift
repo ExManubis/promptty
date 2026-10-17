@@ -120,32 +120,28 @@ private struct WorkingDotsLayer: NSViewRepresentable {
     }
 }
 
-/// A tab's program as Rex's sidebar shows it: one flat, square app-like tile, with a blue dot on
-/// its corner for what happened out of sight.
+/// A tab's programs as the strip's pills show them (`ProgramStack`), with a blue dot on the front
+/// tile's corner for what happened out of sight.
 struct SidebarTabIcon: View {
-    let program: Program?
+    let cards: [ProgramStack.Card]
     var badge = false
 
-    static let size: CGFloat = 20
+    /// The width the rows' text lines up after, for the headers' symbols.
+    static let size: CGFloat = ProgramStack.width
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
-        shape.fill(ProgramStack.background(for: program))
-            .overlay { ProgramStack.logo(of: program, size: 12) }
-            .overlay(shape.strokeBorder(Color.white.opacity(0.14), lineWidth: 0.5).padding(0.5))
-            .overlay(shape.strokeBorder(.black.opacity(0.45), lineWidth: 0.75))
-            .frame(width: Self.size, height: Self.size)
-            .overlay(alignment: .topTrailing) {
+        ProgramStack(cards: cards)
+            .overlay(alignment: .topLeading) {
                 if badge {
                     Circle()
                         .fill(Color.accentColor)
                         .frame(width: 7, height: 7)
                         .overlay(Circle().strokeBorder(Color.black.opacity(0.35), lineWidth: 0.5))
-                        .offset(x: 2.5, y: -2.5)
+                        .offset(x: ProgramStack.width - 4.5, y: -2.5)
                         .transition(.scale.combined(with: .opacity))
                 }
             }
-            .accessibilityLabel(program?.name ?? "Terminal")
+            .frame(minWidth: Self.size, alignment: .leading)
     }
 }
 
@@ -278,7 +274,7 @@ struct ActivityRow: View {
         // Read here: only this row redraws as the agent's state changes.
         let activity = summary.entry.status.activity
         HStack(spacing: 9) {
-            SidebarTabIcon(program: program, badge: marks.badge)
+            SidebarTabIcon(cards: [ProgramStack.Card(id: summary.entry.pane, program: program, display: activity.display)], badge: marks.badge)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     Text(tab.listTitle)
