@@ -9,7 +9,8 @@ import SwiftUI
 struct PaneHost: NSViewRepresentable {
     let surface: TerminalSurfaceView
     let visible: Bool
-    /// The terminal keeps its size however the view changes (a pane hidden by a zoom).
+    /// The terminal keeps its size however the view changes (a pane hidden by a zoom); it does
+    /// while not `visible`, too.
     var holdSize = false
 
     func makeNSView(context: Context) -> PaneHostView { PaneHostView(cornerRadius: ChromeMetrics.paneCornerRadius) }
@@ -18,7 +19,10 @@ struct PaneHost: NSViewRepresentable {
         host.host(surface)
         host.isHidden = !visible
         surface.setOccluded(!visible)
-        surface.resizeMode = holdSize ? .held : context.environment.terminalResizeMode
+        // Out of sight (a tab not shown), the terminal keeps its size too: resized with the
+        // window, every hidden tab's terminals reflowed and redrew at each frame. It takes the
+        // size once it is shown.
+        surface.resizeMode = holdSize || !visible ? .held : context.environment.terminalResizeMode
     }
 
     static func dismantleNSView(_ host: PaneHostView, coordinator: ()) {

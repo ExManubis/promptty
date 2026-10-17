@@ -14,6 +14,8 @@ struct WindowRootView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tabFade = TabFadeState()
+    /// The tab fade that has finished.
+    @State private var fadeSettled = 0
     /// The collapsed sidebar, shown over the panes while the pointer is on it.
     @State private var peeking = false
     @State private var peekTimer: Task<Void, Never>?
@@ -182,19 +184,17 @@ struct WindowRootView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
             let generation = tabFade.update(selected: state.selectedTabID, tabs: state.tabs.map(\.id), animate: !reduceMotion)
+            let fading = generation != fadeSettled
             ZStack {
                 ForEach(state.tabs, id: \.id) { tab in
-                    TabPanes(tab: tab, selected: tab.id == state.selectedTabID, outgoing: tab.id == tabFade.outgoing,
-                             chrome: chrome, actions: actions)
+                    TabPanes(tab: tab, selected: tab.id == state.selectedTabID, outgoing: fading && tab.id == tabFade.outgoing,
+                             fadeGeneration: generation, chrome: chrome, actions: actions)
                 }
             }
-            .keyframeAnimator(initialValue: CGFloat(1), trigger: generation) { content, progress in
-                content.environment(\.tabFadeProgress, progress)
-            } keyframes: { _ in
-                KeyframeTrack {
-                    MoveKeyframe(0)
-                    LinearKeyframe(1, duration: PaneAnimation.tabDuration, timingCurve: PaneAnimation.tabCurve)
-                }
+            // The old tab is let go (hidden, its terminals occluded) once it has faded out.
+            .task(id: generation) {
+                try? await Task.sleep(for: .seconds(PaneAnimation.tabDuration))
+                if !Task.isCancelled { fadeSettled = generation }
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: chrome.banner?.id)
