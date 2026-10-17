@@ -26,14 +26,19 @@ final class BlockOverlayView: NSView {
     private let buttons = NSHostingView(rootView: BlockButtons(actions: .init()))
     private var headerModel = StickyHeader.Model()
     /// "↓ 12 new lines": output arrived while the screen is scrolled back.
-    private let newOutputPill = NSHostingView(rootView: NewOutputPill(count: 0, action: {}))
+    private let newOutputPill = NSHostingView(rootView: NewOutputPill(model: .init(), action: {}))
+    private let newOutputModel = NewOutputPill.Model()
     private var newOutput = NewOutputTracker()
-    private var newOutputCount: Int?
+    /// The pill's width for a label of a length (the digits are all as wide), and its darkness.
+    private var newOutputWidth: (length: Int, width: CGFloat)?
+    private var newOutputDark: Bool?
 
     private var refreshQueued = false
     /// A refresh was skipped while hidden (another tab, or behind a zoom): one comes when shown.
     private var staleWhileHidden = false
     private var lastRefresh: CFTimeInterval = 0
+    /// The last refresh found only lines arriving below a scrolled-back screen: nothing on it moved.
+    private var onlyGrewBelow = false
     /// The bounds the last layout pass refreshed for.
     private var laidOutBounds: CGRect?
     /// What the last render drew from.
@@ -86,6 +91,7 @@ final class BlockOverlayView: NSView {
             rerun: { [weak self] in self?.rerunHovered() },
             save: { [weak self] in self?.saveHovered() }
         ))
+        newOutputPill.rootView = NewOutputPill(model: newOutputModel) { [weak self] in self?.surface?.scrollToBottom() }
         surface.overlay = self
         surface.contextMenu = { [weak self] event in self?.contextMenu(for: event) }
         surface.onLayoutChange = { [weak self] in self?.setNeedsRefresh() }
@@ -163,7 +169,8 @@ final class BlockOverlayView: NSView {
     /// Reads the blocks again soon: on the next turn of the run loop, but no more often than a
     /// fast display draws (streaming output reports a scroll thousands of times a second), or 20
     /// times a second at the newest output with no block under the pointer or selected, where
-    /// only the lines between commands move. Any number of calls before then read once.
+    /// only the lines between commands move, and while output arrives below a scrolled-back
+    /// screen, where only the new-output pill's count does. Any number of calls before then read once.
     func setNeedsRefresh() {
         // Nobody sees a hidden pane's blocks: read them once it is shown again.
         guard !isHiddenOrHasHiddenAncestor else {
@@ -172,7 +179,8 @@ final class BlockOverlayView: NSView {
         }
         guard !refreshQueued else { return }
         refreshQueued = true
-        let calm = snapshot.map { $0.viewport.atBottom && !onScreen(hovered, in: $0) && !onScreen(selection, in: $0) } ?? false
+        let calm = onlyGrewBelow
+            || snapshot.map { $0.viewport.atBottom && !onScreen(hovered, in: $0) && !onScreen(selection, in: $0) } ?? false
         let wait = max(0, lastRefresh + (calm ? 1.0 / 20 : 1.0 / 120) - CACurrentMediaTime())
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
             MainActor.assumeIsolated {
@@ -198,9 +206,15 @@ final class BlockOverlayView: NSView {
         #endif
         guard window != nil, let snap = surface?.blockSnapshot(all ? .all : .viewport) else {
             snapshot = nil
+            onlyGrewBelow = false
             render()
             return
         }
+        onlyGrewBelow = snapshot.map { old in
+            var grown = old
+            grown.viewport.totalRows = snap.viewport.totalRows
+            return !all && !old.viewport.atBottom && !snap.viewport.atBottom && grown == snap && old != snap
+        } ?? false
         snapshot = snap
         if let selection, !snap.hasBlocks || (all && selection.index(in: snap) == nil) { self.selection = nil }
         if !snap.hasBlocks { headerCommand = nil }
@@ -564,20 +578,23 @@ final class BlockOverlayView: NSView {
         let count = viewport.flatMap { newOutput.update($0) }
         guard let count else {
             newOutputPill.isHidden = true
-            newOutputCount = nil
             return
         }
-        if count != newOutputCount {
-            newOutputCount = count
-            newOutputPill.rootView = NewOutputPill(count: count) { [weak self] in self?.surface?.scrollToBottom() }
-        }
+        if count != newOutputModel.count { newOutputModel.count = count }
         // Laid out here (sizing off, as for the header): the label's width, the arrow and padding.
         let label = NewOutputPill.label(count) as NSString
-        let textWidth = label.size(withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium)]).width
-        let size = CGSize(width: (textWidth + 50).rounded(.up), height: 28)
+        if newOutputWidth?.length != label.length {
+            let textWidth = label.size(withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium)]).width
+            newOutputWidth = (label.length, (textWidth + 50).rounded(.up))
+        }
+        let size = CGSize(width: newOutputWidth?.width ?? 0, height: 28)
         newOutputPill.frame = CGRect(x: ((bounds.width - size.width) / 2).rounded(), y: bounds.height - size.height - 14,
                                      width: size.width, height: size.height)
-        newOutputPill.appearance = NSAppearance(named: Self.isDark ? .darkAqua : .aqua)
+        let dark = Self.isDark
+        if dark != newOutputDark {
+            newOutputDark = dark
+            newOutputPill.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        }
         newOutputPill.isHidden = false
     }
 
