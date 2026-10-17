@@ -46,6 +46,7 @@ struct PaneCard: View {
             ClipboardBanner(pane: pane.id, actions: actions)
             LinkPreview(pane: pane.id, actions: actions)
             SecureLock(pane: pane.id, actions: actions)
+            FindBar(pane: pane.id, actions: actions)
             if zoomed { ZoomBadge() }
 
             if let code = chrome.exitedPanes[pane.id] {

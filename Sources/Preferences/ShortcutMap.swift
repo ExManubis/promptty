@@ -24,6 +24,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     case copy, paste, selectAll, clear, biggerFont, smallerFont, actualSizeFont
     case selectPreviousCommand, selectNextCommand, selectPreviousFailed, selectNextFailed
     case copyOutput, copyCommand, rerunCommand
+    case find, findNext, findPrevious, useSelectionForFind
 
     public var title: String {
         switch self {
@@ -60,6 +61,10 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .selectPreviousFailed: return "Select Previous Failed Command"
         case .selectNextFailed: return "Select Next Failed Command"
         case .rerunCommand: return "Rerun Command"
+        case .find: return "Find"
+        case .findNext: return "Find Next"
+        case .findPrevious: return "Find Previous"
+        case .useSelectionForFind: return "Use Selection for Find"
         }
     }
 
@@ -73,7 +78,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
             return .panes
         case .copy, .paste, .selectAll, .clear, .biggerFont, .smallerFont, .actualSizeFont,
              .selectPreviousCommand, .selectNextCommand, .copyOutput, .copyCommand,
-             .selectPreviousFailed, .selectNextFailed, .rerunCommand:
+             .selectPreviousFailed, .selectNextFailed, .rerunCommand, .find, .findNext, .findPrevious, .useSelectionForFind:
             return .terminal
         }
     }
@@ -125,6 +130,10 @@ public struct ShortcutMap: Equatable, Sendable {
         .selectPreviousFailed: s("ctrl+cmd+up"),
         .selectNextFailed: s("ctrl+cmd+down"),
         .rerunCommand: s("shift+cmd+r"),
+        .find: s("cmd+f"),
+        .findNext: s("cmd+g"),
+        .findPrevious: s("shift+cmd+g"),
+        .useSelectionForFind: s("cmd+e"),
     ]
 
     /// Fixed menu shortcuts that cannot be assigned: Quit, Hide, Hide Others, Minimize, Settings, Full Screen.

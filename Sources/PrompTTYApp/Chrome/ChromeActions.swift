@@ -20,6 +20,11 @@ protocol ChromeActions: AnyObject {
     func alwaysAllowClipboard(_ ticket: ClipboardTicket, for program: String, in pane: PaneID)
     /// A pane's progress report, if it has one (observes that pane alone).
     func progress(for pane: PaneID) -> PaneProgress?
+    /// A pane's find bar, nil while closed (observes that pane alone).
+    func findState(for pane: PaneID) -> PaneFind?
+    func setFindText(_ text: String, in pane: PaneID)
+    func findNavigate(in pane: PaneID, forward: Bool)
+    func closeFind(in pane: PaneID)
     /// Whether secure keyboard input is on for a pane (observes that pane alone).
     func isSecure(_ pane: PaneID) -> Bool
     /// The agents of every tab, in every window (observable).

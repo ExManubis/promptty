@@ -39,6 +39,10 @@ enum MainMenu {
         static let selectNextFailed = #selector(TerminalWindowController.selectNextFailedCommand(_:))
         static let copyCommandMarkdown = #selector(TerminalWindowController.copyCommandMarkdown(_:))
         static let rerunCommand = #selector(TerminalWindowController.rerunCommand(_:))
+        static let find = #selector(TerminalWindowController.find(_:))
+        static let findNext = #selector(TerminalWindowController.findNext(_:))
+        static let findPrevious = #selector(TerminalWindowController.findPrevious(_:))
+        static let useSelectionForFind = #selector(TerminalWindowController.useSelectionForFind(_:))
     }
 
     static func build(shortcuts: ShortcutMap) -> NSMenu {
@@ -91,6 +95,13 @@ enum MainMenu {
         edit.addItem(item("Select All", #selector(NSText.selectAll(_:)), .selectAll))
         edit.addItem(.separator())
         edit.addItem(item("Clear", Action.clearTerminal, .clear))
+        edit.addItem(.separator())
+        let find = NSMenu(title: "Find")
+        find.addItem(item("Find…", Action.find, .find))
+        find.addItem(item("Find Next", Action.findNext, .findNext))
+        find.addItem(item("Find Previous", Action.findPrevious, .findPrevious))
+        find.addItem(item("Use Selection for Find", Action.useSelectionForFind, .useSelectionForFind))
+        edit.addItem(submenu: find, title: "Find")
         edit.addItem(.separator())
         // Command blocks: what each command printed, from the shell integration's marks.
         edit.addItem(item("Select Previous Command", Action.selectPreviousCommand, .selectPreviousCommand))

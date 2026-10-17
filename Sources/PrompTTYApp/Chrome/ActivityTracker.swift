@@ -33,6 +33,20 @@ final class PaneStatus {
         if self.progress != progress { self.progress = progress }
     }
 
+    /// The pane's find bar; nil while it is closed.
+    private(set) var find: PaneFind?
+
+    func setFind(_ find: PaneFind?) {
+        if self.find != find { self.find = find }
+    }
+
+    /// Changes the open find bar; nothing while it is closed.
+    func updateFind(_ change: (inout PaneFind) -> Void) {
+        guard var find else { return }
+        change(&find)
+        setFind(find)
+    }
+
     func setSecure(_ on: Bool) {
         if secure != on { secure = on }
     }
@@ -41,6 +55,17 @@ final class PaneStatus {
     func hover(over link: String?) {
         if hoveredLink != link { hoveredLink = link }
     }
+}
+
+/// A pane's find bar: what it looks for and what the terminal found.
+struct PaneFind: Equatable {
+    var needle = ""
+    /// Matches in the scrollback; nil while the terminal counts, or before anything is looked for.
+    var total: Int?
+    /// The current match, 0-based.
+    var selected: Int?
+    /// Bumped to put the keyboard in the field again (⌘F with the bar open).
+    var focusRequest = 0
 }
 
 /// Every pane's activity (what runs in it, what happened there unseen), for the tab rows and pane

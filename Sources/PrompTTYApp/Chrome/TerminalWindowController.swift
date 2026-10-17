@@ -16,7 +16,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     let chrome = WindowChromeModel()
     unowned let coordinator: WorkspaceCoordinator
     private let runtime: GhosttyRuntime
-    private var surfaces: [PaneID: TerminalSurfaceView] = [:]
+    private(set) var surfaces: [PaneID: TerminalSurfaceView] = [:]
     /// Each pane's shell session (prompt state, header, history), created with its surface.
     private var shells: [PaneID: PaneShell] = [:]
     /// Source surfaces for panes created by a split, consumed when their surface is made.
@@ -693,6 +693,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
              #selector(selectPreviousFailedCommand(_:)), #selector(selectNextFailedCommand(_:)),
              #selector(copyCommandMarkdown(_:)), #selector(rerunCommand(_:)):
             return focusedBlocks?.hasBlocks ?? false
+        case #selector(find(_:)), #selector(findNext(_:)), #selector(findPrevious(_:)):
+            return focusedSurface != nil
+        case #selector(useSelectionForFind(_:)):
+            return focusedSurface?.hasSelection ?? false
         case #selector(togglePinTab(_:)):
             item.title = state.selectedTab?.pin == nil ? "Pin Tab" : "Unpin Tab"
             return state.selectedTab != nil

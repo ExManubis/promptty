@@ -18,7 +18,8 @@
 - **A smarter prompt.** In zsh, an input bar replaces the shell prompt: history, suggestions,
   Tab completion, syntax coloring, vi mode and fuzzy history search (⌃R).
 - **Command blocks.** Every command and its output is a block you can jump between, copy, copy
-  as Markdown or rerun. ⌃⌘↑ jumps straight to the last failure.
+  as Markdown or rerun. ⌃⌘↑ jumps straight to the last failure. ⌘F finds anything in the
+  scrollback, every match highlighted.
 - **Projects and pinned tabs.** Group tabs into projects. Pin a tab running `claude` or
   `npm run dev` and it comes back, still running, the next time you open PrompTTY.
 - **Splits.** Split right or down, drag to resize, zoom one pane to fill the tab.
@@ -61,6 +62,8 @@ included), and Option works as Alt. Every shortcut can be changed in **Settings 
 | Select previous / next failed command | ⌃⌘↑ / ⌃⌘↓ |
 | Copy the command's output / the command | ⌥⌘C / ⇧⌘C |
 | Rerun the selected command | ⇧⌘R |
+| Find in the scrollback / next / previous | ⌘F / ⌘G / ⇧⌘G |
+| Find the selected text | ⌘E |
 | Search history | ⌃R |
 
 ## Settings

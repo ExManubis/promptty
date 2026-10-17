@@ -760,6 +760,29 @@ final class WorkspaceCoordinator: GhosttyActionSink {
             }
             activity.reportProgress(pane, kind: kind, percent: percent)
             return true
+        case .startSearch(let needle):
+            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
+            let status = activity.status(for: pane)
+            if status.find == nil { status.setFind(PaneFind()) }
+            status.updateFind { $0.focusRequest += 1 }
+            // Use Selection for Find: the terminal names the text but leaves looking for it to us.
+            if !needle.isEmpty {
+                status.updateFind { $0.needle = needle }
+                view.performBindingAction("search:\(needle)")
+            }
+            return true
+        case .endSearch:
+            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
+            activity.status(for: pane).setFind(nil)
+            return true
+        case .searchTotal(let total):
+            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
+            activity.status(for: pane).updateFind { $0.total = total }
+            return true
+        case .searchSelected(let selected):
+            guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
+            activity.status(for: pane).updateFind { $0.selected = selected }
+            return true
         default: break
         }
         let located: (WindowState, Tab, Pane, TerminalWindowController)?
@@ -903,7 +926,8 @@ final class WorkspaceCoordinator: GhosttyActionSink {
                 MainActor.assumeIsolated { self?.openLink(decision) }
             }
             return true
-        case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .mouseOverLink, .progressReport, .unhandled:
+        case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .mouseOverLink, .progressReport, .unhandled,
+             .startSearch, .endSearch, .searchTotal, .searchSelected:
             // Config, mouse-shape and mouse-visibility actions are handled by the runtime.
             return false
         }
