@@ -39,7 +39,8 @@
   same keys (or clicking elsewhere) put it away, its shell still running. Change the keys or turn
   it off in Settings › Keyboard.
 - **Command palette.** ⌘K finds any tab in any window and runs any command by name, with its
-  shortcut beside it.
+  shortcut beside it. Save a command you run often from its block (the bookmark button) and it
+  is in ⌘K by name: Return runs it here, ⌘Return in a new tab.
 - **Splits.** Split right or down, drag to resize, zoom one pane to fill the tab. Name a pane
   ("server", "logs") with **Window › Label Pane…**; the label sits on the pane and is kept with
   the session.

@@ -35,7 +35,7 @@ struct PaletteKind {
     var alternateLabel: String?
     var empty = "No results"
 
-    static let commands = PaletteKind()
+    static let commands = PaletteKind(alternateLabel: "New Tab")
     static let folders = PaletteKind(title: "Go to Folder", icon: "folder", placeholder: "Jump to a folder…", runLabel: "Go",
                                      alternateLabel: "New Tab", empty: "No folders yet: they come from the commands you run")
 }
@@ -133,7 +133,8 @@ struct CommandPaletteView: View {
                 Spacer()
                 PaletteHint(keys: "↑↓", label: "Select")
                 PaletteHint(keys: "↩", label: model.kind.runLabel)
-                if let alternate = model.kind.alternateLabel { PaletteHint(keys: "⌘↩", label: alternate) }
+                // Only for a selected entry that has a second choice (a folder, a saved command).
+                if let alternate = model.kind.alternateLabel, model.choice?.alternate != nil { PaletteHint(keys: "⌘↩", label: alternate) }
                 PaletteHint(keys: "esc", label: "Close")
             }
             .font(.system(size: 12))

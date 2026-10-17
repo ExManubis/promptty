@@ -554,6 +554,12 @@ enum DebugHooks {
             coordinator.setLabel(args.joined(separator: " "), of: pane)
             return ""
         }
+        // eval savecommand <name> <command…> — saves a command for the palette, as its block's button does.
+        driver.hooks["savecommand"] = { args in
+            guard args.count >= 2 else { return "error: savecommand name command" }
+            coordinator.preferences.update { $0.savedCommands.append(SavedCommand(name: args[0], command: args.dropFirst().joined(separator: " "))) }
+            return ""
+        }
         // eval quick — the quick terminal's state.
         driver.hooks["quick"] = { _ in coordinator.quickTerminal?.debugState ?? "no quick terminal" }
         driver.hooks["settings"] = { args in

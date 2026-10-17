@@ -22,6 +22,19 @@ public enum TabLayoutSetting: String, Codable, CaseIterable, Sendable {
     case sidebar, strip
 }
 
+/// A command the user saved to run again from the palette.
+public struct SavedCommand: Codable, Equatable, Identifiable, Sendable {
+    public var id: UUID
+    public var name: String
+    public var command: String
+
+    public init(id: UUID = UUID(), name: String, command: String) {
+        self.id = id
+        self.name = name
+        self.command = command
+    }
+}
+
 /// Everything the user can change in Settings. Decoding tolerates missing keys, unknown enum
 /// values and out-of-range numbers: each falls back to its default or is clamped.
 public struct Settings: Equatable, Sendable {
@@ -68,6 +81,9 @@ public struct Settings: Equatable, Sendable {
     /// A tab that printed while the user looked elsewhere shows a dot until it is selected.
     public var markUnseenOutput = true
     public static let notifyAfterRange: ClosedRange<Double> = 3...3600
+
+    /// Commands saved from their blocks, run again from the palette, in the order saved.
+    public var savedCommands: [SavedCommand] = []
 
     /// `promptty` in a pane may control the app (list, open, split, type, read).
     public var remoteControl = true
@@ -119,7 +135,7 @@ extension Settings: Codable {
         case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, tabLayout, sidebarWidth, tabListHidden
         case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, secureKeyboardEntry, shortcuts
         case clipboardRead, clipboardWrite, clipboardReadPrograms, clipboardWritePrograms
-        case notifyCommands, notifyAfterSeconds, restoreScrollback, markUnseenOutput, quickTerminal, remoteControl
+        case notifyCommands, notifyAfterSeconds, restoreScrollback, markUnseenOutput, quickTerminal, remoteControl, savedCommands
     }
 
     public init(from decoder: Decoder) throws {
@@ -152,6 +168,7 @@ extension Settings: Codable {
         s.markUnseenOutput = value(.markUnseenOutput, s.markUnseenOutput)
         s.quickTerminal = value(.quickTerminal, s.quickTerminal)
         s.remoteControl = value(.remoteControl, s.remoteControl)
+        s.savedCommands = value(.savedCommands, s.savedCommands)
         s.optionAsAlt = value(.optionAsAlt, s.optionAsAlt)
         s.vimNavigation = value(.vimNavigation, s.vimNavigation)
         s.secureKeyboardEntry = value(.secureKeyboardEntry, s.secureKeyboardEntry)
@@ -198,6 +215,7 @@ extension Settings: Codable {
         try c.encode(markUnseenOutput, forKey: .markUnseenOutput)
         try c.encode(quickTerminal, forKey: .quickTerminal)
         try c.encode(remoteControl, forKey: .remoteControl)
+        try c.encode(savedCommands, forKey: .savedCommands)
         try c.encode(optionAsAlt, forKey: .optionAsAlt)
         try c.encode(vimNavigation, forKey: .vimNavigation)
         try c.encode(secureKeyboardEntry, forKey: .secureKeyboardEntry)

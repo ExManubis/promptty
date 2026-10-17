@@ -42,6 +42,8 @@ final class BlockOverlayView: NSView {
     private var headerCommand: (block: BlockSelection, row: Int, text: String)?
     /// Puts a command in the pane's input bar; false when the pane is not at a prompt.
     var onRerun: ((String) -> Bool)?
+    /// Saves a command for the palette (asks for its name).
+    var onSave: ((String) -> Void)?
 
     init(surface: TerminalSurfaceView) {
         self.surface = surface
@@ -72,7 +74,8 @@ final class BlockOverlayView: NSView {
             copyOutput: { [weak self] in self?.copyHovered(.output) },
             copyCommand: { [weak self] in self?.copyHovered(.command) },
             copyMarkdown: { [weak self] in self?.copyHovered(.markdown) },
-            rerun: { [weak self] in self?.rerunHovered() }
+            rerun: { [weak self] in self?.rerunHovered() },
+            save: { [weak self] in self?.saveHovered() }
         ))
         surface.overlay = self
         surface.contextMenu = { [weak self] event in self?.contextMenu(for: event) }
@@ -339,7 +342,8 @@ final class BlockOverlayView: NSView {
         render()
         let menu = NSMenu()
         for (title, action) in [("Copy Command", #selector(menuCopyCommand)), ("Copy Output", #selector(menuCopyOutput)),
-                                ("Copy as Markdown", #selector(menuCopyMarkdown)), ("Rerun", #selector(menuRerun))] {
+                                ("Copy as Markdown", #selector(menuCopyMarkdown)), ("Rerun", #selector(menuRerun)),
+                                ("Save Command…", #selector(menuSave))] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
             menu.addItem(item)
@@ -354,6 +358,24 @@ final class BlockOverlayView: NSView {
     @objc private func menuCopyOutput() { copy(.output) }
     @objc private func menuCopyMarkdown() { copy(.markdown) }
     @objc private func menuRerun() { rerun() }
+    @objc private func menuSave() {
+        guard let snapshot, let index = selection?.index(in: snapshot) else { return }
+        save(index)
+    }
+
+    private func saveHovered() {
+        guard let snapshot, let index = hovered?.index(in: snapshot) ?? selection?.index(in: snapshot) else { return }
+        save(index)
+    }
+
+    private func save(_ index: Int) {
+        guard let snapshot, let block = snapshot.blocks[safe: index],
+              let command = surface?.blockText(row: block.row, part: .command), !command.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        onSave?(command)
+    }
 
     // MARK: Pointer
 
@@ -490,7 +512,7 @@ final class BlockOverlayView: NSView {
             return
         }
         buttonsIndex = index
-        let size = CGSize(width: 6 + 24 * 4, height: 24)
+        let size = CGSize(width: 6 + 24 * 5, height: 24)
         let top = header.isHidden ? 4 : header.frame.maxY + 4
         // At the block's top right, kept on screen while the block is.
         let y = min(max(frame.minY + 3, top), max(top, frame.maxY - size.height - 3))

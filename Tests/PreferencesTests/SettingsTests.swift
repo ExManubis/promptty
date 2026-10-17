@@ -50,6 +50,13 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(tiny.notifyAfterSeconds, 3)
     }
 
+    func testSavedCommandsRoundTripAndDefaultToNone() throws {
+        XCTAssertEqual(try JSONDecoder().decode(Settings.self, from: Data(#"{"version":2}"#.utf8)).savedCommands, [])
+        var s = Settings()
+        s.savedCommands = [SavedCommand(name: "Deploy", command: "make deploy ENV=staging")]
+        XCTAssertEqual(try JSONDecoder().decode(Settings.self, from: JSONEncoder().encode(s)).savedCommands, s.savedCommands)
+    }
+
     func testClipboardAccessIsSavedAndAsksByDefault() throws {
         var s = Settings()
         XCTAssertEqual(s.clipboardRead, .ask)

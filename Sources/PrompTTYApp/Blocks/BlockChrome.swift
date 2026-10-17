@@ -53,13 +53,15 @@ struct StickyHeader: View {
     }
 }
 
-/// On the block under the pointer: copy its output, its command, or both as Markdown; rerun it.
+/// On the block under the pointer: copy its output, its command, or both as Markdown; rerun it;
+/// save it for the palette.
 struct BlockButtons: View {
     struct Actions {
         var copyOutput: () -> Void = {}
         var copyCommand: () -> Void = {}
         var copyMarkdown: () -> Void = {}
         var rerun: () -> Void = {}
+        var save: () -> Void = {}
     }
 
     let actions: Actions
@@ -70,6 +72,7 @@ struct BlockButtons: View {
             HeaderButton(symbol: "chevron.forward.square", help: "Copy Command", action: actions.copyCommand)
             HeaderButton(symbol: "text.badge.checkmark", help: "Copy as Markdown", action: actions.copyMarkdown)
             HeaderButton(symbol: "arrow.clockwise", help: "Rerun in the input bar", action: actions.rerun)
+            HeaderButton(symbol: "bookmark", help: "Save Command to the palette", action: actions.save)
         }
         .padding(.horizontal, 3)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

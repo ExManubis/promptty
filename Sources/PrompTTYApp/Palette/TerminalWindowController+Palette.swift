@@ -74,7 +74,7 @@ extension TerminalWindowController {
                 .map { shortcuts.shortcut(for: $0).displayString }
         }
         let app = commands.filter { $0.subtitle == "PrompTTY" }
-        return tabEntries() + projectEntries() + commands.filter { $0.subtitle != "PrompTTY" } + sshEntries() + app
+        return tabEntries() + savedEntries() + projectEntries() + commands.filter { $0.subtitle != "PrompTTY" } + sshEntries() + app
     }
 
     /// Every tab in every window, this window's first, the selected one last (it is where you are).
@@ -103,6 +103,18 @@ extension TerminalWindowController {
             }
         }
         return entries + [selected].compactMap { $0 }
+    }
+
+    /// The saved commands: Return runs one in the focused pane, ⌘Return in a new tab.
+    private func savedEntries() -> [PaletteEntry] {
+        coordinator.preferences.settings.savedCommands.map { saved in
+            PaletteEntry(
+                id: "saved:\(saved.id)", icon: "play.fill", title: saved.name,
+                subtitle: saved.command.replacingOccurrences(of: "\n", with: " ↵ "), keywords: "saved command run",
+                run: { [weak self] in self?.runSaved(saved.command, newTab: false) },
+                alternate: { [weak self] in self?.runSaved(saved.command, newTab: true) }
+            )
+        }
     }
 
     /// A new tab connected to each host in `~/.ssh/config`.
