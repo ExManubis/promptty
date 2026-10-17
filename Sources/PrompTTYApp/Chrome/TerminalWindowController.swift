@@ -173,6 +173,11 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func denyClipboardRequests() { surfaces.values.forEach { $0.resetClipboardPolicy() } }
     func progress(for pane: PaneID) -> PaneProgress? { coordinator.activity.status(for: pane).progress }
     func isSecure(_ pane: PaneID) -> Bool { coordinator.activity.status(for: pane).secure }
+    func ports(for pane: PaneID) -> [Int] { coordinator.activity.status(for: pane).ports }
+    func openPort(_ port: Int) {
+        guard let url = URL(string: "http://localhost:\(port)") else { return }
+        NSWorkspace.shared.open(url)
+    }
     var agentList: AgentList { coordinator.agentList }
     func reveal(_ pane: PaneID) { coordinator.reveal(pane) }
     func screenText(for pane: PaneID) -> String? { surfaces[pane]?.visibleText() }

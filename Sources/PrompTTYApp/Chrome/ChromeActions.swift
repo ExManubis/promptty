@@ -20,6 +20,10 @@ protocol ChromeActions: AnyObject {
     func alwaysAllowClipboard(_ ticket: ClipboardTicket, for program: String, in pane: PaneID)
     /// A pane's progress report, if it has one (observes that pane alone).
     func progress(for pane: PaneID) -> PaneProgress?
+    /// The ports a pane's programs listen on (observes that pane alone).
+    func ports(for pane: PaneID) -> [Int]
+    /// Opens http://localhost:<port> in the browser.
+    func openPort(_ port: Int)
     /// A pane's find bar, nil while closed (observes that pane alone).
     func findState(for pane: PaneID) -> PaneFind?
     func setFindText(_ text: String, in pane: PaneID)

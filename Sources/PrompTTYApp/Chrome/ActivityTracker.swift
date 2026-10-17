@@ -33,6 +33,13 @@ final class PaneStatus {
         if self.progress != progress { self.progress = progress }
     }
 
+    /// The TCP ports the pane's programs listen on (a dev server's), lowest first.
+    private(set) var ports: [Int] = []
+
+    func setPorts(_ ports: [Int]) {
+        if self.ports != ports { self.ports = ports }
+    }
+
     /// The pane's find bar; nil while it is closed.
     private(set) var find: PaneFind?
 
@@ -119,7 +126,7 @@ final class ActivityTracker {
     /// When each pane's jobs last ran: the one timer ticks fast, panes the user cannot see run less.
     private var cadence = PollCadence<Job>()
     private struct Job: Hashable {
-        enum Kind: CaseIterable { case shell, foreground, screen }
+        enum Kind: CaseIterable { case shell, foreground, screen, ports }
         let pane: PaneID
         let kind: Kind
     }
@@ -127,6 +134,8 @@ final class ActivityTracker {
     private var screens: [PaneID: Int] = [:]
     /// The folder each agent works in, read from its process.
     private var agentDirectories: [PaneID: String] = [:]
+    /// Panes whose listening ports are being looked up, off the main thread.
+    private var portLookups: Set<PaneID> = []
     /// The panes showing a progress report, for dropping the ones not renewed in time at a tick.
     private var progressing: Set<PaneID> = []
     /// What each pane's agent reported through its hooks (Claude Code's), while they are in charge
@@ -218,6 +227,7 @@ final class ActivityTracker {
             } else {
                 screens[watched.pane] = nil
             }
+            lookUpPorts(watched, at: now)
             if watched.seen, activity.hasUnseen {
                 activity.seen()
                 onSeen(watched.pane)
@@ -231,6 +241,7 @@ final class ActivityTracker {
             states[gone] = nil
             clearProgress(gone)
             statuses[gone]?.hover(over: nil)
+            statuses[gone]?.setPorts([])
             if let status = statuses[gone], status.activity != PaneActivity().visible { status.activity = PaneActivity().visible }
             shellPIDs[gone] = nil
             identified[gone] = nil
@@ -363,6 +374,28 @@ final class ActivityTracker {
         case .turnEnded: .turnEnded
         }
         if let notice = activity.agentReported(report, since: hook.since ?? now, at: now, seen: seen) { onNotice(pane, notice) }
+    }
+
+    /// Every 3 s where the user looks (5 s elsewhere): the ports the pane's shell and everything
+    /// under it listen on, so a server started in the background counts too. A shell with no
+    /// children is skipped without a look at its sockets.
+    private func lookUpPorts(_ watched: Watched, at now: Date) {
+        let pane = watched.pane
+        guard !portLookups.contains(pane),
+              cadence.isDue(Job(pane: pane, kind: .ports), every: watched.visible ? 3 : 5, at: now),
+              let root = watched.shellPID() ?? shellPIDs[pane] ?? watched.foregroundPID() else { return }
+        portLookups.insert(pane)
+        Task.detached(priority: .utility) { [weak self] in
+            let ports = ListeningPorts.hasChildren(Int32(root)) ? ListeningPorts.find(root: Int32(root)) : []
+            await self?.portsFound(ports, in: pane)
+        }
+    }
+
+    private func portsFound(_ ports: [Int], in pane: PaneID) {
+        portLookups.remove(pane)
+        // Gone while looking: its box is dropped, or about to be.
+        guard states[pane] != nil else { return }
+        status(for: pane).setPorts(ports)
     }
 
     private func store(_ activity: PaneActivity, for pane: PaneID) {
