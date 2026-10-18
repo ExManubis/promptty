@@ -155,6 +155,11 @@ final class TerminalConfigWriterTests: XCTestCase {
         XCTAssertTrue(l.contains("confirm-close-surface = false"))
     }
 
+    func testShellIntegrationLeavesTheCursorShapeAlone() {
+        // Ghostty's shell integration would otherwise force a bar at every prompt.
+        XCTAssertTrue(lines(Settings()).contains("shell-integration-features = no-cursor"))
+    }
+
     func testValuesCannotInjectExtraLines() {
         var s = Settings()
         s.fontFamily = "Evil\nkeybind = ctrl+c=quit"
