@@ -144,7 +144,7 @@ final class ProgramCatalogTests: XCTestCase {
         let btop = ProgramCatalog.all.first { $0.id == "btop" }
         XCTAssertEqual(btop?.logo, "btop")
         XCTAssertEqual(btop?.fullColorLogo, true)
-        XCTAssertEqual(ProgramCatalog.all.filter(\.fullColorLogo).map(\.id), ["claudewitz", "btop"])
+        XCTAssertEqual(ProgramCatalog.all.filter(\.fullColorLogo).map(\.id), ["pi", "claudewitz", "btop"])
     }
 
     /// claudewitz's pixel C keeps its own colors, on a dark purple square.
@@ -153,6 +153,14 @@ final class ProgramCatalogTests: XCTestCase {
         XCTAssertEqual(claudewitz?.logo, "claudewitz")
         XCTAssertEqual(claudewitz?.fullColorLogo, true)
         XCTAssertEqual(claudewitz?.tile?.background, 0x5A3DB5)
+    }
+
+    /// Pi's pixel π keeps its coral, blue and yellow, on the black tile.
+    func testPiShowsItsOwnColors() {
+        let pi = ProgramCatalog.all.first { $0.id == "pi" }
+        XCTAssertEqual(pi?.logo, "pi")
+        XCTAssertEqual(pi?.fullColorLogo, true)
+        XCTAssertEqual(pi?.tile?.background, 0x000000)
     }
 
     func testEveryLogoHasAColor() {
