@@ -39,6 +39,8 @@ public enum TerminalConfigWriter {
             themeLine,
             "cursor-style = \(settings.cursorStyle.rawValue)",
             "cursor-style-blink = \(settings.cursorBlink)",
+            // Shell integration would otherwise force a bar at every prompt, whatever the style.
+            "shell-integration-features = no-cursor",
         ] + cursorColor + [
             "macos-option-as-alt = \(optionAsAlt)",
             "confirm-close-surface = \(settings.confirmCloseRunning)",
