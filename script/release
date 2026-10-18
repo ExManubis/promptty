@@ -39,6 +39,9 @@ if [ "$notarize" = 1 ]; then
 fi
 [ -z "$(git status --porcelain)" ] || echo "note: the working tree has uncommitted changes; they are in this build"
 
+step "Building the engine (when the Ghostty pin or a patch changed)"
+script/build-engine
+
 step "Building Release"
 mkdir -p "$DERIVED"
 rm -rf "$APP"
