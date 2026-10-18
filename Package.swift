@@ -21,7 +21,7 @@ let package = Package(
         .executable(name: "promptty", targets: ["promptty"]),
     ],
     dependencies: [
-        // libghostty-spm's GhosttyKit, built locally with PrompTTY's engine patches
+        // libghostty's GhosttyKit, built locally with PrompTTY's engine patches
         // (Engine/patches; script/build-engine).
         .package(path: "Engine"),
     ],

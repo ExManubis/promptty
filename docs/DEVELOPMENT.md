@@ -3,9 +3,10 @@
 ## Build
 
 Requires an Apple silicon Mac with macOS 26, Xcode 26 or newer and its Metal toolchain, and Zig
-0.15 (`brew install zig@0.15`). libghostty is built locally into `Engine/` from the Ghostty source
-pinned by [libghostty-spm](https://github.com/sethdeckard/libghostty-spm), with PrompTTY's patches
-in `Engine/patches/` applied on top; the first build takes a few minutes, later ones about one.
+0.16 (`brew install zig@0.16`). libghostty is built locally into `Engine/` from the
+[Ghostty](https://github.com/ghostty-org/ghostty) source pinned in `script/build-engine`, with
+PrompTTY's patches in `Engine/patches/` applied on top; the first build takes a few minutes,
+later ones about one.
 
     ./script/bootstrap            # installs xcodegen if needed, builds the engine, resolves packages, generates the Xcode project
     ./script/run                  # builds Debug and launches the app
@@ -13,8 +14,8 @@ in `Engine/patches/` applied on top; the first build takes a few minutes, later 
     ./script/build-engine --force # rebuilds the engine after changing a patch
     ./script/release              # a Developer ID signed, notarized disk image in dist/
 
-`script/build-engine` uses `$ZIG` if set, else Homebrew's `zig@0.15`, else the `zig` on `PATH`,
-and stops unless it is version 0.15.
+`script/build-engine` uses `$ZIG` if set, else Homebrew's `zig@0.16`, else the `zig` on `PATH`,
+and stops unless it is version 0.16.
 
 ## Layout
 

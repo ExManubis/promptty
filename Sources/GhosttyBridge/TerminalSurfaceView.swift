@@ -479,11 +479,34 @@ public final class TerminalSurfaceView: NSView {
     func noteInitialSize(_ size: CGSize) { pendingInitialSize = size }
     func noteCellSize(_ size: CGSize) { cellSize = size }
 
-    func completeClipboardRequest(_ string: String, state: UnsafeMutableRawPointer?, confirmed: Bool) {
+    /// Answers a clipboard read with `text` as plain text (none when nil) and the MIME types on
+    /// offer when libghostty asked for them.
+    func completeClipboardRequest(_ text: String?, available: [String] = [], state: UnsafeMutableRawPointer?, confirmed: Bool) {
         guard let surface else { return }
-        string.withCString { ptr in
-            ghostty_surface_complete_clipboard_request(surface, ptr, state, confirmed)
+        let bytes = Array((text ?? "").utf8)
+        let mimes = ([ClipboardMIME.plainText] + available).map { strdup($0) }
+        defer { mimes.forEach { free($0) } }
+        let availablePointers = mimes.dropFirst().map { UnsafePointer($0) }
+        bytes.withUnsafeBufferPointer { data in
+            data.withMemoryRebound(to: CChar.self) { data in
+                var content = ghostty_clipboard_content_s(mime: mimes[0], data: data.baseAddress, len: data.count)
+                withUnsafePointer(to: &content) { content in
+                    availablePointers.withUnsafeBufferPointer { available in
+                        var complete = ghostty_clipboard_complete_s(
+                            contents: text == nil ? nil : content, contents_len: text == nil ? 0 : 1,
+                            available: available.baseAddress, available_len: available.count,
+                            confirmed: confirmed, remember: false)
+                        ghostty_surface_complete_clipboard_request(surface, &complete, state)
+                    }
+                }
+            }
         }
+    }
+
+    /// Refuses a clipboard read: libghostty answers the program as if the clipboard were empty.
+    func denyClipboardRequest(state: UnsafeMutableRawPointer?) {
+        guard let surface else { return }
+        ghostty_surface_deny_clipboard_request(surface, state)
     }
 }
 
@@ -531,9 +554,11 @@ extension TerminalSurfaceView {
         if decision == .alwaysAllow { clipboardGrants.grant(request.kind) }
         switch request.kind {
         case .read:
-            // Denying is an empty confirmed reply: libghostty answers the program with an empty
-            // OSC 52 payload and frees the request. An unconfirmed reply would ask again.
-            completeClipboardRequest(allowed ? request.text : "", state: request.state, confirmed: true)
+            if allowed {
+                completeClipboardRequest(request.text, state: request.state, confirmed: true)
+            } else {
+                denyClipboardRequest(state: request.state)
+            }
         case .write:
             if allowed {
                 let pb = NSPasteboard.general
@@ -542,6 +567,16 @@ extension TerminalSurfaceView {
             }
         }
         onClipboardRequest?(nil)
+    }
+}
+
+/// The clipboard MIME type PrompTTY serves and takes.
+enum ClipboardMIME {
+    static let plainText = "text/plain"
+
+    /// `text/plain`, with or without parameters such as a charset.
+    static func isPlainText(_ mime: String) -> Bool {
+        mime == plainText || mime.hasPrefix(plainText + ";")
     }
 }
 

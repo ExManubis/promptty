@@ -13,3 +13,11 @@ Each logo is a trademark of its owner; PrompTTY shows them only to identify thos
   redrawn with each of its red stripes as a plain shape in place of the original's SVG pattern.
 - [claudewitz](https://github.com/ExManubis/Claudewitz) (`assets/icon-c.svg`), MIT: `logo-claudewitz`, its
   pixel C cropped to the glyph and its shadow, on the tile's purple square.
+
+## Engine
+
+- [Ghostty](https://github.com/ghostty-org/ghostty), MIT: libghostty, built from source with
+  PrompTTY's patches (`Engine/patches`). Some of its shell integration scripts derive from Kitty's
+  and are GPL-3.0 (`Engine/licenses/GPL-3.0.txt`, shipped beside them).
+- [libghostty-spm](https://github.com/sethdeckard/libghostty-spm), MIT, Copyright (c) 2026 Seth
+  Deckard: `Engine/patches/0001-surface-read-text-format.patch`, ported to the current Ghostty.
