@@ -11,7 +11,7 @@ later ones about one.
     ./script/bootstrap            # installs xcodegen if needed, builds the engine, resolves packages, generates the Xcode project
     ./script/run                  # builds Debug and launches the app
     ./script/test                 # library tests, then an app build
-    ./script/build-engine --force # rebuilds the engine after changing a patch
+    ./script/build-engine --force # rebuilds the engine (run, test and release rebuild it when the pin or a patch changed)
     ./script/release              # a Developer ID signed, notarized disk image in dist/
 
 `script/build-engine` uses `$ZIG` if set, else Homebrew's `zig@0.16`, else the `zig` on `PATH`,

@@ -9,8 +9,9 @@
 # Without it a build takes a minute or so (a few the first time), and the symbol check below
 # fails the build if a future Ghostty ever stops putting the embedding API in the library.
 #
-#   script/build-engine           build if Engine/GhosttyKit.xcframework is missing
-#   script/build-engine --force   rebuild (after changing a patch)
+#   script/build-engine           build if Engine/GhosttyKit.xcframework is missing, or was built
+#                                 from another Ghostty pin or other patches
+#   script/build-engine --force   rebuild anyway
 #   ZIG=/path/to/zig script/build-engine
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -24,7 +25,15 @@ REQUIRED_SYMBOLS=(ghostty_surface_new ghostty_surface_read_text_format ghostty_s
 
 fail() { echo "build-engine: $1" >&2; exit 1; }
 
-[ "${1:-}" = "--force" ] || [ ! -d "$OUT" ] || { echo "Engine already built ($OUT); --force rebuilds"; exit 0; }
+# What the engine is built from: the pin and the patches. Kept beside the build, so a checkout
+# that moves to another pin or other patches rebuilds instead of building the app against a
+# stale header.
+STAMP=$OUT/.built-from
+stamp() { { echo "$PIN"; cat Engine/patches/*.patch; } | shasum -a 256 | cut -d' ' -f1; }
+if [ "${1:-}" != "--force" ] && [ -d "$OUT" ] && [ "$(cat "$STAMP" 2>/dev/null)" = "$(stamp)" ]; then
+  echo "Engine already built ($OUT); --force rebuilds"
+  exit 0
+fi
 if [ -z "${ZIG:-}" ]; then
   if command -v brew >/dev/null && [ -x "$(brew --prefix zig@0.16 2>/dev/null)/bin/zig" ]; then
     ZIG=$(brew --prefix zig@0.16)/bin/zig
@@ -82,6 +91,7 @@ SHARE=$GHOSTTY/zig-out/share
 [ -f "$SHARE/terminfo/78/xterm-ghostty" ] || fail "the build made no terminfo"
 rm -rf "$OUT" "$RESOURCES"
 ditto "$GHOSTTY/macos/GhosttyKit.xcframework" "$OUT"
+stamp > "$STAMP"
 mkdir -p "$RESOURCES/ghostty"
 ditto "$SHARE/terminfo" "$RESOURCES/terminfo"
 ditto "$SHARE/ghostty/shell-integration" "$RESOURCES/ghostty/shell-integration"
