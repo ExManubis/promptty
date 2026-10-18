@@ -1,10 +1,10 @@
 import Foundation
 
 /// `promptty`'s arguments: `promptty [-p|-b PANE] [--json] COMMAND [ARGS…] [--cwd DIR] [--label NAME] [--keep-open]
-/// [--enter] [--all] [-c CMD] [--timeout S] [--command-line|--markdown] [-- COMMAND…]`. Options may come before or
+/// [--enter] [--all] [--focus] [-c CMD] [--timeout S] [--command-line|--markdown] [-- COMMAND…]`. Options may come before or
 /// after the command. `-b`/`--block` is Rex's name for a pane.
 public enum ControlCommandLine {
-    public static let commands: Set<String> = ["ls", "new-tab", "split", "send", "capture", "wait", "focus", "close", "notify", "label"]
+    public static let commands: Set<String> = ["ls", "new-tab", "new-window", "split", "send", "capture", "wait", "focus", "close", "notify", "label"]
 
     public enum Parsed: Equatable, Sendable {
         case request(ControlRequest)
@@ -27,6 +27,7 @@ public enum ControlCommandLine {
             case "--json": request.flags.insert("json")
             case "--enter", "-e": request.flags.insert("enter")
             case "--all", "-a": request.flags.insert("all")
+            case "--focus", "-f": request.flags.insert("focus")
             case "-p", "--pane", "-b", "--block":
                 guard let value = rest.popFirst() else { throw UsageError(message: "\(arg) needs a pane") }
                 request.target = value
@@ -91,13 +92,16 @@ public enum ControlCommandLine {
     }
 
     public static let help = """
-    promptty — control PrompTTY from its own terminals (agents: see the workflow below)
+    promptty — control PrompTTY from its own terminals, or from anywhere else (agents: see the workflow below)
 
     usage: promptty [-p PANE] [--json] COMMAND [ARGS…]
 
       ls                              windows, tabs and panes (--json: each pane's recent commands too)
-      new-tab [--cwd DIR] [--label NAME] [-- CMD…]
-                                      a new tab, running CMD
+      new-tab [--cwd DIR] [--label NAME] [--focus] [-- CMD…]
+                                      a new tab, running CMD (a new window when none is open);
+                                      --focus brings it forward
+      new-window [--cwd DIR] [--label NAME] [--focus] [-- CMD…]
+                                      a new window, running CMD
       split right|down [--cwd DIR] [--label NAME] [-- CMD…]
                                       split this pane (or -p PANE), running CMD
       send TEXT… [--enter]            type into a pane; --enter runs it
@@ -116,6 +120,8 @@ public enum ControlCommandLine {
     CMD is a command's id (cmd:…, or the end of it): every command run from a pane's input bar or by
     promptty has one. --json prints JSON: new-tab, split and send --enter give {"block", "pane", "cmd"}.
     --keep-open is accepted for Rex's scripts: a pane always stays open when its command ends.
+    Outside PrompTTY (no $PROMPTTY_CONTROL), promptty finds the app's socket in its data folder;
+    there is no caller's pane, so name one with -p.
 
     An agent running in PrompTTY can work in a pane beside it:
       promptty split right --label tests --json -- make test   # {"block": "block:…", "cmd": "cmd:…", …}

@@ -1,5 +1,6 @@
 // promptty: control PrompTTY from its own terminals (see `promptty help`). Every pane has it on
-// its PATH, with `PROMPTTY_CONTROL` (the app's control socket) and `PROMPTTY_PANE_ID` (the pane).
+// its PATH, with `PROMPTTY_CONTROL` (the app's control socket) and `PROMPTTY_PANE_ID` (the pane);
+// run anywhere else, it finds the socket in the app's data folder.
 import Darwin
 import Foundation
 import RemoteControl
@@ -27,9 +28,8 @@ case .version:
     print("promptty 1")
     exit(0)
 case .request(let request):
-    guard let socket = environment[ControlEnvironment.socketVariable], !socket.isEmpty else {
-        fail("not in a PrompTTY terminal (PROMPTTY_CONTROL is not set)", .unreachable)
-    }
+    // Outside a pane (a launcher, a script), the socket the app makes in its data folder.
+    let socket = environment[ControlEnvironment.socketVariable].flatMap { $0.isEmpty ? nil : $0 } ?? ControlEnvironment.defaultSocket()
     guard let response = ControlClient.send(request, to: socket, timeout: ControlCommandLine.replyTimeout(for: request)) else {
         fail("PrompTTY is not reachable", .unreachable)
     }

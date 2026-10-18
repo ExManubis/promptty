@@ -347,12 +347,27 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     // MARK: Windows and tabs
 
-    func newWindow(workingDirectory: String? = nil) {
+    /// A new window with one tab, running `command` at its first prompt when given.
+    @discardableResult
+    func newWindow(workingDirectory: String? = nil, running command: String? = nil, commandID: String? = nil) -> PaneID {
         let state = workspace.addWindow()
-        state.addTab(title: "", workingDirectory: workingDirectory ?? NSHomeDirectory())
+        let tab = state.addTab(title: "", workingDirectory: workingDirectory ?? NSHomeDirectory())
+        tab.focusedPane.startupCommand = command
+        tab.focusedPane.startupBlockID = commandID
         open(state)
         controllers[state.id]?.window?.makeKeyAndOrderFront(nil)
         modelDidChange()
+        return tab.focusedPaneID
+    }
+
+    /// A folder opened from outside: a tab for it in the key window (a new window when none is
+    /// open), brought forward.
+    func openFolder(_ folder: String) {
+        guard let state = allControllers.first(where: { $0.window?.isKeyWindow == true })?.state ?? workspace.windows.first else {
+            newWindow(workingDirectory: folder)
+            return
+        }
+        reveal(newTab(in: state, running: nil, workingDirectory: folder))
     }
 
     /// A new tab, in the selected tab's project (if it has one) unless `inheritingProject` is off.

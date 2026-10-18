@@ -32,6 +32,13 @@ targets:
         # it cached first for the bundle ID (the generic one, from before the icon existed).
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Folders opened with `open -a PrompTTY DIR` or dropped on the Dock icon open in a tab
+        # (AppDelegate.application(_:open:)); Alternate, so Finder still opens folders itself.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Folder
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.folder]
         # In-app drag payloads (tabs, panes and projects); see Chrome/DragSupport.swift.
         UTExportedTypeDeclarations:
           - UTTypeIdentifier: dev.promptty.pane
