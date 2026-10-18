@@ -85,7 +85,7 @@ targets:
       base:
         PRODUCT_NAME: PrompTTY
         PRODUCT_BUNDLE_IDENTIFIER: dev.promptty.PrompTTY2
-        MARKETING_VERSION: "0.2.0"
+        MARKETING_VERSION: "2.1"
         # script/run and script/test pass the git commit count, so each commit gets a new build
         # number and macOS refreshes cached icons.
         CURRENT_PROJECT_VERSION: "1"
