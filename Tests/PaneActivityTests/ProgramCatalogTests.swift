@@ -38,6 +38,8 @@ final class ProgramCatalogTests: XCTestCase {
         XCTAssertEqual(id("node", "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js"), "codex")
         XCTAssertEqual(id("node", "/usr/local/lib/node_modules/@google/gemini-cli/dist/index.js"), "gemini")
         XCTAssertEqual(id("node", "/usr/local/bin/copilot"), "copilot")
+        XCTAssertEqual(id("node", "/Users/me/.pi/agent/install/releases/1.0.0/node_modules/.bin/pi"), "pi")
+        XCTAssertEqual(id("node", "/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js"), "pi")
         XCTAssertEqual(id("node", "server.js"), "node")
         XCTAssertEqual(id("/opt/homebrew/bin/python3", "/opt/homebrew/bin/ansible-playbook", "site.yml"), "ansible")
     }
