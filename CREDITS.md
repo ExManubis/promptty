@@ -8,9 +8,11 @@ Each logo is a trademark of its owner; PrompTTY shows them only to identify thos
 - [Simple Icons](https://simpleicons.org) 16.35.0, CC0 1.0: all logos except the ones below.
 - [LobeHub Icons](https://github.com/lobehub/lobe-icons) (`@lobehub/icons-static-svg` 1.95.1),
   MIT: Codex (`logo-codex`), GitHub Copilot (`logo-githubcopilot`), Amp (`logo-amp`),
-  Goose (`logo-goose`), Kilo Code (`logo-kilocode`), Kiro (`logo-kiro`), Kimi (`logo-kimi`) and Pi (`logo-pi`).
+  Goose (`logo-goose`), Kilo Code (`logo-kilocode`), Kiro (`logo-kiro`) and Kimi (`logo-kimi`).
 - [btop](https://github.com/aristocratos/btop) (`Img/icon.svg`), Apache License 2.0: `logo-btop`,
   redrawn with each of its red stripes as a plain shape in place of the original's SVG pattern.
+- [Pi](https://github.com/earendil-works/pi) (`packages/coding-agent/src/modes/interactive/components/pi-logo.ts`),
+  MIT: `logo-pi`, its 4×4 pixel π drawn as squares in the logo's coral, blue and yellow.
 - [claudewitz](https://github.com/ExManubis/Claudewitz) (`assets/icon-c.svg`), MIT: `logo-claudewitz`, its
   pixel C cropped to the glyph and its shadow, on the tile's purple square.
 
