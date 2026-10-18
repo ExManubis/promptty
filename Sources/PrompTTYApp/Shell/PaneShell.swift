@@ -184,10 +184,10 @@ final class PaneShell {
     @ObservationIgnored private var stateFileGeneration = 0
     @ObservationIgnored private var commandsGeneration = 0
 
-    /// Run from the bar at the first prompt (a pinned tab's command).
-    @ObservationIgnored private var startupCommand: String?
-    /// The id `promptty` gave the startup command, for its record.
-    @ObservationIgnored private var startupBlockID: String?
+    /// Commands waiting for a prompt, in order, each with the id `promptty` gave it: a pinned tab's
+    /// or a new pane's command for its first prompt, and what `promptty send --enter` sent while the
+    /// shell was starting or between a command and its prompt. One runs at each prompt.
+    @ObservationIgnored private var queued: [(command: String, id: String?)] = []
 
     /// The commands run from the bar, with ids for `promptty` (`capture -b`, `wait -b`).
     @ObservationIgnored private(set) var commands = CommandLog()
@@ -198,8 +198,7 @@ final class PaneShell {
         self.pane = pane
         self.directory = directory
         self.integrated = integrated
-        self.startupCommand = startupCommand
-        self.startupBlockID = startupBlockID
+        if let startupCommand { queued = [(startupCommand, startupBlockID)] }
         editorHeight = CommandTextView.lineHeight(for: EditorStyle.font)
     }
 
@@ -225,15 +224,14 @@ final class PaneShell {
         executables = [:]
         refreshGit()
         phaseChanged()
-        if startupCommand != nil {
+        if !queued.isEmpty {
             // After the prompt is announced, so the bar has the keys, like a typed command. Kept
             // for the next prompt if this one is gone by then.
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
-                    guard let self, self.bar == .active, self.state.phase == .idle, let command = self.startupCommand else { return }
-                    self.startupCommand = nil
-                    self.run(command, recordingHistory: false, id: self.startupBlockID)
-                    self.startupBlockID = nil
+                    guard let self, self.bar == .active, self.state.phase == .idle, !self.queued.isEmpty else { return }
+                    let next = self.queued.removeFirst()
+                    self.run(next.command, recordingHistory: false, id: next.id)
                 }
             }
         }
@@ -448,16 +446,17 @@ final class PaneShell {
 
     /// A command broadcast from another pane of the tab: run at a prompt, else typed for whatever
     /// runs (an ssh session's shell) and entered.
-    /// `promptty send --enter`: runs `command` from the bar now, or at the next prompt when the
-    /// last command has just ended and the prompt is on its way. Returns its id; nil when a
-    /// program has the terminal (the text is the program's to read).
+    /// `promptty send --enter`: runs `command` from the bar now, or queues it for the coming
+    /// prompt when the shell is still starting (anything typed before its first prompt is
+    /// dropped), when the last command has just ended, or behind commands already waiting.
+    /// Returns its id; nil when a program has the terminal (the text is the program's to read).
     func runFromControl(_ command: String) -> String? {
-        if state.phase == .idle, bar == .active { return run(command, recordingHistory: false) }
-        guard integrated, !command.isEmpty, state.phase == .running, startupCommand == nil,
-              let last = commands.records.last, !last.running else { return nil }
+        if queued.isEmpty, state.phase == .idle, bar == .active { return run(command, recordingHistory: false) }
+        guard integrated, !command.isEmpty else { return nil }
+        let lastEnded = commands.records.last.map { !$0.running } ?? false
+        guard state.phase == .starting || !queued.isEmpty || (state.phase == .running && lastEnded) else { return nil }
         let id = CommandLog.newID()
-        startupCommand = command
-        startupBlockID = id
+        queued.append((command, id))
         return id
     }
 
