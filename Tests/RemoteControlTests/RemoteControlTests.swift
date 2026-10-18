@@ -49,6 +49,20 @@ final class ControlCommandLineTests: XCTestCase {
         XCTAssertEqual(ControlCommandLine.replyTimeout(for: try request(["ls"])), 15)
     }
 
+    func testNewWindowAndFocus() throws {
+        let r = try request(["new-window", "--cwd", "~/proj", "--focus", "--json", "--", "npm", "run", "dev"])
+        XCTAssertEqual(r.command, "new-window")
+        XCTAssertEqual(r.options, ["cwd": "~/proj"])
+        XCTAssertEqual(r.flags, ["focus", "json"])
+        XCTAssertEqual(r.arguments, ["npm", "run", "dev"])
+        XCTAssertEqual(try request(["new-tab", "-f"]).flags, ["focus"])
+    }
+
+    func testOutsideAPaneTheSocketIsTheAppsOwn() {
+        XCTAssertEqual(ControlEnvironment.defaultSocket(home: "/Users/me", temporaryDirectory: "/tmp/"),
+                       "/Users/me/Library/Application Support/PrompTTY/control.sock")
+    }
+
     func testCloseNeedsANamedPane() throws {
         XCTAssertThrowsError(try ControlCommandLine.parse(["close"], caller: "C"))
         XCTAssertEqual(try request(["close", "-b", "tests"]).target, "tests")

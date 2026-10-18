@@ -20,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var preferences: PreferencesController!
     private var layoutObserver: NSObjectProtocol?
     private var notificationRouter: NotificationRouter?
+    /// Folders asked for before the workspace was up (`open -a PrompTTY DIR` launching the app).
+    private var pendingOpens: [URL]? = []
 
     /// With no nib, `@main` alone never instantiates the delegate; install it explicitly and keep
     /// it alive for the lifetime of the run loop (`NSApplication.delegate` is weak).
@@ -159,6 +161,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if preferences.recoveredFromBadFile {
             coordinator.showTransientBanner("Settings could not be read and were reset. The old file was kept as settings.json.bak.")
         }
+        if let urls = pendingOpens, !urls.isEmpty { openFolders(urls) }
+        pendingOpens = nil
+        NSApp.activate()
+    }
+
+    /// Folders (or files, for the folder they are in) from `open -a PrompTTY …`, Finder or the
+    /// Dock icon: each in a new tab.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard pendingOpens == nil else {
+            pendingOpens?.append(contentsOf: urls)
+            return
+        }
+        openFolders(urls)
+    }
+
+    private func openFolders(_ urls: [URL]) {
+        var folders: [String] = []
+        for url in urls where url.isFileURL {
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            let folder = isDirectory ? url.path : url.deletingLastPathComponent().path
+            if !folders.contains(folder) { folders.append(folder) }
+        }
+        for folder in folders { coordinator.openFolder(folder) }
         NSApp.activate()
     }
 

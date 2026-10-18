@@ -70,6 +70,7 @@ app:
 promptty ls                                # windows, tabs and panes (--json for scripts)
 promptty split right -- npm run dev        # a pane beside this one, running the dev server
 promptty new-tab --cwd ~/api -- make test  # a new tab
+promptty new-window --cwd ~/api            # a new window
 promptty -p logs send 'tail -f app.log' --enter
 promptty -p logs capture                   # what that pane shows (--all: its scrollback too)
 promptty label server                      # name this pane
@@ -94,6 +95,11 @@ a command by its id or the end of it. Panes set `TERM_PROGRAM=PrompTTY`. Exit st
 1 failed (also `wait` when the pane closes first), 2 usage, 3 no such pane or command (or more than
 one), 4 PrompTTY not reachable, 5 `wait` timed out. Turn it off in
 **Settings › Tabs › Command line**.
+
+Outside PrompTTY (a launcher such as Raycast, a script, another terminal) run it as
+`/Applications/PrompTTY.app/Contents/Resources/bin/promptty`: it finds the app on its own, there
+is no pane of its own, and `--focus` on `new-tab` or `new-window` brings the new pane forward.
+`open -a PrompTTY ~/api` (or a folder dropped on the Dock icon) opens a folder in a new tab.
 
 ## Connect your agents
 

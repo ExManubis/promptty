@@ -24,6 +24,7 @@ extension WorkspaceCoordinator {
         switch request.command {
         case "ls": return list(json: request.wantsJSON)
         case "new-tab": return newTab(request)
+        case "new-window": return newWindow(request)
         case "split": return split(request)
         case "capture" where request.options["cmd"] != nil: return captureCommand(request)
         case "send", "capture", "focus", "close", "label", "notify": break
@@ -191,14 +192,30 @@ extension WorkspaceCoordinator {
         return request.caller.flatMap(UUID.init(uuidString:)).flatMap { workspace.tab(containing: PaneID(rawValue: $0))?.1.pane(PaneID(rawValue: $0))?.workingDirectory }
     }
 
+    /// A tab in the caller's window, else the key one; with no window open, a new window.
     private func newTab(_ request: ControlRequest) -> ControlResponse {
-        guard let state = window(for: request) else { return .failed("no window to open a tab in") }
+        guard let state = window(for: request) else { return newWindow(request) }
         if request.options["cwd"] != nil, folder(for: request) == nil { return .failed("no folder \(request.options["cwd"]!)") }
         let command = ShellWords.join(request.arguments)
         let cmd = command.isEmpty ? nil : CommandLog.newID()
         let pane = newTab(in: state, running: command.isEmpty ? nil : command, workingDirectory: folder(for: request), commandID: cmd)
+        return opened(pane, cmd: cmd, command: command, request)
+    }
+
+    private func newWindow(_ request: ControlRequest) -> ControlResponse {
+        if request.options["cwd"] != nil, folder(for: request) == nil { return .failed("no folder \(request.options["cwd"]!)") }
+        let command = ShellWords.join(request.arguments)
+        let cmd = command.isEmpty ? nil : CommandLog.newID()
+        let pane = newWindow(workingDirectory: folder(for: request), running: command.isEmpty ? nil : command, commandID: cmd)
+        return opened(pane, cmd: cmd, command: command, request)
+    }
+
+    /// A new tab's or window's pane: its command handed out, its label set, and with --focus,
+    /// brought forward (for launchers outside the app, as Raycast; an agent's tab stays behind).
+    private func opened(_ pane: PaneID, cmd: String?, command: String, _ request: ControlRequest) -> ControlResponse {
         if let cmd { controlCommands.handedOut(cmd, pane: pane, command: command) }
         if let label = request.options["label"] { setLabel(label, of: pane) }
+        if request.flags.contains("focus") { reveal(pane) }
         return created(pane, cmd: cmd, json: request.wantsJSON)
     }
 

@@ -1,4 +1,5 @@
 import Foundation
+import AgentHooks
 
 /// What `promptty` asks of the app: one JSON line on the control socket.
 public struct ControlRequest: Codable, Equatable, Sendable {
@@ -67,6 +68,13 @@ public enum ControlEnvironment {
 
     /// A pane's id as Rex writes a block's: `block:` and the id, lowercase.
     public static func blockID(pane: UUID) -> String { blockPrefix + pane.uuidString.lowercased() }
+
+    /// The app's control socket as the app names it (`AppPaths.controlSocket`), for `promptty`
+    /// run outside a pane, as from a launcher or a script: `control.sock` in the data folder.
+    public static func defaultSocket(home: String = NSHomeDirectory(), temporaryDirectory: String = NSTemporaryDirectory()) -> String {
+        let dataFolder = (home as NSString).appendingPathComponent("Library/Application Support/PrompTTY")
+        return HookSocket.path(named: "control", dataFolder: dataFolder, temporaryDirectory: temporaryDirectory)
+    }
 }
 
 extension JSONEncoder {
