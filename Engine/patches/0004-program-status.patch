@@ -1,0 +1,297 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index d9aabc139..054b72963 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -839,6 +839,36 @@ typedef struct {
+   uint32_t height;
+ } ghostty_action_resize_window_s;
+ 
++// apprt.action.ProgramStatus.State
++typedef enum {
++  GHOSTTY_PROGRAM_STATUS_IDLE,
++  GHOSTTY_PROGRAM_STATUS_WORKING,
++  GHOSTTY_PROGRAM_STATUS_DONE,
++  GHOSTTY_PROGRAM_STATUS_BLOCKED,
++  GHOSTTY_PROGRAM_STATUS_ERROR,
++  GHOSTTY_PROGRAM_STATUS_CLEAR,
++} ghostty_action_program_status_state_e;
++
++// apprt.action.ProgramStatus.Kind
++typedef enum {
++  GHOSTTY_PROGRAM_STATUS_KIND_NONE = -1,
++  GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION,
++  GHOSTTY_PROGRAM_STATUS_KIND_QUESTION,
++  GHOSTTY_PROGRAM_STATUS_KIND_AUTH,
++} ghostty_action_program_status_kind_e;
++
++// apprt.action.ProgramStatus: one OSC 7501 report (the Program Status
++// Protocol). Text is NULL when the program sent none; progress is -1.
++typedef struct {
++  ghostty_action_program_status_state_e state;
++  ghostty_action_program_status_kind_e kind;
++  int8_t progress;
++  const char* id;
++  const char* app;
++  const char* title;
++  const char* msg;
++} ghostty_action_program_status_s;
++
+ // apprt.action.CellSize
+ typedef struct {
+   uint32_t width;
+@@ -1050,6 +1080,7 @@ typedef enum {
+   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
+   GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
+   GHOSTTY_ACTION_RESIZE_WINDOW,
++  GHOSTTY_ACTION_PROGRAM_STATUS,
+ } ghostty_action_tag_e;
+ 
+ typedef union {
+@@ -1094,6 +1125,7 @@ typedef union {
+   ghostty_action_search_selected_s search_selected;
+   ghostty_action_readonly_e readonly;
+   ghostty_action_open_config_e open_config;
++  const ghostty_action_program_status_s* program_status;
+ } ghostty_action_u;
+ 
+ typedef struct {
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 4becf7f32..5ab905fd6 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -1166,6 +1166,11 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
+             };
+         },
+ 
++        .program_status => |v| {
++            defer v.data.deinit();
++            self.programStatus(.{ .state = v.state, .data = v.data.slice() });
++        },
++
+         .selection_scroll_tick => |active| {
+             self.selection_scroll_active = active;
+             try self.selectionScrollTick();
+@@ -2027,6 +2032,69 @@ pub fn dumpTextLocked(
+     return try self.dumpTextFormattedLocked(alloc, sel, .plain);
+ }
+ 
++/// PrompTTY: hands a program's status report (OSC 7501) to the apprt,
++/// decoded.
++fn programStatus(self: *Surface, report: terminal.osc.Command.ProgramStatus.Report) void {
++    const ps = terminal.osc.program_status;
++    const State = apprt.action.ProgramStatus.State;
++    const Kind = apprt.action.ProgramStatus.Kind;
++
++    var id_buf: [ps.max_id_bytes + 1]u8 = undefined;
++    var app_buf: [ps.max_app_bytes + 1]u8 = undefined;
++    var title_buf: [ps.max_title_bytes + 1]u8 = undefined;
++    var msg_buf: [ps.max_msg_bytes + 1]u8 = undefined;
++
++    const value: apprt.action.ProgramStatus.Report = .{
++        .state = switch (report.state) {
++            .idle => State.idle,
++            .working => .working,
++            .done => .done,
++            .blocked => .blocked,
++            .@"error" => .@"error",
++            .clear => .clear,
++        },
++        .kind = if (report.readOption(.kind)) |kind| switch (kind) {
++            .permission => Kind.permission,
++            .question => .question,
++            .auth => .auth,
++        } else .none,
++        .progress = if (report.readOption(.progress)) |p| @intCast(p) else -1,
++        .id = copyZ(&id_buf, report.readOption(.id)),
++        .app = copyZ(&app_buf, report.readOption(.app)),
++        .title = decodeZ(report, .title, &title_buf),
++        .msg = decodeZ(report, .msg, &msg_buf),
++    };
++
++    _ = self.rt_app.performAction(
++        .{ .surface = self },
++        .program_status,
++        .{ .report = &value },
++    ) catch |err| {
++        log.warn("apprt failed to report program status err={}", .{err});
++    };
++}
++
++fn copyZ(buf: []u8, value: ?[]const u8) ?[*:0]const u8 {
++    const v = value orelse return null;
++    if (v.len >= buf.len) return null;
++    @memcpy(buf[0..v.len], v);
++    buf[v.len] = 0;
++    return buf[0..v.len :0].ptr;
++}
++
++fn decodeZ(
++    report: terminal.osc.Command.ProgramStatus.Report,
++    comptime option: terminal.osc.Command.ProgramStatus.Option,
++    buf: []u8,
++) ?[*:0]const u8 {
++    if (report.readOption(option) == null) return null;
++    var writer: std.Io.Writer = .fixed(buf[0 .. buf.len - 1]);
++    report.writeText(option, &writer) catch return null;
++    const len = writer.buffered().len;
++    buf[len] = 0;
++    return buf[0..len :0].ptr;
++}
++
+ /// Same as `dumpTextLocked` but emits the text in the given format. A
+ /// styled format such as `.vt` preserves colors and styles as escape
+ /// sequences.
+diff --git a/src/apprt/action.zig b/src/apprt/action.zig
+index e58260cfb..d656fca5c 100644
+--- a/src/apprt/action.zig
++++ b/src/apprt/action.zig
+@@ -364,6 +364,11 @@ pub const Action = union(Key) {
+     /// split or the window is fullscreen.
+     resize_window: ResizeWindow,
+ 
++    /// PrompTTY: a program reported its status (OSC 7501, the Program
++    /// Status Protocol): what it does, or `clear` to remove records. The
++    /// apprt keeps the records; see ProgramStatus.
++    program_status: ProgramStatus,
++
+     /// Sync with: ghostty_action_tag_e
+     pub const Key = enum(c_int) {
+         quit,
+@@ -436,6 +441,7 @@ pub const Action = union(Key) {
+         copy_title_to_clipboard,
+         move_tab_to_new_window,
+         resize_window,
++        program_status,
+ 
+         test "ghostty.h Action.Key" {
+             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
+@@ -799,6 +805,40 @@ pub const Pwd = struct {
+ };
+ 
+ /// The desktop notification to show.
++/// PrompTTY: one OSC 7501 report, decoded. A report replaces its record
++/// (`id`, null for the program's own) completely; `clear` removes the
++/// record and every record under it, or every record without an id. The
++/// report is only valid for the duration of the action; its text is
++/// untrusted, valid UTF-8 without control characters.
++pub const ProgramStatus = struct {
++    report: *const Report,
++
++    // Sync with: ghostty_action_program_status_state_e
++    pub const State = enum(c_int) { idle, working, done, blocked, @"error", clear };
++
++    // Sync with: ghostty_action_program_status_kind_e
++    pub const Kind = enum(c_int) { none = -1, permission, question, auth };
++
++    // Sync with: ghostty_action_program_status_s
++    pub const Report = extern struct {
++        state: State,
++        /// What a blocked program needs from the user.
++        kind: Kind = .none,
++        /// 0...100 for a working or blocked program; -1 when it gave none.
++        progress: i8 = -1,
++        id: ?[*:0]const u8 = null,
++        app: ?[*:0]const u8 = null,
++        title: ?[*:0]const u8 = null,
++        msg: ?[*:0]const u8 = null,
++    };
++
++    pub const C = *const Report;
++
++    pub fn cval(self: ProgramStatus) C {
++        return self.report;
++    }
++};
++
+ pub const DesktopNotification = struct {
+     title: [:0]const u8,
+     body: [:0]const u8,
+diff --git a/src/apprt/gtk/class/application.zig b/src/apprt/gtk/class/application.zig
+index 6ea9d7ad5..717614cb7 100644
+--- a/src/apprt/gtk/class/application.zig
++++ b/src/apprt/gtk/class/application.zig
+@@ -775,6 +775,9 @@ pub const Application = extern struct {
+             // GTK has no accessibility consumer for this yet.
+             .selection_changed => {},
+ 
++            // PrompTTY's action; GTK keeps no program status records.
++            .program_status => {},
++
+             .scrollbar => Action.scrollbar(target, value),
+ 
+             .set_title => Action.setTitle(target, value),
+diff --git a/src/apprt/surface.zig b/src/apprt/surface.zig
+index 3b1a04d8a..145649236 100644
+--- a/src/apprt/surface.zig
++++ b/src/apprt/surface.zig
+@@ -140,6 +140,13 @@ pub const Message = union(enum) {
+     /// Report the progress of an action using a GUI element
+     progress_report: terminal.osc.Command.ProgressReport,
+ 
++    /// PrompTTY: a program reported its status (OSC 7501). `data` is the
++    /// report's body, already validated by the parser.
++    program_status: struct {
++        state: terminal.osc.Command.ProgramStatus.State,
++        data: WriteReq,
++    },
++
+     /// A command has started in the shell, start a timer.
+     start_command,
+ 
+diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
+index 5d549d807..e6f1d285a 100644
+--- a/src/termio/stream_handler.zig
++++ b/src/termio/stream_handler.zig
+@@ -349,6 +349,7 @@ pub const StreamHandler = struct {
+             .report_pwd => try self.reportPwd(value.url),
+             .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
+             .progress_report => self.progressReport(value),
++            .program_status => try self.programStatus(value),
+             .start_hyperlink => try self.startHyperlink(value.uri, value.id),
+             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
+             .semantic_prompt => try self.semanticPrompt(value),
+@@ -389,7 +390,6 @@ pub const StreamHandler = struct {
+             .title_pop,
+             .kitty_dnd,
+             .osc_unknown,
+-            .program_status,
+             => {},
+         }
+     }
+@@ -946,6 +946,9 @@ pub const StreamHandler = struct {
+ 
+         // Clear the progress bar
+         self.progressReport(.{ .state = .remove });
++
++        // PrompTTY: a full reset removes every program status record.
++        try self.programStatus(.{ .report = .{ .state = .clear } });
+     }
+ 
+     /// Record a Kitty clipboard protocol session grant so future
+@@ -1942,6 +1945,26 @@ pub const StreamHandler = struct {
+         // the read() syscall.
+     }
+ 
++    /// PrompTTY: a program's status (OSC 7501) goes to the apprt, which
++    /// keeps the records; a support query is answered with the states and
++    /// kinds accepted. The reply never carries report contents.
++    fn programStatus(self: *StreamHandler, cmd: terminal.osc.Command.ProgramStatus) !void {
++        switch (cmd) {
++            .query => |terminator| switch (terminator) {
++                inline else => |t| {
++                    const reply: []const u8 = "\x1b]7501;" ++
++                        terminal.osc.program_status.query_reply ++
++                        comptime t.string();
++                    self.messageWriter(try termio.Message.writeReq(self.alloc, reply));
++                },
++            },
++            .report => |report| self.surfaceMessageWriter(.{ .program_status = .{
++                .state = report.state,
++                .data = try .init(self.alloc, report.data),
++            } }),
++        }
++    }
++
+     /// Display a GUI progress report.
+     fn progressReport(self: *StreamHandler, report: terminal.osc.Command.ProgressReport) void {
+         self.surfaceMessageWriter(.{ .progress_report = report });

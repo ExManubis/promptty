@@ -78,6 +78,9 @@ public struct PaneActivity: Equatable, Sendable {
     private var unseenPermission = false
     /// The tool the agent runs (or asks to run), as it reports it.
     private var tool: String?
+    /// The program in front reports its own status (OSC 7501): its state stands whether or not
+    /// PrompTTY knows it for an agent.
+    private var reportsStatus = false
 
     /// Agents' turns that take at least this long notify when they end unseen.
     public static let notifyAfter: TimeInterval = 10
@@ -137,7 +140,7 @@ public struct PaneActivity: Equatable, Sendable {
             return finish(code: 0, at: since, seen: seen)
         case .command, .program:
             if case .program(let p) = foreground { program = p } else { program = nil }
-            if program?.isAgent != true { resetAgent() }
+            if program?.isAgent != true, !reportsStatus { resetAgent() }
             shellSince = nil
             shellObservations = 0
             if !isRunning {
@@ -161,6 +164,7 @@ public struct PaneActivity: Equatable, Sendable {
     private mutating func finish(code: Int, at end: Date, seen: Bool) -> Notice? {
         let ran = program
         let duration = startedAt.map { end.timeIntervalSince($0) } ?? 0
+        reportsStatus = false
         resetAgent()
         isRunning = false
         program = nil
@@ -224,6 +228,8 @@ public struct PaneActivity: Equatable, Sendable {
         case waitingForInput(String?)
         /// Finished its turn.
         case turnEnded
+        /// Failed and stopped (a program's status report); its message.
+        case failed(String?)
     }
 
     /// The agent reported its state; `since` is when that state began. The hooks say exactly what
@@ -232,7 +238,28 @@ public struct PaneActivity: Equatable, Sendable {
     /// see.
     @discardableResult
     public mutating func agentReported(_ report: AgentReport, since: Date, at now: Date, seen: Bool) -> Notice? {
-        guard program?.isAgent == true, report != lastReport else { return nil }
+        guard program?.isAgent == true else { return nil }
+        return apply(report, since: since, seen: seen)
+    }
+
+    /// The program in front reported its status (OSC 7501), taken as an agent's report: any
+    /// program may report, agent or not. Its reports set its state until `programStatusEnded`.
+    @discardableResult
+    public mutating func programReported(_ report: AgentReport, since: Date, at now: Date, seen: Bool) -> Notice? {
+        reportsStatus = true
+        return apply(report, since: since, seen: seen)
+    }
+
+    /// The program's status records are gone (cleared, its work over and seen): its state is
+    /// read as for any program again.
+    public mutating func programStatusEnded() {
+        guard reportsStatus else { return }
+        reportsStatus = false
+        if program?.isAgent == true { lastReport = nil } else { resetAgent() }
+    }
+
+    private mutating func apply(_ report: AgentReport, since: Date, seen: Bool) -> Notice? {
+        guard report != lastReport else { return nil }
         lastReport = report
         let busy = isWorking || awaitingPermission
         switch report {
@@ -279,6 +306,11 @@ public struct PaneActivity: Equatable, Sendable {
             return Notice(kind: .attention(message), program: program, duration: nil)
         case .turnEnded:
             return endTurn(at: since, seen: seen, busy: busy)
+        case .failed(let message):
+            _ = endTurn(at: since, seen: true, busy: busy)
+            guard !seen, unseen != .attention else { return nil }
+            unseen = .attention
+            return Notice(kind: .attention(message), program: program, duration: nil)
         }
     }
 

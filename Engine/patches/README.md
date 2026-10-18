@@ -10,6 +10,9 @@ order: a patch may build on an earlier one.
   which PrompTTY built from until Ghostty's move to Zig 0.16.
 - `0003-command-blocks`: `ghostty_surface_blocks` and `ghostty_surface_block_text`, the commands
   the shell ran and their output, from shell integration's prompt marks.
+- `0004-program-status`: a program's status reports (OSC 7501, which Ghostty parses but its app
+  ignores) go to the apprt as `GHOSTTY_ACTION_PROGRAM_STATUS`, decoded; the support query
+  `OSC 7501 ; ?` is answered, and a full reset clears every record.
 
 ## Authoring a patch
 

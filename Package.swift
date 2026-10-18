@@ -46,6 +46,7 @@ let package = Package(
             name: "GhosttyBridge",
             dependencies: [
                 "CommandBlocks",
+                "PaneActivity",
                 .product(name: "GhosttyKit", package: "Engine"),
                 .product(name: "GhosttyKitResources", package: "Engine"),
             ],

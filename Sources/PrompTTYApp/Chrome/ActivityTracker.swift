@@ -174,6 +174,14 @@ final class ActivityTracker {
     /// While hooks say an agent works: its screen as a hash, and when that last changed. An
     /// interrupted turn runs no hook; a screen gone still says it.
     private var hookScreens: [PaneID: (hash: Int, changed: Date)] = [:]
+    /// What programs report of themselves (OSC 7501), per pane: while there are records they set
+    /// the pane's state (an agent's hooks still come first), and its screen is not watched.
+    private var programStatuses: [PaneID: ProgramStatusRecords] = [:]
+    /// The foreground process when each pane's records last changed: another in front means the
+    /// program that reported quit, and its work with it.
+    private var statusPIDs: [PaneID: Int] = [:]
+    /// The panes whose progress ring a status report set.
+    private var statusProgress: Set<PaneID> = []
 
     /// The folder an agent's process works in (it may differ from the shell's: `cd x && claude`).
     func agentDirectory(for pane: PaneID) -> String? { agentDirectories[pane] }
@@ -241,10 +249,15 @@ final class ActivityTracker {
             }
             let agentInFront = activity.program?.isAgent == true
             if hooks[watched.pane] != nil { checkHooks(watched, activity: activity, at: now) }
+            if programStatuses[watched.pane] != nil { checkProgramStatus(watched.pane, into: &activity, at: now) }
             if hooks[watched.pane] != nil {
                 screens[watched.pane] = nil
                 watchStillness(watched, at: now)
                 reportHooks(watched.pane, into: &activity, at: now, seen: watched.seen)
+            } else if programStatuses[watched.pane] != nil {
+                screens[watched.pane] = nil
+                reportProgramStatus(watched.pane, into: &activity, at: now, seen: watched.seen)
+                if watched.seen { programStatusSeen(watched.pane, into: &activity) }
             } else if agentInFront {
                 if cadence.isDue(Job(pane: watched.pane, kind: .screen), every: watched.visible ? 0.5 : 1.5, at: now),
                    let text = watched.screen() {
@@ -288,6 +301,9 @@ final class ActivityTracker {
             hooks[gone] = nil
             hookPrograms[gone] = nil
             hookScreens[gone] = nil
+            programStatuses[gone] = nil
+            statusPIDs[gone] = nil
+            statusProgress.remove(gone)
             for kind in Job.Kind.allCases { cadence.forget(Job(pane: gone, kind: kind)) }
         }
         // A box is kept while its pane exists (a view may hold it before the pane has a
@@ -325,6 +341,8 @@ final class ActivityTracker {
     /// The shell reported how a command ended.
     func exitReported(_ pane: PaneID, code: Int) {
         var activity = states[pane] ?? PaneActivity()
+        // Back at the prompt: what a program reported underway is over.
+        if programStatuses[pane] != nil { updateProgramStatus(pane, into: &activity, at: Date()) { $0.endWork() } }
         if let notice = activity.exitReported(code: code, at: Date(), seen: isSeen(pane)) { onNotice(pane, notice) }
         store(activity, for: pane)
     }
@@ -338,6 +356,72 @@ final class ActivityTracker {
         if let notice = activity.attention(seen: false, message: message) { onNotice(pane, notice) }
         store(activity, for: pane)
         return true
+    }
+
+    // MARK: Program status
+
+    /// A program in the pane reported its status (OSC 7501).
+    func programStatus(_ pane: PaneID, _ report: ProgramStatusReport) {
+        // Only panes with a terminal, as for hooks.
+        guard var activity = states[pane] else { return }
+        updateProgramStatus(pane, into: &activity, at: Date()) { $0.apply(report, at: Date()) }
+        store(activity, for: pane)
+    }
+
+    /// For the debug driver: a pane's program status records.
+    func programStatusRecords(for pane: PaneID) -> ProgramStatusRecords? { programStatuses[pane] }
+
+    private func updateProgramStatus(_ pane: PaneID, into activity: inout PaneActivity, at now: Date,
+                                     _ change: (inout ProgramStatusRecords) -> Void) {
+        var records = programStatuses[pane] ?? ProgramStatusRecords()
+        change(&records)
+        programStatuses[pane] = records.isEmpty ? nil : records
+        statusPIDs[pane] = records.isEmpty ? nil : identified[pane]?.pid
+        reportProgramStatus(pane, into: &activity, at: now, seen: isSeen(pane))
+    }
+
+    /// At a tick: another process in front than when the records last changed means the program
+    /// that reported quit (or handed over), so its work is over.
+    private func checkProgramStatus(_ pane: PaneID, into activity: inout PaneActivity, at now: Date) {
+        guard let pid = identified[pane]?.pid, let reported = statusPIDs[pane], pid != reported else { return }
+        updateProgramStatus(pane, into: &activity, at: now) { $0.endWork() }
+    }
+
+    /// The user saw the pane: finished work reported there has been looked at.
+    private func programStatusSeen(_ pane: PaneID, into activity: inout PaneActivity) {
+        guard var records = programStatuses[pane] else { return }
+        records.seen()
+        programStatuses[pane] = records.isEmpty ? nil : records
+        if records.isEmpty { reportProgramStatus(pane, into: &activity, at: Date(), seen: true) }
+    }
+
+    /// Hands the pane's most urgent record to its activity and its progress ring (again at every
+    /// tick, as for hooks); with none left, the pane's state is read as before. Hooks come first.
+    private func reportProgramStatus(_ pane: PaneID, into activity: inout PaneActivity, at now: Date, seen: Bool) {
+        guard hooks[pane] == nil else { return }
+        guard let record = programStatuses[pane]?.current, let report = record.report.agentReport else {
+            activity.programStatusEnded()
+            showStatusProgress(pane, nil)
+            return
+        }
+        if let notice = activity.programReported(report, since: record.since, at: now, seen: seen) { onNotice(pane, notice) }
+        showStatusProgress(pane, record.report)
+    }
+
+    /// A working or blocked record's percentage shows in the pane's progress ring (a blocked one
+    /// paused); one without leaves the ring to OSC 9;4.
+    private func showStatusProgress(_ pane: PaneID, _ report: ProgramStatusReport?) {
+        guard let report, let percent = report.progress else {
+            if statusProgress.remove(pane) != nil { status(for: pane).setProgress(nil) }
+            return
+        }
+        let kind: PaneProgress.Kind = report.state == .blocked ? .pause : .set
+        let fraction = Double(min(max(percent, 0), 100)) / 100
+        let current = status(for: pane).progress
+        guard current?.kind != kind || current?.fraction != fraction else { return }
+        status(for: pane).setProgress(PaneProgress(kind: kind, percent: percent, at: Date()))
+        statusProgress.insert(pane)
+        progressing.remove(pane)
     }
 
     // MARK: Hooks

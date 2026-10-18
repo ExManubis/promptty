@@ -14,7 +14,8 @@
   mode, and every Ghostty theme is one click away.
 - **Agents at a glance.** PrompTTY spots Claude Code, Codex, Amp, Cline and others running in
   a pane. Each tab shows whether its agent is working, waiting for permission or done, and you
-  get a notification when it needs you.
+  get a notification when it needs you. Any program can say the same of itself with the
+  [Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status) (OSC 7501).
 - **New output, marked.** A tab that printed while you looked elsewhere gets a ring by its name
   until you open it (a `tail -f`, a log, a build).
 - **Long commands tell you when they're done.** A command that ran 10 seconds or more in a tab you
