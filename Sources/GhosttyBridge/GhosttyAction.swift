@@ -1,4 +1,5 @@
 import GhosttyKit
+import PaneActivity
 
 public enum CloseTabMode: Equatable, Sendable { case this, others, right }
 
@@ -66,6 +67,8 @@ public enum GhosttyAction: Equatable, Sendable {
     case secureInput(SecureInputRequest)
     /// A program reports progress (OSC 9;4); `percent` is nil when it gave none.
     case progressReport(ProgressState, percent: Int?)
+    /// A program reports what it does (OSC 7501, the Program Status Protocol).
+    case programStatus(ProgramStatusReport)
     /// Search in the scrollback opened, with its text if it was started with some (Use Selection
     /// for Find).
     case startSearch(needle: String)
@@ -176,6 +179,26 @@ public enum GhosttyAction: Equatable, Sendable {
             default: state = .remove
             }
             self = .progressReport(state, percent: p.progress < 0 ? nil : Int(p.progress))
+        case GHOSTTY_ACTION_PROGRAM_STATUS:
+            guard let r = c.action.program_status?.pointee else { self = .unhandled(tag: c.tag.rawValue); return }
+            let state: ProgramStatusReport.State = switch r.state {
+            case GHOSTTY_PROGRAM_STATUS_IDLE: .idle
+            case GHOSTTY_PROGRAM_STATUS_WORKING: .working
+            case GHOSTTY_PROGRAM_STATUS_DONE: .done
+            case GHOSTTY_PROGRAM_STATUS_BLOCKED: .blocked
+            case GHOSTTY_PROGRAM_STATUS_ERROR: .error
+            default: .clear
+            }
+            let kind: ProgramStatusReport.Kind? = switch r.kind {
+            case GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION: .permission
+            case GHOSTTY_PROGRAM_STATUS_KIND_QUESTION: .question
+            case GHOSTTY_PROGRAM_STATUS_KIND_AUTH: .auth
+            default: nil
+            }
+            self = .programStatus(ProgramStatusReport(
+                state: state, kind: kind, progress: r.progress < 0 ? nil : Int(r.progress),
+                id: r.id.map { String(cString: $0) }, app: r.app.map { String(cString: $0) },
+                title: r.title.map { String(cString: $0) }, message: r.msg.map { String(cString: $0) }))
         default:
             self = .unhandled(tag: c.tag.rawValue)
         }

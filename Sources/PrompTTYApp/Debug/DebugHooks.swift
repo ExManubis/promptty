@@ -28,6 +28,14 @@ enum DebugHooks {
                         if let hook = coordinator.activity.hookState(for: pane.id) {
                             line += " hook=\(hook.phase.map { "\($0)" } ?? "-") session=\(hook.sessionID ?? "-")"
                         }
+                        if let current = coordinator.activity.programStatusRecords(for: pane.id)?.current {
+                            let r = current.report
+                            line += " status=\(r.state)\(r.kind.map { "/\($0)" } ?? "")\(r.progress.map { " \($0)%" } ?? "")"
+                            if let message = r.message { line += " msg=\(message.debugDescription)" }
+                        }
+                        if let progress = coordinator.activity.status(for: pane.id).progress {
+                            line += " ring=\(progress.kind)\(progress.fraction.map { " \($0)" } ?? "")"
+                        }
                         lines.append(line)
                     }
                 }

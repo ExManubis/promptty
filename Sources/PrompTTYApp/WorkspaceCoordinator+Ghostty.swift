@@ -164,7 +164,7 @@ extension WorkspaceCoordinator {
                 MainActor.assumeIsolated { self?.openLink(decision) }
             }
             return true
-        case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .mouseOverLink, .progressReport, .unhandled,
+        case .reloadConfig, .openConfig, .mouseShape, .mouseVisibility, .mouseOverLink, .progressReport, .programStatus, .unhandled,
              .startSearch, .endSearch, .searchTotal, .searchSelected:
             // Config, mouse-shape and mouse-visibility actions are handled by the runtime.
             return false
@@ -241,7 +241,7 @@ struct GhosttyFastPath {
             // On every mouse move over text, so straight to the pane's card.
             if case .surface(let view) = target { view.onLinkHover?(link) }
             return true
-        case .progressReport, .startSearch, .endSearch, .searchTotal, .searchSelected:
+        case .progressReport, .programStatus, .startSearch, .endSearch, .searchTotal, .searchSelected:
             guard case .surface(let view) = target, let pane = view.token?.base as? PaneID else { return false }
             handle(action, from: view, in: pane)
             return true
@@ -264,6 +264,8 @@ struct GhosttyFastPath {
             case .pause: kind = .pause
             }
             activity.reportProgress(pane, kind: kind, percent: percent)
+        case .programStatus(let report):
+            activity.programStatus(pane, report)
         case .startSearch(let needle):
             let status = activity.status(for: pane)
             if status.find == nil { status.setFind(PaneFind()) }

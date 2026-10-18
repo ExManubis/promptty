@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Builds libghostty into Engine/: libghostty-spm's pinned Ghostty source with the package's own
-# patches and then PrompTTY's (Engine/patches/) applied for the build. Needs Zig 0.15 and Xcode's
-# Metal toolchain (see libghostty-spm's CLAUDE.md). Zig is $ZIG if set, else Homebrew's zig@0.15
-# wherever Homebrew lives, else the `zig` on PATH, as long as it is 0.15.
+# Builds libghostty into Engine/: Ghostty's source at the commit pinned below, with PrompTTY's
+# patches (Engine/patches/, see its README) applied for the build. Needs Zig 0.16 and Xcode's
+# Metal toolchain. Zig is $ZIG if set, else Homebrew's zig@0.16 wherever Homebrew lives, else the
+# `zig` on PATH, as long as it is 0.16.
 #
 # Only the library is built, not Ghostty.app: the app's link step fails outside Ghostty's own CI
 # and leaves libghostty-spm's build script waiting half an hour for an orphaned archive step.
@@ -15,10 +15,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-REPO=https://github.com/sethdeckard/libghostty-spm
-TAG=v0.2.0
-WORK=.build/engine/libghostty-spm
-GHOSTTY=$WORK/vendor/ghostty
+REPO=https://github.com/ghostty-org/ghostty
+PIN=431126c215dc324a53ef6f054264e951a4b21604
+GHOSTTY=.build/engine/ghostty
 OUT=Engine/GhosttyKit.xcframework
 RESOURCES=Engine/Sources/GhosttyKitResources/Resources
 REQUIRED_SYMBOLS=(ghostty_surface_new ghostty_surface_read_text_format ghostty_surface_blocks ghostty_surface_block_text)
@@ -27,41 +26,39 @@ fail() { echo "build-engine: $1" >&2; exit 1; }
 
 [ "${1:-}" = "--force" ] || [ ! -d "$OUT" ] || { echo "Engine already built ($OUT); --force rebuilds"; exit 0; }
 if [ -z "${ZIG:-}" ]; then
-  if command -v brew >/dev/null && [ -x "$(brew --prefix zig@0.15 2>/dev/null)/bin/zig" ]; then
-    ZIG=$(brew --prefix zig@0.15)/bin/zig
+  if command -v brew >/dev/null && [ -x "$(brew --prefix zig@0.16 2>/dev/null)/bin/zig" ]; then
+    ZIG=$(brew --prefix zig@0.16)/bin/zig
   else
     ZIG=$(command -v zig || true)
   fi
 fi
-[ -n "$ZIG" ] && [ -x "$ZIG" ] || fail "needs Zig 0.15: brew install zig@0.15, or set ZIG=/path/to/zig"
+[ -n "$ZIG" ] && [ -x "$ZIG" ] || fail "needs Zig 0.16: brew install zig@0.16, or set ZIG=/path/to/zig"
 case "$("$ZIG" version)" in
-  0.15.*) ;;
-  *) fail "$ZIG is Zig $("$ZIG" version); the pinned Ghostty needs 0.15 (brew install zig@0.15, or set ZIG)" ;;
+  0.16.*) ;;
+  *) fail "$ZIG is Zig $("$ZIG" version); the pinned Ghostty needs 0.16 (brew install zig@0.16, or set ZIG)" ;;
 esac
 
-if [ ! -d "$WORK/.git" ]; then
-  mkdir -p "$(dirname "$WORK")"
-  git clone --quiet --branch "$TAG" --recurse-submodules "$REPO" "$WORK"
+if [ ! -d "$GHOSTTY/.git" ]; then
+  mkdir -p "$(dirname "$GHOSTTY")"
+  git clone --quiet --filter=blob:none "$REPO" "$GHOSTTY"
 fi
 [ -z "$(git -C "$GHOSTTY" status --porcelain)" ] \
   || fail "$GHOSTTY has local changes (an interrupted build?): git -C $GHOSTTY checkout -- . && git -C $GHOSTTY clean -fd"
-git -C "$WORK" submodule update --init --quiet vendor/ghostty
-# Earlier versions of this script copied PrompTTY's patches in among the package's own.
-git -C "$WORK" checkout --quiet -- patches
-git -C "$WORK" clean -fdq -- patches
+git -C "$GHOSTTY" cat-file -e "$PIN^{commit}" 2>/dev/null || git -C "$GHOSTTY" fetch --quiet origin
+git -C "$GHOSTTY" checkout --quiet --detach "$PIN"
 
-# Applied in order (theirs, then ours) and reverted on exit, however the build ends; files the
-# patches add are untracked, so they are listed after each apply and removed with the rest.
+# Applied in order and reverted on exit, however the build ends; files the patches add are
+# untracked, so they are listed after each apply and removed with the rest.
 added=""
 restore() {
   git -C "$GHOSTTY" checkout --quiet -- .
   while IFS= read -r file; do [ -z "$file" ] || rm -f "$GHOSTTY/$file"; done <<< "$added"
 }
 trap restore EXIT
-for patch in "$WORK"/patches/*.patch Engine/patches/*.patch; do
+for patch in Engine/patches/*.patch; do
   [ -e "$patch" ] || continue
   git -C "$GHOSTTY" apply "$PWD/$patch" \
-    || fail "$(basename "$patch") does not apply to the pinned Ghostty; regenerate it (see $WORK/patches/README.md)"
+    || fail "$(basename "$patch") does not apply to the pinned Ghostty; regenerate it (see Engine/patches/README.md)"
   added=$(git -C "$GHOSTTY" status --porcelain --untracked-files=all | sed -n 's/^?? //p')
   echo "applied $(basename "$patch")"
 done
@@ -78,7 +75,7 @@ LIB=$(find "$GHOSTTY/macos/GhosttyKit.xcframework" -name "libghostty*.a" | head 
 [ -n "$LIB" ] || fail "the build made no library"
 symbols=$(nm -g "$LIB" 2>/dev/null)
 for symbol in "${REQUIRED_SYMBOLS[@]}"; do
-  grep -q " T _$symbol\$" <<< "$symbols" || fail "the library lacks $symbol; see libghostty-spm's CLAUDE.md, 'Build reality'"
+  grep -q " T _$symbol\$" <<< "$symbols" || fail "the library lacks $symbol"
 done
 
 SHARE=$GHOSTTY/zig-out/share
@@ -89,5 +86,6 @@ mkdir -p "$RESOURCES/ghostty"
 ditto "$SHARE/terminfo" "$RESOURCES/terminfo"
 ditto "$SHARE/ghostty/shell-integration" "$RESOURCES/ghostty/shell-integration"
 ditto "$SHARE/ghostty/themes" "$RESOURCES/ghostty/themes"
-cp "$WORK/licenses/GPL-3.0.txt" "$RESOURCES/ghostty/shell-integration/GPL-3.0.txt"
+# Some of Ghostty's shell integration scripts derive from Kitty's and are GPL-3.0.
+cp Engine/licenses/GPL-3.0.txt "$RESOURCES/ghostty/shell-integration/GPL-3.0.txt"
 echo "Engine built: $OUT"

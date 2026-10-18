@@ -1,8 +1,8 @@
 diff --git a/include/ghostty.h b/include/ghostty.h
-index 5850dd54a..362f5599d 100644
+index b6973fc59..d9aabc139 100644
 --- a/include/ghostty.h
 +++ b/include/ghostty.h
-@@ -440,6 +440,35 @@ typedef struct {
+@@ -481,6 +481,35 @@ typedef struct {
    bool rectangle;
  } ghostty_selection_s;
  
@@ -38,7 +38,7 @@ index 5850dd54a..362f5599d 100644
  typedef enum {
    GHOSTTY_TEXT_FORMAT_PLAIN,
    GHOSTTY_TEXT_FORMAT_VT,
-@@ -1169,6 +1198,15 @@ GHOSTTY_API bool ghostty_surface_read_text_format(ghostty_surface_t,
+@@ -1249,6 +1278,15 @@ GHOSTTY_API bool ghostty_surface_read_text_format(ghostty_surface_t,
                                                       ghostty_text_format_e,
                                                       ghostty_text_s*);
  GHOSTTY_API void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
@@ -55,10 +55,10 @@ index 5850dd54a..362f5599d 100644
  #ifdef __APPLE__
  GHOSTTY_API void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);
 diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
-index a6aa81a23..8297f0d5d 100644
+index cc84090f6..dddafbd91 100644
 --- a/src/apprt/embedded.zig
 +++ b/src/apprt/embedded.zig
-@@ -420,6 +420,9 @@ pub const Surface = struct {
+@@ -458,6 +458,9 @@ pub const Surface = struct {
      /// that getTitle works without the implementer needing to save it.
      title: ?[:0]const u8 = null,
  
@@ -68,7 +68,7 @@ index a6aa81a23..8297f0d5d 100644
      /// Surface initialization options.
      pub const Options = extern struct {
          /// The platform that this surface is being initialized for and
-@@ -1740,6 +1743,107 @@ pub const CAPI = struct {
+@@ -2038,6 +2041,107 @@ pub const CAPI = struct {
          ptr.deinit();
      }
  
@@ -118,8 +118,8 @@ index a6aa81a23..8297f0d5d 100644
 +        cap: usize,
 +    ) usize {
 +        const core_surface = &surface.core_surface;
-+        core_surface.renderer_state.mutex.lock();
-+        defer core_surface.renderer_state.mutex.unlock();
++        core_surface.renderer_state.mutex.lockUncancelable(global.io());
++        defer core_surface.renderer_state.mutex.unlock(global.io());
 +
 +        const t = core_surface.renderer_state.terminal;
 +        const screen = t.screens.active;
@@ -161,8 +161,8 @@ index a6aa81a23..8297f0d5d 100644
 +        result: *Text,
 +    ) bool {
 +        const core_surface = &surface.core_surface;
-+        core_surface.renderer_state.mutex.lock();
-+        defer core_surface.renderer_state.mutex.unlock();
++        core_surface.renderer_state.mutex.lockUncancelable(global.io());
++        defer core_surface.renderer_state.mutex.unlock(global.io());
 +
 +        const screen = core_surface.renderer_state.terminal.screens.active;
 +        const sel = terminal.blocks.selection(screen, row, switch (part) {
@@ -177,10 +177,10 @@ index a6aa81a23..8297f0d5d 100644
      export fn ghostty_surface_refresh(surface: *Surface) void {
          surface.refresh();
 diff --git a/src/terminal/PageList.zig b/src/terminal/PageList.zig
-index 17eea73d0..f9c86748b 100644
+index ed1f41759..110a1820f 100644
 --- a/src/terminal/PageList.zig
 +++ b/src/terminal/PageList.zig
-@@ -160,6 +160,11 @@ total_rows: usize,
+@@ -459,6 +459,11 @@ total_rows: usize,
  /// The list of tracked pins. These are kept up to date automatically.
  tracked_pins: PinSet,
  
@@ -192,23 +192,23 @@ index 17eea73d0..f9c86748b 100644
  /// The top-left of certain parts of the screen that are frequently
  /// accessed so we don't have to traverse the linked list to find them.
  ///
-@@ -657,6 +662,7 @@ pub fn deinit(self: *PageList) void {
+@@ -983,6 +988,7 @@ pub fn deinit(self: *PageList) void {
  /// memory to fit the active area.
  pub fn reset(self: *PageList) void {
      defer self.assertIntegrity();
 +    self.history_generation +%= 1;
  
-     // We need enough pages/nodes to keep our active area. This should
-     // never fail since we by definition have allocated a page already
-@@ -942,6 +948,7 @@ pub const Resize = struct {
+     // Reset discards all scrollback, so there is nothing left to compress.
+     self.page_compression.reset();
+@@ -1260,6 +1266,7 @@ pub const Resize = struct {
  /// TODO: docs
  pub fn resize(self: *PageList, opts: Resize) Allocator.Error!void {
      defer self.assertIntegrity();
 +    self.history_generation +%= 1;
  
-     if (comptime std.debug.runtime_safety) {
-         // Resize does not work with 0 values, this should be protected
-@@ -1994,6 +2001,7 @@ const ReflowCursor = struct {
+     // Resizing forces all nodes to be decompressed today so we need to
+     // reschedule compression.
+@@ -2786,6 +2793,7 @@ const ReflowCursor = struct {
  
      fn copyRowMetadata(self: *ReflowCursor, other: *const Row) void {
          self.page_row.semantic_prompt = other.semantic_prompt;
@@ -216,7 +216,7 @@ index 17eea73d0..f9c86748b 100644
      }
  };
  
-@@ -3008,7 +3016,7 @@ pub fn scrollbar(self: *PageList) Scrollbar {
+@@ -3886,7 +3894,7 @@ pub fn scrollbar(self: *PageList) Scrollbar {
  /// will traverse a lot of linked list nodes.
  ///
  /// The result is cached so repeated calls are cheap.
@@ -225,29 +225,29 @@ index 17eea73d0..f9c86748b 100644
      return switch (self.viewport) {
          .top => 0,
          .active => self.total_rows - self.rows,
-@@ -3780,6 +3788,7 @@ fn eraseRows(
-     bl_pt: ?point.Point,
+@@ -5553,6 +5561,7 @@ fn eraseRows(
  ) void {
      defer self.assertIntegrity();
+     self.page_compression.markActivity();
 +    self.history_generation +%= 1;
  
      // The count of rows that was erased.
      var erased: usize = 0;
 diff --git a/src/terminal/Terminal.zig b/src/terminal/Terminal.zig
-index 6740a93e6..7b7a805f1 100644
+index 2667c51b3..7c08969c8 100644
 --- a/src/terminal/Terminal.zig
 +++ b/src/terminal/Terminal.zig
-@@ -30,6 +30,7 @@ const size = @import("size.zig");
- const pagepkg = @import("page.zig");
+@@ -35,6 +35,7 @@ const pagepkg = @import("page.zig");
  const style = @import("style.zig");
+ const PageList = @import("PageList.zig");
  const Screen = @import("Screen.zig");
 +const blocks = @import("blocks.zig");
  const ScreenSet = @import("ScreenSet.zig");
  const Page = pagepkg.Page;
  const Cell = pagepkg.Cell;
-@@ -81,6 +82,10 @@ modes: modespkg.ModeState = .{},
- /// The most recently set mouse shape for the terminal.
- mouse_shape: mouse.Shape = .text,
+@@ -102,6 +103,10 @@ glyph_glossary: glyph.Glossary = .empty,
+ /// nothing for it. Non-null means a client currently accepts drops.
+ kitty_dnd: ?*kitty.dnd.State = null,
  
 +/// PrompTTY: the prompt of the command running on the primary screen, so
 +/// that its exit status is kept without a walk up through its output.
@@ -256,7 +256,7 @@ index 6740a93e6..7b7a805f1 100644
  /// These are just a packed set of flags we may set on the terminal.
  flags: packed struct {
      // This supports a Kitty extension where programs using semantic
-@@ -1189,7 +1194,10 @@ pub fn semanticPrompt(
+@@ -2125,7 +2130,10 @@ pub fn semanticPrompt(
      cmd: osc.Command.SemanticPrompt,
  ) !void {
      switch (cmd.action) {
@@ -268,7 +268,7 @@ index 6740a93e6..7b7a805f1 100644
  
          .fresh_line_new_prompt => {
              // "First do a fresh-line."
-@@ -1199,6 +1207,7 @@ pub fn semanticPrompt(
+@@ -2135,6 +2143,7 @@ pub fn semanticPrompt(
  
              // "Subsequent text (until a OSC "133;B" or OSC "133;I" command)
              // is a prompt string (as if followed by OSC 133;P;k=i\007)."
@@ -276,7 +276,7 @@ index 6740a93e6..7b7a805f1 100644
              screen.cursorSetSemanticContent(.{
                  .prompt = cmd.readOption(.prompt_kind) orelse .initial,
              });
-@@ -1256,6 +1265,7 @@ pub fn semanticPrompt(
+@@ -2190,6 +2199,7 @@ pub fn semanticPrompt(
              // The k (kind) option specifies the type of prompt:
              // regular primary prompt (k=i or default),
              // right-side prompts (k=r), or prompts for continuation lines (k=c or k=s).
@@ -284,7 +284,7 @@ index 6740a93e6..7b7a805f1 100644
              self.screens.active.cursorSetSemanticContent(.{
                  .prompt = cmd.readOption(.prompt_kind) orelse .initial,
              });
-@@ -1294,6 +1304,9 @@ pub fn semanticPrompt(
+@@ -2228,6 +2238,9 @@ pub fn semanticPrompt(
              {
                  self.screens.active.cursor.page_row.semantic_prompt = .none;
              }
@@ -294,7 +294,7 @@ index 6740a93e6..7b7a805f1 100644
          },
  
          .end_command => {
-@@ -1302,10 +1315,30 @@ pub fn semanticPrompt(
+@@ -2236,10 +2249,30 @@ pub fn semanticPrompt(
              // its reasonable at this point to reset our semantic content
              // state but the spec doesn't really say what to do.
              self.screens.active.cursorSetSemanticContent(.output);
@@ -327,7 +327,7 @@ index 6740a93e6..7b7a805f1 100644
      const left_margin = if (self.screens.active.cursor.x < self.scrolling_region.left)
 diff --git a/src/terminal/blocks.zig b/src/terminal/blocks.zig
 new file mode 100644
-index 000000000..19d1ca545
+index 000000000..89cf0a88d
 --- /dev/null
 +++ b/src/terminal/blocks.zig
 @@ -0,0 +1,988 @@
@@ -837,7 +837,7 @@ index 000000000..19d1ca545
 +/// True when the row `pin` is on shows anything but spaces.
 +pub fn rowHasText(pin: Pin) bool {
 +    for (pin.cells(.all)) |cell| {
-+        if (cell.hasText() and cell.content.codepoint != ' ') return true;
++        if (cell.hasText() and cell.content.codepoint.data != ' ') return true;
 +    }
 +    return false;
 +}
@@ -874,7 +874,7 @@ index 000000000..19d1ca545
 +};
 +
 +fn testTerminal(alloc: std.mem.Allocator, rows: u16) !@import("Terminal.zig") {
-+    return try .init(alloc, .{ .cols = 40, .rows = rows });
++    return try .init(std.testing.io, alloc, .{ .cols = 40, .rows = rows });
 +}
 +
 +fn testText(alloc: std.mem.Allocator, screen: *Screen, sel: Selection) ![:0]const u8 {
@@ -1001,7 +1001,7 @@ index 000000000..19d1ca545
 +
 +    s.nextSlice(comptime Session.prompt ++ Session.command("ls") ++ "x\r\n" ++ Session.finished("7"));
 +    s.nextSlice(comptime Session.prompt);
-+    try t.resize(alloc, 20, 10);
++    try t.resize(alloc, .{ .cols = 20, .rows = 10 });
 +    var out: [2]Block = undefined;
 +    try testing.expectEqual(1, list(t.screens.active, .all, &out, null).len);
 +    try testing.expectEqual(@as(?u8, 7), out[0].exit_code);
@@ -1122,7 +1122,7 @@ index 000000000..19d1ca545
 +    try expectHinted(screen, &hint);
 +
 +    // A resize makes it start over; so does clearing the history.
-+    try t.resize(alloc, 30, 6);
++    try t.resize(alloc, .{ .cols = 30, .rows = 6 });
 +    try testing.expect(hint.jump(screen) == null);
 +    try expectHinted(screen, &hint);
 +    s.nextSlice("\x1b[3J");
@@ -1134,7 +1134,7 @@ index 000000000..19d1ca545
 +
 +test "blocks: a hint whose prompt was pruned from the scrollback" {
 +    const alloc = testing.allocator;
-+    var t = try @import("Terminal.zig").init(alloc, .{ .cols = 40, .rows = 5, .max_scrollback = 1 });
++    var t = try @import("Terminal.zig").init(std.testing.io, alloc, .{ .cols = 40, .rows = 5, .max_scrollback_bytes = 1 });
 +    defer t.deinit(alloc);
 +    var s = t.vtStream();
 +    defer s.deinit();
@@ -1170,13 +1170,13 @@ index 000000000..19d1ca545
 +    // Taller: the row the hint jumps from comes back on screen, while its
 +    // prompt stays in history. Erasing history moves that prompt's pin to
 +    // the top row, where new commands run, above the row it jumps from.
-+    try t.resize(alloc, 40, 30);
++    try t.resize(alloc, .{ .cols = 40, .rows = 30 });
 +    s.nextSlice("\x1b[3J\x1b[H");
 +    s.nextSlice(comptime Session.prompt ++ Session.command("a") ++ Session.finished("0"));
 +    s.nextSlice(comptime Session.prompt ++ Session.command("b") ++ Session.finished("1"));
 +    s.nextSlice(comptime Session.prompt);
 +    // Back to the size the hint was learned at.
-+    try t.resize(alloc, 40, 5);
++    try t.resize(alloc, .{ .cols = 40, .rows = 5 });
 +    try expectHinted(screen, &hint);
 +    var out: [8]Block = undefined;
 +    try testing.expectEqual(2, list(screen, .all, &out, &hint).len);
@@ -1267,7 +1267,7 @@ index 000000000..19d1ca545
 +    s.nextSlice(comptime Session.finished("0") ++ Session.prompt ++ Session.command("pwd") ++ "/\r\n" ++ Session.finished("0"));
 +    s.nextSlice(comptime Session.prompt);
 +    try expectHintedScrolling(screen, &hint);
-+    try t.resize(alloc, 30, 7);
++    try t.resize(alloc, .{ .cols = 30, .rows = 7 });
 +    try expectHintedScrolling(screen, &hint);
 +}
 +
@@ -1310,7 +1310,7 @@ index 000000000..19d1ca545
 +
 +    // After a resize the prompt is found from the cursor again.
 +    s.nextSlice(comptime Session.command("ls") ++ "x\r\n");
-+    try t.resize(alloc, 30, 5);
++    try t.resize(alloc, .{ .cols = 30, .rows = 5 });
 +    s.nextSlice(comptime Session.finished("6"));
 +    s.nextSlice(comptime Session.prompt);
 +    var out: [4]Block = undefined;
@@ -1320,7 +1320,7 @@ index 000000000..19d1ca545
 +    try testing.expectEqual(@as(?u8, 6), out[1].exit_code);
 +}
 diff --git a/src/terminal/main.zig b/src/terminal/main.zig
-index 87a9aded9..cfd8041b2 100644
+index a5a78cd5c..ee46754f0 100644
 --- a/src/terminal/main.zig
 +++ b/src/terminal/main.zig
 @@ -6,6 +6,7 @@ const render = @import("render.zig");
@@ -1332,10 +1332,10 @@ index 87a9aded9..cfd8041b2 100644
  pub const osc = @import("osc.zig");
  pub const point = @import("point.zig");
 diff --git a/src/terminal/osc/parsers/semantic_prompt.zig b/src/terminal/osc/parsers/semantic_prompt.zig
-index 25152d7c3..2af5f8fc6 100644
+index ea2510393..8d38da6c3 100644
 --- a/src/terminal/osc/parsers/semantic_prompt.zig
 +++ b/src/terminal/osc/parsers/semantic_prompt.zig
-@@ -94,6 +94,10 @@ pub const Option = enum {
+@@ -108,6 +108,10 @@ pub const Option = enum {
      // parse it into our options.
      exit_code,
  
@@ -1346,15 +1346,15 @@ index 25152d7c3..2af5f8fc6 100644
      pub fn Type(comptime self: Option) type {
          return switch (self) {
              .aid => []const u8,
-@@ -103,6 +107,7 @@ pub const Option = enum {
+@@ -117,6 +121,7 @@ pub const Option = enum {
              .redraw => Redraw,
              .special_key => bool,
-             .click_events => bool,
+             .click_events => ClickEvents,
 +            .gap => bool,
              .cmdline => []const u8,
              .cmdline_url => []const u8,
              .exit_code => i32,
-@@ -118,6 +123,7 @@ pub const Option = enum {
+@@ -132,6 +137,7 @@ pub const Option = enum {
              .redraw => "redraw",
              .special_key => "special_key",
              .click_events => "click_events",
@@ -1362,16 +1362,16 @@ index 25152d7c3..2af5f8fc6 100644
              .cmdline => "cmdline",
              .cmdline_url => "cmdline_url",
  
-@@ -200,7 +206,7 @@ pub const Option = enum {
-                     .last
-                 else
-                     null,
--                .special_key, .click_events => if (value.len == 1) switch (value[0]) {
-+                .special_key, .click_events, .gap => if (value.len == 1) switch (value[0]) {
+@@ -219,7 +225,7 @@ pub const Option = enum {
+                     '2' => .relative,
+                     else => null,
+                 } else null,
+-                .special_key => if (value.len == 1) switch (value[0]) {
++                .special_key, .gap => if (value.len == 1) switch (value[0]) {
                      '0' => false,
                      '1' => true,
                      else => null,
-@@ -348,9 +354,11 @@ pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
+@@ -375,9 +381,11 @@ pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
                  parser.command.semantic_prompt.options_unvalidated = data[2..];
              },
  
@@ -1385,7 +1385,7 @@ index 25152d7c3..2af5f8fc6 100644
              },
  
              'N' => new_command: {
-@@ -713,12 +721,14 @@ test "OSC 133: fresh_line extra contents" {
+@@ -740,12 +748,14 @@ test "OSC 133: fresh_line extra contents" {
          try testing.expect(p.end(null) == null);
      }
  
@@ -1404,10 +1404,10 @@ index 25152d7c3..2af5f8fc6 100644
  }
  
 diff --git a/src/terminal/page.zig b/src/terminal/page.zig
-index 0942e260c..bbcf1643d 100644
+index 82e07583c..31283b626 100644
 --- a/src/terminal/page.zig
 +++ b/src/terminal/page.zig
-@@ -1970,7 +1970,12 @@ pub const Row = packed struct(u64) {
+@@ -2071,7 +2071,12 @@ pub const Row = packed struct(u64) {
      /// screen.
      dirty: bool = false,
  

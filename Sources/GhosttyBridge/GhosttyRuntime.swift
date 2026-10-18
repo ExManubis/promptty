@@ -215,16 +215,27 @@ private func ghosttyAction(_ app: UnsafeMutableRawPointer?, _ target: ghostty_ta
     }
 }
 
-/// `userdata` here is the *surface's* userdata (our view), not the app's.
-private func ghosttyReadClipboard(_ userdata: UnsafeMutableRawPointer?, _ location: ghostty_clipboard_e, _ state: UnsafeMutableRawPointer?) -> Bool {
+/// `userdata` here is the *surface's* userdata (our view), not the app's. libghostty asks for
+/// the clipboard in the MIME types it wants (`mimes`), and with `list` for the types on offer;
+/// only plain text is served.
+private func ghosttyReadClipboard(
+    _ userdata: UnsafeMutableRawPointer?, _ location: ghostty_clipboard_e, _ state: UnsafeMutableRawPointer?,
+    _ mimes: UnsafePointer<UnsafePointer<CChar>?>?, _ mimesCount: Int, _ list: Bool
+) -> ghostty_clipboard_read_result_e {
+    let wantsText = (0..<mimesCount).contains { i in
+        mimes?[i].map { ClipboardMIME.isPlainText(String(cString: $0)) } ?? false
+    }
     nonisolated(unsafe) let userdata = userdata
     nonisolated(unsafe) let state = state
     return MainActor.assumeIsolated {
-        guard let userdata, location == GHOSTTY_CLIPBOARD_STANDARD else { return false }
+        guard let userdata, location == GHOSTTY_CLIPBOARD_STANDARD else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
         let view = Unmanaged<TerminalSurfaceView>.fromOpaque(userdata).takeUnretainedValue()
-        let text = NSPasteboard.general.string(forType: .string) ?? ""
-        view.completeClipboardRequest(text, state: state, confirmed: false)
-        return true
+        let text = NSPasteboard.general.string(forType: .string)
+        let served = wantsText ? text : nil
+        guard served != nil || list else { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
+        view.completeClipboardRequest(served, available: list && text != nil ? [ClipboardMIME.plainText] : [],
+                                      state: state, confirmed: false)
+        return GHOSTTY_CLIPBOARD_READ_STARTED
     }
 }
 
@@ -232,19 +243,32 @@ private func ghosttyReadClipboard(_ userdata: UnsafeMutableRawPointer?, _ locati
 /// ask`) or a paste looks unsafe. A read waits for the user's answer in the pane's banner. An
 /// unsafe paste (multi-line text) keeps the earlier behavior and goes through: the user pasted
 /// it themselves, and the input bar is where multi-line text is edited.
-private func ghosttyConfirmReadClipboard(_ userdata: UnsafeMutableRawPointer?, _ string: UnsafePointer<CChar>?, _ state: UnsafeMutableRawPointer?, _ request: ghostty_clipboard_request_e) {
-    // Copy the C string before hopping; libghostty only guarantees it for the callback's duration.
-    let text = string.map { String(cString: $0) } ?? ""
+private func ghosttyConfirmReadClipboard(_ userdata: UnsafeMutableRawPointer?, _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>?, _ state: UnsafeMutableRawPointer?, _ request: ghostty_clipboard_request_e) {
+    // Copy the text before hopping; libghostty only guarantees it for the callback's duration.
+    var text: String?
+    var available: [String] = []
+    if let c = confirm?.pointee {
+        for i in 0..<c.contents_len {
+            guard let item = c.contents?[i], let mime = item.mime, ClipboardMIME.isPlainText(String(cString: mime)) else { continue }
+            text = item.data.map { String(decoding: UnsafeRawBufferPointer(start: $0, count: item.len), as: UTF8.self) } ?? ""
+            break
+        }
+        available = (0..<c.available_len).compactMap { i in c.available?[i].map { String(cString: $0) } }
+    }
     nonisolated(unsafe) let userdata = userdata
     nonisolated(unsafe) let state = state
     MainActor.assumeIsolated {
         guard let userdata else { return }
         let view = Unmanaged<TerminalSurfaceView>.fromOpaque(userdata).takeUnretainedValue()
-        if request == GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ {
-            view.askClipboard(.read, text: text, state: state)
-            return
+        switch request {
+        case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ, GHOSTTY_CLIPBOARD_REQUEST_KITTY_READ:
+            view.askClipboard(.read, text: text ?? "", state: state)
+        case GHOSTTY_CLIPBOARD_REQUEST_PASTE, GHOSTTY_CLIPBOARD_REQUEST_LIST:
+            // A paste the user made, or only the list of types on offer: goes through.
+            view.completeClipboardRequest(text, available: available, state: state, confirmed: true)
+        default:
+            view.denyClipboardRequest(state: state)
         }
-        view.completeClipboardRequest(text, state: state, confirmed: true)
     }
 }
 
@@ -255,8 +279,8 @@ private func ghosttyWriteClipboard(_ userdata: UnsafeMutableRawPointer?, _ locat
     for i in 0..<count {
         let item = contents[i]
         guard let mime = item.mime, let data = item.data else { continue }
-        if String(cString: mime) == "text/plain" {
-            text = String(cString: data)
+        if ClipboardMIME.isPlainText(String(cString: mime)) {
+            text = String(decoding: UnsafeRawBufferPointer(start: data, count: item.len), as: UTF8.self)
             break
         }
     }
