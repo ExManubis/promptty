@@ -16,7 +16,8 @@ extension WorkspaceCoordinator {
             snapshot: { [weak self] in self?.remoteSnapshot() ?? RemoteWorkspace(windows: [], projects: []) },
             blocks: { [weak self] params in self?.remoteBlocks(params) ?? .failure(Self.quitting) },
             answer: { [weak self] params in self?.remoteAnswer(params) ?? .failure(Self.quitting) },
-            appearance: { [weak self] in self?.remoteAppearance() ?? RemoteAppearance(config: "") })
+            appearance: { [weak self] in self?.remoteAppearance() ?? RemoteAppearance(config: "") },
+            places: { [weak self] in self?.remotePlaces() ?? RemotePlaces(home: "", folders: [], hosts: [], commands: []) })
     }
 
     private static let quitting = RemoteError(code: RemoteError.internalError, message: "PrompTTY is quitting")
@@ -105,6 +106,14 @@ extension WorkspaceCoordinator {
                     || key.hasPrefix("window-") ? nil : String(line)
             }
         return RemoteAppearance(config: config.joined(separator: "\n"))
+    }
+
+    /// Where the phone can open a tab: ⌘J's folders, the palette's ssh hosts, the saved commands.
+    func remotePlaces() -> RemotePlaces {
+        RemotePlaces(home: NSHomeDirectory(),
+                     folders: FolderHistoryStore.shared.frecentFolders().prefix(20).map(\.directory),
+                     hosts: SSHHosts.cached.isEmpty ? SSHHosts.read() : SSHHosts.cached,
+                     commands: preferences.settings.savedCommands.map { RemotePlaces.Saved(name: $0.name, command: $0.command) })
     }
 
     static func remotePrompt(_ prompt: PermissionPrompt) -> RemotePrompt {

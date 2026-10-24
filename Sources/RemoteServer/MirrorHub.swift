@@ -198,6 +198,10 @@ public final class MirrorHub {
         tell(client, Detached(pane: pane, reason: .behind))
     }
 
+    /// The pane was clicked on the Mac: it gets the Mac's size back from the device that had
+    /// control, which is told.
+    public func takeBack(_ id: String) { release(id) }
+
     /// A pane's size or password prompt may have changed: its clients are told what did.
     public func paneChanged(_ id: String) { publishState(id) }
 

@@ -23,8 +23,14 @@ final class LiveMirror {
     private(set) var fit: CGSize?
     /// The room the pane card has for the terminal: the grid taken with control.
     var available: CGSize = .zero {
-        didSet { if state?.inControl == true, available != oldValue { resizeControlled() } }
+        didSet {
+            takePendingControl()
+            if state?.inControl == true, available != oldValue { resizeControlled() }
+        }
     }
+
+    /// Once, after the first attach: a tab the phone opened takes control and runs its command.
+    var onFirstAttach: (() -> Void)?
 
     private weak var connection: MacConnection?
     private var position: MirrorPosition?
@@ -82,6 +88,11 @@ final class LiveMirror {
                     gridMatches = false
                 }
                 apply(attached.state)
+                if let first = onFirstAttach {
+                    onFirstAttach = nil
+                    pendingControl = first
+                    takePendingControl()
+                }
             } catch {
                 failure = MacConnection.describe(error)
             }
@@ -151,6 +162,16 @@ final class LiveMirror {
         }
     }
 
+    /// Control wanted before the terminal knew its cells: taken once it does.
+    private var pendingControl: (() -> Void)?
+
+    private func takePendingControl() {
+        guard pendingControl != nil, phoneGrid() != nil else { return }
+        let action = pendingControl
+        pendingControl = nil
+        action?()
+    }
+
     /// The grid that fits the pane card at the phone's font.
     private func phoneGrid() -> (cols: Int, rows: Int)? {
         guard let cell = view?.cellSize, cell.width > 0, cell.height > 0, available.width > 0 else { return nil }
@@ -171,6 +192,7 @@ final class LiveMirror {
     }
 
     private func resized(columns: Int, rows: Int) {
+        takePendingControl()
         guard let state else { return }
         if columns == state.cols, rows == state.rows { gridReady() } else if fit == nil || !gridMatches { fitToGrid() }
     }

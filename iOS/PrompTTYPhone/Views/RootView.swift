@@ -24,6 +24,7 @@ struct RootView: View {
         .background(Backdrop())
         .background(HingeReader(partlyOpen: $hingePartlyOpen))
         .overlay { if model.switchingMac { switcher } }
+        .sheet(isPresented: $model.showingNewTab) { NewTabSheet(model: model) }
         .overlay { if locked, requireFaceID, model.isRemote { LockScreen { locked = false } } }
         .onChange(of: scenePhase) { _, phase in if phase == .background { locked = true } }
         .animation(.spring(duration: 0.3, bounce: 0.1), value: model.switchingMac)
