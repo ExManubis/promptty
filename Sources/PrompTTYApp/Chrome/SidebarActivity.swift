@@ -1,5 +1,5 @@
-import AppKit
 import PaneActivity
+import PrompTTYChrome
 import SwiftUI
 import WorkspaceModel
 
@@ -35,118 +35,6 @@ struct TabActivityMarks: Equatable {
 
     static func merged(_ marks: [TabActivityMarks]) -> TabActivityMarks {
         TabActivityMarks(working: marks.contains { $0.working }, badge: marks.contains { $0.badge })
-    }
-}
-
-/// Rex's "•••" while an agent works: three dots brightening in turn. Looped in Core Animation
-/// (see `LoopingLayerView`), so it costs the main thread nothing per frame; still under Reduce
-/// Motion.
-struct WorkingDots: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        WorkingDotsLayer(color: colorScheme == .dark ? .white : .black, animated: !reduceMotion)
-            .frame(width: 18, height: 6)
-            .accessibilityElement()
-            .accessibilityLabel("Working")
-    }
-}
-
-private struct WorkingDotsLayer: NSViewRepresentable {
-    let color: NSColor
-    let animated: Bool
-
-    func makeNSView(context: Context) -> DotsView { DotsView() }
-
-    func updateNSView(_ view: DotsView, context: Context) {
-        guard view.color != color || view.animated != animated else { return }
-        view.color = color
-        view.animated = animated
-        view.restart()
-    }
-
-    final class DotsView: NSView {
-        var color: NSColor = .white
-        var animated = true
-        private var dots: [CALayer] = []
-        private var laidOutSize: CGSize = .zero
-
-        override init(frame: NSRect) {
-            super.init(frame: frame)
-            wantsLayer = true
-        }
-
-        @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
-
-        /// Only a new size restarts the dots, as `LoopingLayerView` does: the sidebar lays its rows
-        /// out again often, and a restart makes the dots jump.
-        override func layout() {
-            super.layout()
-            guard bounds.size != laidOutSize else { return }
-            laidOutSize = bounds.size
-            restart()
-        }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            restart()
-        }
-
-        func restart() {
-            guard let layer, bounds.width > 0 else { return }
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            if dots.isEmpty {
-                dots = (0..<3).map { _ in CALayer() }
-                dots.forEach(layer.addSublayer)
-            }
-            let size: CGFloat = 4
-            let gap = (bounds.width - 3 * size) / 2
-            let now = CACurrentMediaTime()
-            for (index, dot) in dots.enumerated() {
-                dot.frame = CGRect(x: CGFloat(index) * (size + gap), y: (bounds.height - size) / 2, width: size, height: size)
-                dot.cornerRadius = size / 2
-                dot.backgroundColor = color.cgColor
-                dot.removeAllAnimations()
-                dot.opacity = animated ? 0.25 : 0.6
-                guard animated else { continue }
-                let pulse = CAKeyframeAnimation(keyPath: "opacity")
-                pulse.values = [0.25, 0.9, 0.25, 0.25]
-                pulse.keyTimes = [0, 0.25, 0.55, 1]
-                pulse.duration = 1.2
-                pulse.repeatCount = .infinity
-                pulse.beginTime = now + Double(index) * 0.2
-                pulse.fillMode = .backwards
-                dot.add(pulse, forKey: "pulse")
-            }
-            CATransaction.commit()
-        }
-    }
-}
-
-/// A tab's programs as the strip's pills show them (`ProgramStack`), with a blue dot on the front
-/// tile's corner for what happened out of sight.
-struct SidebarTabIcon: View {
-    let cards: [ProgramStack.Card]
-    var badge = false
-
-    /// The width the rows' text lines up after, for the headers' symbols.
-    static let size: CGFloat = ProgramStack.width
-
-    var body: some View {
-        ProgramStack(cards: cards)
-            .overlay(alignment: .topLeading) {
-                if badge {
-                    Circle()
-                        .fill(Color.accentColor)
-                        .frame(width: 7, height: 7)
-                        .overlay(Circle().strokeBorder(Color.black.opacity(0.35), lineWidth: 0.5))
-                        .offset(x: ProgramStack.width - 4.5, y: -2.5)
-                        .transition(.scale.combined(with: .opacity))
-                }
-            }
-            .frame(minWidth: Self.size, alignment: .leading)
     }
 }
 

@@ -1,4 +1,5 @@
 import CommandEditing
+import PrompTTYChrome
 import SwiftUI
 import WorkspaceModel
 
@@ -179,52 +180,6 @@ private struct BranchButton: View {
                     shell.returnKeysToBar()
                 })
             }
-        }
-    }
-}
-
-/// A header item that opens a picker: its text in the theme's color, in a hairline outline that
-/// fills in under the pointer and while its picker is open.
-private struct HeaderChipStyle: ButtonStyle {
-    let open: Bool
-    let color: Color
-
-    func makeBody(configuration: Configuration) -> some View {
-        HeaderChip(label: configuration.label, open: open, pressed: configuration.isPressed, color: color)
-    }
-}
-
-private struct HeaderChip<Content: View>: View {
-    let label: Content
-    let open: Bool
-    let pressed: Bool
-    let color: Color
-    @State private var hovering = false
-    @Environment(\.isEnabled) private var enabled
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
-        label
-            .foregroundStyle(color)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background {
-                if hovering || open || pressed {
-                    shape.fill(Color.primary.opacity(pressed ? 0.12 : 0.07))
-                }
-            }
-            .overlay(shape.strokeBorder(Color.primary.opacity(0.16), lineWidth: 1))
-            .opacity(enabled ? 1 : 0.6)
-            .contentShape(shape)
-            .onHover { hovering = $0 }
-    }
-}
-
-private struct HeaderLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 4) {
-            configuration.icon.imageScale(.small)
-            configuration.title
         }
     }
 }

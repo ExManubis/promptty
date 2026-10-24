@@ -5,6 +5,7 @@ import CommandBlocks
 import CommandEditing
 import GhosttyBridge
 import PaneActivity
+import PrompTTYChrome
 import RemoteControl
 import Preferences
 import WorkspaceModel

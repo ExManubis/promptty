@@ -1,4 +1,5 @@
 import PaneActivity
+import PrompTTYChrome
 import SwiftUI
 import WorkspaceModel
 
@@ -210,25 +211,6 @@ enum PaneTitle {
     }()
 }
 
-/// A small borderless icon button (a block's copy buttons).
-struct HeaderButton: View {
-    let symbol: String
-    let help: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 11, weight: .medium))
-                .frame(width: 22, height: 22)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .help(help)
-        .accessibilityLabel(help)
-    }
-}
-
 /// Shown over a pane whose shell has exited.
 struct ExitedOverlay: View {
     let exitCode: UInt32
@@ -248,20 +230,6 @@ struct ExitedOverlay: View {
         .padding(.horizontal, 22)
         .padding(.vertical, 16)
         .background(FlatSurface(cornerRadius: 12))
-    }
-}
-
-/// A flat raised surface (Dia's popovers and bars): solid fill, hairline border, soft shadow.
-struct FlatSurface: View {
-    let cornerRadius: CGFloat
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        shape
-            .fill(colorScheme == .dark ? Color(white: 0.17) : Color.white)
-            .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0.10), radius: 4, y: 1)
-            .overlay(shape.strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
     }
 }
 

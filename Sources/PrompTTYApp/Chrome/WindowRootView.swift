@@ -1,4 +1,5 @@
 import Preferences
+import PrompTTYChrome
 import SwiftUI
 import WorkspaceModel
 

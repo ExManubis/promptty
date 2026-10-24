@@ -29,6 +29,7 @@ and stops unless it is version 0.16.
     Sources/promptty-hook    the helper agents' hooks run, bundled in the app; sends one line to the socket
     Sources/RemoteControl    the control socket's requests and responses, its server and client, `promptty`'s argument parsing
     Sources/promptty         the `promptty` command line, bundled in the app
+    Sources/PrompTTYChrome   SwiftUI chrome the Mac and iPhone apps share: program tiles and logos, activity, rows, banner
     Sources/PrompTTYApp      AppKit windows and menus; SwiftUI chrome, input bar and Settings
     Engine/                  libghostty as a local SwiftPM package; patches/ holds PrompTTY's engine patches
     script/                  bootstrap, run, test, build-engine, release, drive
@@ -37,14 +38,20 @@ and stops unless it is version 0.16.
 ### Portable modules
 
 The iPhone app shares PrompTTY's own modules, so these build for iOS as well as macOS:
-`WorkspaceModel`, `Preferences`, `CommandBlocks`, `CommandEditing`, `PaneActivity`, `AgentHooks`
-and `RemoteControl`. Their Mac-only parts are behind `#if os(macOS)`: `ProcessRunner`'s running
+`WorkspaceModel`, `Preferences`, `CommandBlocks`, `CommandEditing`, `PaneActivity`, `AgentHooks`,
+`RemoteControl` and `PrompTTYChrome`. Their Mac-only parts are behind `#if os(macOS)`: `ProcessRunner`'s running
 of a program (its `Outcome` is shared), the hook listener (`HookListener`) and the control server
 (`ControlServer`), and `PaneActivity`'s process inspection (`ListeningPorts`,
 `ProcessTree.snapshot`, `ProcessArguments.read` and `.workingDirectory`). `script/test` builds the
 portable modules for the iOS Simulator, so a Mac-only API slipping into one fails it.
 `GhosttyBridge`, `PrompTTYApp`, `promptty` and `promptty-hook` are macOS only; only
 `GhosttyBridge` imports GhosttyKit.
+
+`PrompTTYChrome` is the SwiftUI chrome both apps draw with: `ProgramStack` and `ProgramIcon` (the
+program logos are its asset catalog), `ActivityIndicator`, `WorkingDots`, `ProgressRing`,
+`RowBackground`, `FlatSurface`, `HeaderButton`, the input bar's `HeaderChipStyle` and `BannerView`.
+Its looping animations run in Core Animation on both platforms (`LoopingLayerView` hosts them in an
+`NSView` or a `UIView`), so neither app drives a SwiftUI `repeatForever` from the main thread.
 
 ## Settings and config
 

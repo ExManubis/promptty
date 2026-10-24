@@ -1,17 +1,7 @@
 import AppKit
 import Observation
+import PrompTTYChrome
 import WorkspaceModel
-
-/// A message strip above the panes. Persistent (settings/config problems) or transient.
-struct BannerContent {
-    let id = UUID()
-    var message: String
-    var actionTitle: String?
-    var action: (() -> Void)?
-    var symbol = "exclamationmark.triangle.fill"
-    /// Further buttons, shown before the main one.
-    var extraActions: [(title: String, action: () -> Void)] = []
-}
 
 /// Per-window state the SwiftUI chrome shows that is not part of the workspace model.
 @MainActor
