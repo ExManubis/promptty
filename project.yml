@@ -170,6 +170,9 @@ targets:
         product: RemoteProtocol
       - package: PrompTTYCore
         product: RemoteControl
+      # libghostty for iOS (script/build-engine --ios); the debug screen's terminal for now.
+      - package: PrompTTYCore
+        product: GhosttyMirror
     settings:
       base:
         PRODUCT_NAME: PrompTTY

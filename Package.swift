@@ -4,11 +4,14 @@ import PackageDescription
 let package = Package(
     name: "PrompTTY",
     // iOS for the portable modules the iPhone app shares (docs/DEVELOPMENT.md lists them); their
-    // Mac-only parts are behind `#if os(macOS)`. GhosttyBridge and the executables are macOS only.
+    // Mac-only parts are behind `#if os(macOS)`. GhosttyBridge and the executables are macOS only;
+    // GhosttyMirror is the iPhone's libghostty (empty on macOS).
     platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "WorkspaceModel", targets: ["WorkspaceModel"]),
         .library(name: "GhosttyBridge", targets: ["GhosttyBridge"]),
+        // The iPhone's terminal: a libghostty surface fed a pane's bytes from the Mac.
+        .library(name: "GhosttyMirror", targets: ["GhosttyMirror"]),
         .library(name: "Preferences", targets: ["Preferences"]),
         .library(name: "CommandEditing", targets: ["CommandEditing"]),
         .library(name: "PaneActivity", targets: ["PaneActivity"]),
@@ -70,6 +73,16 @@ let package = Package(
                 // The GhosttyKit static library carries no autolink directives.
                 .linkedLibrary("c++"),
                 .linkedFramework("Carbon"),
+            ]
+        ),
+        // Imports GhosttyKit too (its iOS slices: script/build-engine --ios); nothing else does.
+        .target(
+            name: "GhosttyMirror",
+            // Not GhosttyKitResources: a mirrored surface starts no shell (no terminfo or shell
+            // integration), and its theme comes inline in the config.
+            dependencies: [.product(name: "GhosttyKit", package: "Engine")],
+            linkerSettings: [
+                .linkedLibrary("c++", .when(platforms: [.iOS])),
             ]
         ),
         .testTarget(name: "WorkspaceModelTests", dependencies: ["WorkspaceModel"]),

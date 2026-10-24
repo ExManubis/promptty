@@ -12,6 +12,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 device=${1:-iPhone Duo}
 shift || true
+script/build-engine --ios >/dev/null  # libghostty's iOS slices; rebuilt only when the pin or a patch changed
 xcodegen generate >/dev/null
 id=$(xcrun simctl list devices available -j | python3 -c '
 import json, sys

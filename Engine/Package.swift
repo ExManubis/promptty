@@ -6,7 +6,9 @@
 // package it replaced, so `import GhosttyKit` is unchanged.
 //
 // GhosttyKit.xcframework and Sources/GhosttyKitResources/Resources are build output of
-// script/build-engine and not committed.
+// script/build-engine and not committed. Its iOS slices are there after `script/build-engine
+// --ios`, for the iPhone app's GhosttyMirror (which leaves out GhosttyKitResources: on iOS a
+// resource bundle can't hold a folder named Resources, and a mirrored surface needs none of it).
 
 import PackageDescription
 
@@ -14,6 +16,7 @@ let package = Package(
     name: "Engine",
     platforms: [
         .macOS(.v14),
+        .iOS(.v17),
     ],
     products: [
         .library(name: "GhosttyKit", targets: ["GhosttyKit"]),
