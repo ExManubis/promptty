@@ -77,6 +77,13 @@ final class PaneStatus {
         if secure != on { secure = on }
     }
 
+    /// Remote clients mirroring the pane, and the one that has control of its size; nil when none.
+    private(set) var remote: PaneRemote?
+
+    func setRemote(_ remote: PaneRemote?) {
+        if self.remote != remote { self.remote = remote }
+    }
+
     /// Moves arrive with every mouse move over text; an unchanged link changes nothing.
     func hover(over link: String?) {
         if hoveredLink != link { hoveredLink = link }

@@ -151,6 +151,7 @@ struct PaneCard: View {
                 }
                 if zoomed, !showsHeader { ZoomBadge() }
                 if broadcasting { BroadcastBadge() }
+                RemoteBadge(pane: pane.id, actions: actions)
             }
             .padding(.top, showsHeader ? PaneHeader.height : 0)
 
@@ -305,6 +306,29 @@ private struct SecureLock: View {
     var body: some View {
         if actions.isSecure(pane) {
             PaneBadge(symbol: "lock.fill", help: "Secure keyboard entry is on", alignment: .topTrailing)
+        }
+    }
+}
+
+/// While remote clients mirror the pane: who, at its bottom right; while one has control of its
+/// size (the terminal letterboxed to the device's grid), that it does.
+private struct RemoteBadge: View {
+    let pane: PaneID
+    let actions: ChromeActions
+
+    var body: some View {
+        if let remote = actions.remote(for: pane) {
+            Label(remote.text, systemImage: remote.controller == nil ? "iphone" : "iphone.radiowaves.left.and.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background((remote.controller == nil ? Color.blue : Color.orange).opacity(0.85), in: Capsule())
+                .padding(8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .allowsHitTesting(false)
+                .help(remote.help)
+                .accessibilityLabel(remote.text)
         }
     }
 }

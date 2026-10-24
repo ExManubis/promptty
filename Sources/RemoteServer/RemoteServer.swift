@@ -55,26 +55,32 @@ public final class RemoteServer: @unchecked Sendable {
     private let identify: Identify
     private let handler: Handler
     private let workspace: Workspace?
+    /// The panes mirrored to clients (`attach`, `input`, …); nil answers those as unknown methods.
+    let mirror: MirrorHub?
     private let onClients: @Sendable ([Client]) -> Void
     private let onFailure: @Sendable (String) -> Void
 
     /// Everything below is touched only on this queue.
-    private let queue = DispatchQueue(label: "dev.promptty.remote", qos: .userInitiated)
+    let queue = DispatchQueue(label: "dev.promptty.remote", qos: .userInitiated)
     private var listener: NWListener?
-    private var connections: [UUID: Connection] = [:]
+    var connections: [UUID: Connection] = [:]
 
-    private final class Connection {
+    final class Connection {
         let connection: NWConnection
         var session: RemoteSession?
         var client: Client
         /// Subscribed: the snapshot it last got, so only a change is sent.
         var lastWorkspace: RemoteWorkspace?
+        /// Mirrored output handed to the network and not yet sent (`RemoteServer+Mirror`).
+        var outputQueued = 0
+        /// Panes whose output it fell behind on: none sent until it attaches again.
+        var behind: Set<String> = []
         init(connection: NWConnection, client: Client) { self.connection = connection; self.client = client }
     }
 
     /// `onClients` is called on the main queue whenever a client comes, introduces itself or goes.
     public init(host: String, port: UInt16 = RemoteServer.defaultPort, owner: Int64, server: String, mac: String,
-                identify: @escaping Identify, handler: @escaping Handler, workspace: Workspace? = nil,
+                identify: @escaping Identify, handler: @escaping Handler, workspace: Workspace? = nil, mirror: MirrorHub? = nil,
                 onClients: @escaping @Sendable ([Client]) -> Void,
                 onFailure: @escaping @Sendable (String) -> Void = { _ in }) {
         self.host = host
@@ -85,8 +91,10 @@ public final class RemoteServer: @unchecked Sendable {
         self.identify = identify
         self.handler = handler
         self.workspace = workspace
+        self.mirror = mirror
         self.onClients = onClients
         self.onFailure = onFailure
+        mirror?.outbox.connect { [weak self] client, event in self?.sendMirrorEvent(event, to: client) }
     }
 
     public enum Failure: Error, Equatable {
@@ -122,6 +130,7 @@ public final class RemoteServer: @unchecked Sendable {
             connections.removeAll()
             publishClients()
         }
+        if let mirror { DispatchQueue.main.async { MainActor.assumeIsolated { mirror.reset() } } }
     }
 
     /// Sends subscribers the workspace if it changed since they last got it.
@@ -232,6 +241,8 @@ public final class RemoteServer: @unchecked Sendable {
                 answerOnMain(replyID, on: id) { workspace in workspace.blocks(params) }
             case .answer(let params, let replyID):
                 answerOnMain(replyID, on: id) { workspace in workspace.answer(params) }
+            case .mirror(let call, let replyID):
+                handleMirror(call, replyID: replyID, on: id)
             case .control(let request, let replyID):
                 // Held until the command answers (`wait` can take minutes).
                 let handler = handler, server = self
@@ -273,7 +284,7 @@ public final class RemoteServer: @unchecked Sendable {
     }
 
     /// Sends a message as one text frame.
-    private func send(_ message: RemoteMessage, on id: UUID, then: (@Sendable () -> Void)? = nil) {
+    func send(_ message: RemoteMessage, on id: UUID, then: (@Sendable () -> Void)? = nil) {
         guard let entry = connections[id], let data = try? message.encoded() else { return }
         let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
         let context = NWConnection.ContentContext(identifier: "message", metadata: [metadata])
@@ -287,6 +298,7 @@ public final class RemoteServer: @unchecked Sendable {
         guard let entry = connections.removeValue(forKey: id) else { return }
         entry.connection.cancel()
         publishClients()
+        mirrorClientGone(id)
     }
 
     /// On the queue.

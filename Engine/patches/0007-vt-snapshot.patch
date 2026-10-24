@@ -1,0 +1,387 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 53ba92967..859c76f9c 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -516,6 +516,11 @@ typedef enum {
+ // the surface.
+ typedef void (*ghostty_surface_output_tap_cb)(void*, const uint8_t*, size_t);
+ 
++// Called by ghostty_surface_read_vt_snapshot with the terminal still locked,
++// so no pty output is processed in between: the grid's columns and rows. It
++// must return quickly and not call back into the surface.
++typedef void (*ghostty_surface_snapshot_cb)(void*, uint16_t, uint16_t);
++
+ typedef enum {
+   GHOSTTY_TEXT_FORMAT_PLAIN,
+   GHOSTTY_TEXT_FORMAT_VT,
+@@ -1344,6 +1349,11 @@ GHOSTTY_API bool ghostty_surface_block_text(ghostty_surface_t,
+ GHOSTTY_API void ghostty_surface_set_output_tap(ghostty_surface_t,
+                                                 ghostty_surface_output_tap_cb,
+                                                 void*);
++GHOSTTY_API bool ghostty_surface_read_vt_snapshot(ghostty_surface_t,
++                                                  uint32_t,
++                                                  ghostty_surface_snapshot_cb,
++                                                  void*,
++                                                  ghostty_text_s*);
+ 
+ #ifdef __APPLE__
+ GHOSTTY_API void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index eb54292d6..f84e8bf2a 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -2197,6 +2197,52 @@ pub const CAPI = struct {
+         surface.core_surface.io.processOutput(ptr[0..len]);
+     }
+ 
++    /// PrompTTY: the terminal's state as VT bytes that rebuild it in a fresh
++    /// terminal of the same size: at most `scrollback` rows of scrollback,
++    /// the screen, cursor, modes, alternate screen and the sequence the pty
++    /// output stopped in the middle of (see terminal/vt_snapshot.zig).
++    /// `callback`, if set, gets the grid size with the terminal still
++    /// locked: the output tap's chunks so far are in the snapshot, the next
++    /// ones are not. Free the result with ghostty_surface_free_text.
++    export fn ghostty_surface_read_vt_snapshot(
++        surface: *Surface,
++        scrollback: u32,
++        callback: ?*const fn (?*anyopaque, u16, u16) callconv(.c) void,
++        userdata: ?*anyopaque,
++        result: *Text,
++    ) bool {
++        const core_surface = &surface.core_surface;
++        const alloc = global.alloc();
++        var builder: std.Io.Writer.Allocating = .init(alloc);
++        defer builder.deinit();
++        {
++            core_surface.renderer_state.mutex.lockUncancelable(global.io());
++            defer core_surface.renderer_state.mutex.unlock(global.io());
++            const t = core_surface.renderer_state.terminal;
++            terminal.vt_snapshot.write(alloc, t, &builder.writer, .{
++                .scrollback = scrollback,
++            }) catch |err| {
++                log.warn("error writing vt snapshot err={}", .{err});
++                return false;
++            };
++            terminal.vt_snapshot.writeContinuation(
++                &core_surface.io.terminal_stream,
++                &builder.writer,
++            ) catch return false;
++            if (callback) |cb| cb(userdata, t.cols, t.rows);
++        }
++        const bytes = builder.toOwnedSliceSentinel(0) catch return false;
++        result.* = .{
++            .tl_px_x = -1,
++            .tl_px_y = -1,
++            .offset_start = 0,
++            .offset_len = 0,
++            .text = bytes.ptr,
++            .text_len = bytes.len,
++        };
++        return true;
++    }
++
+     /// Tell the surface that it needs to schedule a render
+     export fn ghostty_surface_refresh(surface: *Surface) void {
+         surface.refresh();
+diff --git a/src/terminal/main.zig b/src/terminal/main.zig
+index ee46754f0..72c8f920f 100644
+--- a/src/terminal/main.zig
++++ b/src/terminal/main.zig
+@@ -25,6 +25,7 @@ pub const parse_table = @import("parse_table.zig");
+ pub const paste = @import("paste.zig");
+ pub const search = @import("search.zig");
+ pub const snapshot = @import("snapshot/main.zig");
++pub const vt_snapshot = @import("vt_snapshot.zig");
+ pub const sgr = @import("sgr.zig");
+ pub const size = @import("size.zig");
+ pub const size_report = @import("size_report.zig");
+diff --git a/src/terminal/vt_snapshot.zig b/src/terminal/vt_snapshot.zig
+new file mode 100644
+index 000000000..826a785e6
+--- /dev/null
++++ b/src/terminal/vt_snapshot.zig
+@@ -0,0 +1,270 @@
++//! PrompTTY: a terminal's state as VT bytes that rebuild it, for mirroring a
++//! surface elsewhere. Fed to a fresh terminal of the same size, the bytes
++//! reproduce the scrollback (up to a limit), the screen, the cursor (its
++//! position, style and visibility), the alternate screen with the primary
++//! screen behind it, the modes that differ from their defaults (bracketed
++//! paste, mouse reporting, ...), the scrolling region, tab stops, keyboard
++//! modes, the working directory and the palette entries programs changed.
++//! The pty output that follows can then be fed to the same terminal as is.
++const std = @import("std");
++const Allocator = std.mem.Allocator;
++const formatter = @import("formatter.zig");
++const Screen = @import("Screen.zig");
++const Selection = @import("Selection.zig");
++const Terminal = @import("Terminal.zig");
++const TerminalStream = @import("stream_terminal.zig").Stream;
++
++pub const Options = struct {
++    /// At most this many rows of scrollback, the newest.
++    scrollback: usize = 1000,
++};
++
++const format_opts: formatter.Options = .{ .emit = .vt, .unwrap = true, .trim = true };
++
++pub fn write(
++    alloc: Allocator,
++    t: *const Terminal,
++    writer: *std.Io.Writer,
++    opts: Options,
++) !void {
++    // Whatever the replaying terminal held goes: full reset (RIS).
++    try writer.writeAll("\x1bc");
++
++    const primary = t.screens.get(.primary) orelse t.screens.active;
++    try writeHistory(alloc, primary, t.rows, writer, opts.scrollback);
++
++    // On the alternate screen: the primary screen behind it first, with its
++    // cursor, which entering the alternate screen saves and leaving restores.
++    if (t.screens.active != primary) {
++        var screen_formatter: formatter.ScreenFormatter = .init(primary, format_opts);
++        screen_formatter.content = .{ .selection = activeArea(primary) };
++        screen_formatter.extra = .all;
++        try screen_formatter.format(writer);
++    }
++
++    // The palette entries a program changed (OSC 4); the rest stay the
++    // replaying terminal's own theme.
++    var it = t.colors.palette.mask.iterator(.{});
++    while (it.next()) |i| {
++        const rgb = t.colors.palette.current[i];
++        try writer.print("\x1b]4;{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}\x1b\\", .{ i, rgb.r, rgb.g, rgb.b });
++    }
++
++    // The active screen with every mode and extra: this switches to the
++    // alternate screen when it is the active one.
++    var terminal_formatter: formatter.TerminalFormatter = .init(t, format_opts);
++    terminal_formatter.content = .{ .selection = activeArea(t.screens.active) };
++    terminal_formatter.extra = .all;
++    terminal_formatter.extra.palette = false;
++    try terminal_formatter.format(writer);
++}
++
++/// The escape sequence or UTF-8 character `stream` is in the middle of, so
++/// the replaying terminal's parser goes on from the same point: written
++/// last. Nothing when the stream is between sequences, or does not track
++/// them (or the unfinished sequence grew past what it keeps).
++pub fn writeContinuation(stream: anytype, writer: *std.Io.Writer) !void {
++    if (stream.ground()) return;
++    stream.writeContinuation(writer) catch |err| switch (err) {
++        error.WriteFailed => return error.WriteFailed,
++        else => {},
++    };
++}
++
++fn activeArea(screen: *const Screen) Selection {
++    return .init(
++        screen.pages.getTopLeft(.active),
++        screen.pages.getBottomRight(.active).?,
++        false,
++    );
++}
++
++/// The newest `limit` rows of the screen's scrollback, then enough newlines
++/// to push them all above the screen, and the cursor home: the screen's own
++/// rows then start at the top, as they do here.
++fn writeHistory(
++    alloc: Allocator,
++    screen: *const Screen,
++    rows: usize,
++    writer: *std.Io.Writer,
++    limit: usize,
++) !void {
++    const pages = &screen.pages;
++    if (limit == 0 or pages.total_rows <= pages.rows) return;
++    const history = pages.total_rows - pages.rows;
++    const keep = @min(history, limit);
++    const top = pages.pin(.{ .history = .{ .y = @intCast(history - keep) } }) orelse return;
++    const bottom = pages.getBottomRight(.history) orelse return;
++
++    var builder: std.Io.Writer.Allocating = .init(alloc);
++    defer builder.deinit();
++    var screen_formatter: formatter.ScreenFormatter = .init(screen, format_opts);
++    screen_formatter.content = .{ .selection = Selection.init(top, bottom, false) };
++    screen_formatter.format(&builder.writer) catch return error.WriteFailed;
++    const text = builder.writer.buffered();
++    if (text.len == 0) return;
++
++    try writer.writeAll(text);
++    // Reset the style the last row may have left, so the newlines scroll in
++    // blank rows of the default color.
++    try writer.writeAll("\x1b[0m");
++    for (0..rows) |_| try writer.writeAll("\r\n");
++    try writer.writeAll("\x1b[H");
++}
++
++fn snapshot(alloc: Allocator, t: *const Terminal, opts: Options) ![]u8 {
++    var builder: std.Io.Writer.Allocating = .init(alloc);
++    errdefer builder.deinit();
++    try write(alloc, t, &builder.writer, opts);
++    return builder.toOwnedSlice();
++}
++
++/// Feeds `bytes` to a fresh terminal of `t`'s size.
++fn replay(alloc: Allocator, t: *const Terminal, bytes: []const u8) !Terminal {
++    var copy = try Terminal.init(std.testing.io, alloc, .{ .cols = t.cols, .rows = t.rows });
++    errdefer copy.deinit(alloc);
++    var stream = copy.vtStream();
++    defer stream.deinit();
++    stream.nextSlice(bytes);
++    return copy;
++}
++
++/// The screen's text, scrollback included.
++fn screenText(alloc: Allocator, screen: *const Screen) ![]const u8 {
++    return try screen.dumpStringAlloc(alloc, .{ .screen = .{} });
++}
++
++fn expectSameState(alloc: Allocator, a: *Terminal, b: *Terminal) !void {
++    const testing = std.testing;
++    try testing.expectEqual(a.screens.active_key, b.screens.active_key);
++    inline for (.{ .primary, .alternate }) |key| {
++        if (a.screens.get(key)) |sa| {
++            const sb = b.screens.get(key).?;
++            const ta = try screenText(alloc, sa);
++            defer alloc.free(ta);
++            const tb = try screenText(alloc, sb);
++            defer alloc.free(tb);
++            try testing.expectEqualStrings(ta, tb);
++        }
++    }
++    try testing.expectEqual(a.screens.active.cursor.x, b.screens.active.cursor.x);
++    try testing.expectEqual(a.screens.active.cursor.y, b.screens.active.cursor.y);
++    try testing.expectEqual(a.screens.active.pages.total_rows, b.screens.active.pages.total_rows);
++    try testing.expectEqual(a.modes.get(.cursor_visible), b.modes.get(.cursor_visible));
++    try testing.expectEqual(a.modes.get(.bracketed_paste), b.modes.get(.bracketed_paste));
++}
++
++test "vt_snapshot: scrollback, screen and cursor come back where they were" {
++    const alloc = std.testing.allocator;
++    var t = try Terminal.init(std.testing.io, alloc, .{ .cols = 20, .rows = 5 });
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++    for (0..12) |i| {
++        var buf: [32]u8 = undefined;
++        s.nextSlice(try std.fmt.bufPrint(&buf, "line {d}\r\n", .{i}));
++    }
++    // A soft-wrapped line, colors, then a prompt with the cursor after it.
++    s.nextSlice("a line long enough to wrap twice over\r\n\x1b[1;31mred\x1b[0m\r\n$ ls");
++
++    const bytes = try snapshot(alloc, &t, .{});
++    defer alloc.free(bytes);
++    var copy = try replay(alloc, &t, bytes);
++    defer copy.deinit(alloc);
++    try expectSameState(alloc, &t, &copy);
++
++    // The stream after the snapshot lands the same way on both.
++    s.nextSlice("\r\nmore\r\n");
++    var s2 = copy.vtStream();
++    defer s2.deinit();
++    s2.nextSlice("\r\nmore\r\n");
++    try expectSameState(alloc, &t, &copy);
++}
++
++test "vt_snapshot: a short screen with blank rows below keeps its cursor" {
++    const alloc = std.testing.allocator;
++    var t = try Terminal.init(std.testing.io, alloc, .{ .cols = 20, .rows = 10 });
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++    s.nextSlice("one\r\n\r\n\r\nfour\r\n\r\n");
++
++    const bytes = try snapshot(alloc, &t, .{});
++    defer alloc.free(bytes);
++    var copy = try replay(alloc, &t, bytes);
++    defer copy.deinit(alloc);
++    try expectSameState(alloc, &t, &copy);
++}
++
++test "vt_snapshot: the scrollback is cut to the limit" {
++    const alloc = std.testing.allocator;
++    var t = try Terminal.init(std.testing.io, alloc, .{ .cols = 20, .rows = 3 });
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++    for (0..50) |i| {
++        var buf: [32]u8 = undefined;
++        s.nextSlice(try std.fmt.bufPrint(&buf, "line {d}\r\n", .{i}));
++    }
++    const bytes = try snapshot(alloc, &t, .{ .scrollback = 10 });
++    defer alloc.free(bytes);
++    var copy = try replay(alloc, &t, bytes);
++    defer copy.deinit(alloc);
++    try std.testing.expectEqual(@as(usize, 10 + 3), copy.screens.active.pages.total_rows);
++    const text = try screenText(alloc, copy.screens.active);
++    defer alloc.free(text);
++    try std.testing.expect(std.mem.startsWith(u8, text, "line 38\n"));
++}
++
++test "vt_snapshot: the alternate screen, its modes and the primary screen behind it" {
++    const alloc = std.testing.allocator;
++    var t = try Terminal.init(std.testing.io, alloc, .{ .cols = 20, .rows = 5 });
++    defer t.deinit(alloc);
++    var s = t.vtStream();
++    defer s.deinit();
++    s.nextSlice("$ vim notes\r\n");
++    // vim: alternate screen, bracketed paste, cursor hidden, a recolored palette entry.
++    s.nextSlice("\x1b[?1049h\x1b[?2004h\x1b[?25l\x1b]4;1;rgb:12/34/56\x1b\\\x1b[H~\r\n~\r\n\x1b[3;5Hx");
++
++    const bytes = try snapshot(alloc, &t, .{});
++    defer alloc.free(bytes);
++    var copy = try replay(alloc, &t, bytes);
++    defer copy.deinit(alloc);
++    try expectSameState(alloc, &t, &copy);
++    try std.testing.expectEqual(t.colors.palette.current[1], copy.colors.palette.current[1]);
++    try std.testing.expect(!copy.colors.palette.mask.isSet(2));
++
++    // Leaving vim brings the shell back, its cursor where it was.
++    s.nextSlice("\x1b[?1049l");
++    var s2 = copy.vtStream();
++    defer s2.deinit();
++    s2.nextSlice("\x1b[?1049l");
++    try expectSameState(alloc, &t, &copy);
++}
++
++test "vt_snapshot: a sequence cut in two by the snapshot is finished by the stream after it" {
++    const alloc = std.testing.allocator;
++    var t = try Terminal.init(std.testing.io, alloc, .{ .cols = 20, .rows = 5 });
++    defer t.deinit(alloc);
++    var s: TerminalStream = .init(.{
++        .allocator = alloc,
++        .handler = t.vtHandler(),
++        .continuation_max_bytes = 1024,
++    });
++    defer s.deinit();
++
++    // Cut inside an SGR, then inside a UTF-8 character.
++    inline for (.{ .{ "plain \x1b[1;3", "1mred\x1b[0m " }, .{ "\xc3", "\xa9" } }) |cut| {
++        s.nextSlice(cut[0]);
++        var builder: std.Io.Writer.Allocating = .init(alloc);
++        defer builder.deinit();
++        try write(alloc, &t, &builder.writer, .{});
++        try writeContinuation(&s, &builder.writer);
++        try builder.writer.writeAll(cut[1]);
++        s.nextSlice(cut[1]);
++
++        var copy = try replay(alloc, &t, builder.writer.buffered());
++        defer copy.deinit(alloc);
++        try expectSameState(alloc, &t, &copy);
++    }
++}
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index 8d8020412..0a9dcb156 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -350,6 +350,9 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
+         .terminal_stream = .init(.{
+             .allocator = alloc,
+             .handler = handler,
++            // PrompTTY: keeps the sequence a read ended in the middle of,
++            // for ghostty_surface_read_vt_snapshot (see vt_snapshot.zig).
++            .continuation_max_bytes = 16 * 1024,
+         }),
+         .thread_enter_state = thread_enter_state,
+     };

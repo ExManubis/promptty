@@ -192,6 +192,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func denyClipboardRequests() { surfaces.values.forEach { $0.resetClipboardPolicy() } }
     func progress(for pane: PaneID) -> PaneProgress? { coordinator.activity.status(for: pane).progress }
     func isSecure(_ pane: PaneID) -> Bool { coordinator.activity.status(for: pane).secure }
+    func remote(for pane: PaneID) -> PaneRemote? { coordinator.activity.status(for: pane).remote }
     func ports(for pane: PaneID) -> [Int] { coordinator.activity.status(for: pane).ports }
     func hasUnseenOutput(_ pane: PaneID) -> Bool { coordinator.activity.status(for: pane).unseenOutput }
     func remoteHost(for pane: PaneID) -> String? { coordinator.activity.status(for: pane).remoteHost }
@@ -207,6 +208,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         view.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
         view.onCopy = { [weak self] in self?.chrome.copyShines[pane, default: 0] += 1 }
         view.onFocusChange = { [weak self] focused in self?.coordinator.secureInput.setFocused(pane, focused) }
+        // Clients mirroring the pane follow its size.
+        view.onSizeChange = { RemoteAccess.shared.mirror?.paneChanged(pane.rawValue.uuidString) }
         coordinator.refreshSecureIndicators()
         view.onAttachedToWindow = { [weak self] in self?.surfaceAttached(pane) }
         view.onClipboardRequest = { [weak self] kind in
@@ -305,6 +308,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
     func removeSurface(for pane: PaneID, closingOutOf tab: TabID? = nil) {
         pendingInherit[pane] = nil
         coordinator.secureInput.remove(pane)
+        RemoteAccess.shared.mirror?.paneClosed(pane.rawValue.uuidString)
         chrome.exitedPanes[pane] = nil
         shells.removeValue(forKey: pane)?.stop()
         guard let view = surfaces.removeValue(forKey: pane) else { return }

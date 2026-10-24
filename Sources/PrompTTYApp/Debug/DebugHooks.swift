@@ -637,9 +637,12 @@ enum DebugHooks {
         // eval quick — the quick terminal's state.
         driver.hooks["quick"] = { _ in coordinator.quickTerminal?.debugState ?? "no quick terminal" }
         // eval remote — the remote API's state and the clients connected (`RemoteAccess`).
-        driver.hooks["remote"] = { _ in
+        driver.hooks["remote"] = { [weak driver] _ in
             let access = RemoteAccess.shared
-            return "\(access.state) clients=\(access.clients.map { "\($0.name ?? "?") \($0.user)" })"
+            let mirrored = (access.mirror?.attachments ?? [:]).sorted { $0.key < $1.key }
+                .map { "\($0.key.suffix(4)):\($0.value.viewers.joined(separator: "+"))\($0.value.controller.map { " control=\($0)" } ?? "")" }
+            let grid = driver?.focusedSurface()?.grid.map { "\($0.cols)x\($0.rows)" } ?? "-"
+            return "\(access.state) clients=\(access.clients.map { "\($0.name ?? "?") \($0.user)" }) mirrored=\(mirrored) grid=\(grid)"
         }
         driver.hooks["settings"] = { args in
             // eval settings <key> <value> for a few app settings.
@@ -653,6 +656,7 @@ enum DebugHooks {
             case "fullrate": coordinator.preferences.update { $0.fullRefreshRate = args[1] == "on" }
             case "notify": coordinator.preferences.update { $0.notifyCommands = args[1] == "on" }
             case "remote": coordinator.preferences.update { $0.remoteAccess = args[1] == "on" }
+            case "remoteTyping": coordinator.preferences.update { $0.remoteTyping = args[1] == "on" }
             case "notifyAfter": coordinator.preferences.update { $0.notifyAfterSeconds = Double(args[1]) ?? 10 }
             case "cursor":
                 let value: CursorColor = switch args[1] {

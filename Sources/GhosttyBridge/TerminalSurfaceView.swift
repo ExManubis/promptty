@@ -388,6 +388,12 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
+    /// A grid the terminal keeps whatever the view's size, drawn from its top-left corner: a remote
+    /// client that took control of the pane (`TerminalSurfaceView+Mirror`). Nil: the view's size.
+    public var gridOverride: TerminalGrid? {
+        didSet { if gridOverride != oldValue { sizeDidChange(force: true) } }
+    }
+
     private var throttle = ResizeThrottle()
     /// The size skipped while throttled, sent once the interval is up.
     private var trailingResize: Task<Void, Never>?
@@ -398,8 +404,9 @@ public final class TerminalSurfaceView: NSView {
         layer?.needsDisplayOnBoundsChange = resizeMode != .held
         guard let surface else { return }
         let scale = window?.backingScaleFactor ?? 2.0
-        let w = UInt32(max(1, (bounds.width * scale).rounded()))
-        let h = UInt32(max(1, (bounds.height * scale).rounded()))
+        var w = UInt32(max(1, (bounds.width * scale).rounded()))
+        var h = UInt32(max(1, (bounds.height * scale).rounded()))
+        if let gridOverride, let size = pixelSize(of: gridOverride) { (w, h) = size }
         if !force, let sent = sentSize, sent.width == w, sent.height == h { return }
         let now = CACurrentMediaTime()
         // A terminal without any size yet gets one whatever the mode: held, it would have none.

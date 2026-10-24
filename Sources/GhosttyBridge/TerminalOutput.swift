@@ -25,12 +25,31 @@ public final class TerminalOutput: Sendable {
         }
     }
 
+    /// Output numbered for a mirror: the stream it belongs to and the position of its first byte.
+    public struct Chunk: Sendable, Equatable {
+        /// Names the run of output the positions count in: a new one starts whenever the output
+        /// gets its first subscriber, since nothing is counted while it has none.
+        public var stream: UUID
+        /// The position of the first byte: the bytes the stream had before it.
+        public var offset: Int
+        public var data: Data
+    }
+
+    /// Where the output is: its stream, and the bytes taken from the pty in it so far.
+    public struct Position: Sendable, Equatable {
+        public var stream: UUID
+        public var offset: Int
+    }
+
     private struct State {
-        var subscribers: [Int: @Sendable (Data) -> Void] = [:]
+        var subscribers: [Int: @Sendable (Chunk) -> Void] = [:]
         var lastID = 0
         /// Copied on the read thread, waiting for the next delivery.
         var pending = Data()
         var deliveryQueued = false
+        var stream = UUID()
+        /// Bytes taken in this stream; `pending` ends here.
+        var received = 0
     }
 
     private let state = Mutex(State())
@@ -50,9 +69,20 @@ public final class TerminalOutput: Sendable {
     /// It must not block: output gathers while it runs. Keep the subscription for as long as
     /// output should arrive.
     public func subscribe(_ handler: @escaping @Sendable (Data) -> Void) -> Subscription {
+        subscribeNumbered { handler($0.data) }
+    }
+
+    /// As `subscribe`, the chunks numbered: a mirror lines them up with a snapshot
+    /// (`TerminalSurfaceView.vtSnapshot`), which says the position it was taken at.
+    public func subscribeNumbered(_ handler: @escaping @Sendable (Chunk) -> Void) -> Subscription {
         let (id, first) = state.withLock { state in
             state.lastID += 1
             state.subscribers[state.lastID] = handler
+            if state.subscribers.count == 1 {
+                state.stream = UUID()
+                state.received = 0
+                state.pending = Data()
+            }
             return (state.lastID, state.subscribers.count == 1)
         }
         if first { subscribersChanged(true) }
@@ -75,6 +105,7 @@ public final class TerminalOutput: Sendable {
         let queueDelivery = state.withLock { state in
             guard !state.subscribers.isEmpty else { return false }
             state.pending.append(contentsOf: bytes)
+            state.received += bytes.count
             guard !state.deliveryQueued else { return false }
             state.deliveryQueued = true
             return true
@@ -82,15 +113,19 @@ public final class TerminalOutput: Sendable {
         if queueDelivery { queue.async { self.deliver() } }
     }
 
+    /// Where the output is now. Read with the terminal locked (in `vtSnapshot`'s callback), no
+    /// chunk is halfway: the snapshot holds the bytes before this position, the chunks after it.
+    public var position: Position { state.withLock { Position(stream: $0.stream, offset: $0.received) } }
+
     private func deliver() {
-        let (bytes, handlers) = state.withLock { state in
-            let bytes = state.pending
+        let (chunk, handlers) = state.withLock { state in
+            let chunk = Chunk(stream: state.stream, offset: state.received - state.pending.count, data: state.pending)
             state.pending = Data()
             state.deliveryQueued = false
-            return (bytes, state.subscribers.sorted { $0.key < $1.key }.map(\.value))
+            return (chunk, state.subscribers.sorted { $0.key < $1.key }.map(\.value))
         }
-        guard !bytes.isEmpty else { return }
-        for handler in handlers { handler(bytes) }
+        guard !chunk.data.isEmpty else { return }
+        for handler in handlers { handler(chunk) }
     }
 
     /// libghostty's tap callback; its userdata is the unretained `TerminalOutput`, which the

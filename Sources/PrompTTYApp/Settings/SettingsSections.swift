@@ -184,7 +184,7 @@ struct TabsSection: View {
                 Text("Every terminal has `promptty` on its PATH: list tabs, open and split panes, type into them and read them from scripts and agents. Run `promptty help` in a pane.")
             }
 
-            RemoteAccessSection(enabled: $model.settings.remoteAccess)
+            RemoteAccessSection(enabled: $model.settings.remoteAccess, typing: $model.settings.remoteTyping)
 
             Section {
                 Toggle("Mark tabs that printed while you looked elsewhere", isOn: $model.settings.markUnseenOutput)
@@ -469,12 +469,14 @@ private struct CursorColorRow: View {
 /// where to connect, and who is connected.
 private struct RemoteAccessSection: View {
     @Binding var enabled: Bool
+    @Binding var typing: Bool
     private var access: RemoteAccess { RemoteAccess.shared }
 
     var body: some View {
         Section {
             Toggle("Allow your devices on Tailscale to connect", isOn: $enabled)
             if enabled {
+                Toggle("Let them type into panes", isOn: $typing)
                 LabeledContent("Address") {
                     switch access.state {
                     case .off, .starting: Text("Starting…").foregroundStyle(.secondary)
@@ -494,7 +496,7 @@ private struct RemoteAccessSection: View {
         } header: {
             Text("Remote access")
         } footer: {
-            Text("PrompTTY for iPhone connects over Tailscale, to this Mac's Tailscale address only. Tailscale says who each device belongs to, and only yours get in. Remote commands are answered as `promptty`'s are, so they need the command line allowed too.")
+            Text("PrompTTY for iPhone connects over Tailscale, to this Mac's Tailscale address only. Tailscale says who each device belongs to, and only yours get in. Remote commands are answered as `promptty`'s are, so they need the command line allowed too. A device can always watch a pane; typing into it, a full shell from the device, is for you to allow.")
         }
     }
 }
