@@ -1,0 +1,1 @@
+{"id":"send-7","jsonrpc":"2.0","method":"send","params":{"arguments":["make test"],"flags":["enter","json"],"target":"tests"}}
