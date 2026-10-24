@@ -215,10 +215,17 @@ public struct BannerView: View {
         ForEach(Array(content.extraActions.enumerated()), id: \.offset) { _, extra in
             Button(extra.title, action: extra.action)
                 .controlSize(.small)
+                #if os(iOS)
+                // iOS draws a plain button as bare text: bordered, as the Mac's push buttons.
+                .buttonStyle(.bordered)
+                #endif
         }
         if let title = content.actionTitle, let action = content.action {
             Button(title, action: action)
                 .controlSize(.small)
+                #if os(iOS)
+                .buttonStyle(.borderedProminent)
+                #endif
         }
     }
 }

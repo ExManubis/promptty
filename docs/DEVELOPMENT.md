@@ -32,7 +32,8 @@ and stops unless it is version 0.16.
     Sources/PrompTTYChrome   SwiftUI chrome the Mac and iPhone apps share: program tiles and logos, activity, rows, banner
     Sources/PrompTTYApp      AppKit windows and menus; SwiftUI chrome, input bar and Settings
     Engine/                  libghostty as a local SwiftPM package; patches/ holds PrompTTY's engine patches
-    script/                  bootstrap, run, test, build-engine, release, drive
+    iOS/                     the iPhone and iPhone Duo app (PrompTTYPhone) and its UI tests
+    script/                  bootstrap, run, test, build-engine, release, drive, run-ios, test-ios
     packaging/               the disk image's background and layout
 
 ### Portable modules
@@ -52,6 +53,25 @@ program logos are its asset catalog), `ActivityIndicator`, `WorkingDots`, `Progr
 `RowBackground`, `FlatSurface`, `HeaderButton`, the input bar's `HeaderChipStyle` and `BannerView`.
 Its looping animations run in Core Animation on both platforms (`LoopingLayerView` hosts them in an
 `NSView` or a `UIView`), so neither app drives a SwiftUI `repeatForever` from the main thread.
+
+## The iPhone app
+
+`iOS/PrompTTYPhone` is PrompTTY for iPhone and iPhone Duo: the Mac's tabs and panes, drawn with the
+Mac's own chrome (`PrompTTYChrome`) and its theme (`ThemeCatalog`). For now it runs on demo data
+(`DemoData`): its tabs, agents and screens are scripted, and answering the demo's permission prompt
+runs the command for a moment. The connection to a Mac comes with the remote API.
+
+    script/run-ios                                build and launch on the "iPhone Duo" simulator
+    script/run-ios "iPhone 18 Pro" -open zsh      another simulator; launch arguments after its name
+    script/test-ios                               the UI smoke tests, on an iPhone simulator
+
+It lays itself out for how the phone is held (`Posture`): phone-width (an iPhone, or an iPhone Duo
+folded) shows the sidebar and opens a pane over it; an open iPhone Duo shows the sidebar beside the
+pane; half-folded (the hinge part-way open, from `UIHingeInteraction` on iOS 27.1) puts the pane
+above the hinge and the controls below it. The simulator cannot unfold an iPhone Duo from the
+command line, so the launch arguments can force a posture and a canvas the app lays itself out in,
+scaled to fit: `-posture flat -canvas 951x669` (open) and `-posture halfFolded -canvas 669x951`.
+`-open <tab>` opens a tab and `-activity YES` shows the Activity.
 
 ## Settings and config
 
