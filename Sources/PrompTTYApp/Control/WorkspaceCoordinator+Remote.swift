@@ -2,6 +2,7 @@ import CommandBlocks
 import Foundation
 import GhosttyBridge
 import PaneActivity
+import Preferences
 import RemoteControl
 import RemoteProtocol
 import RemoteServer
@@ -14,7 +15,8 @@ extension WorkspaceCoordinator {
         RemoteServer.Workspace(
             snapshot: { [weak self] in self?.remoteSnapshot() ?? RemoteWorkspace(windows: [], projects: []) },
             blocks: { [weak self] params in self?.remoteBlocks(params) ?? .failure(Self.quitting) },
-            answer: { [weak self] params in self?.remoteAnswer(params) ?? .failure(Self.quitting) })
+            answer: { [weak self] params in self?.remoteAnswer(params) ?? .failure(Self.quitting) },
+            appearance: { [weak self] in self?.remoteAppearance() ?? RemoteAppearance(config: "") })
     }
 
     private static let quitting = RemoteError(code: RemoteError.internalError, message: "PrompTTY is quitting")
@@ -85,6 +87,24 @@ extension WorkspaceCoordinator {
             surface.answerPrompt(key)
             return .success(AnswerResult(pane: pane.rawValue.uuidString))
         }
+    }
+
+    /// The terminal config as the Mac writes it, for a phone: the dark theme's file written out in
+    /// place of its name (the phone has none), and nothing about the Mac's windows.
+    func remoteAppearance() -> RemoteAppearance {
+        let settings = preferences.settings
+        let themes = preferences.themes
+        let name = settings.followSystemAppearance ? settings.darkTheme : settings.theme
+        let resolved = themes.contains(name) ? name : ThemeCatalog.fallbackDark
+        let themeText = (try? String(contentsOf: themes.directory.appendingPathComponent(resolved), encoding: .utf8)) ?? ""
+        let config = TerminalConfigWriter.render(settings, knownThemes: nil).split(separator: "\n", omittingEmptySubsequences: false)
+            .compactMap { line -> String? in
+                let key = line.split(separator: "=").first?.trimmingCharacters(in: .whitespaces) ?? ""
+                if key == "theme" { return themeText }
+                return key.hasPrefix("macos-") || key.hasPrefix("background-opacity") || key.hasPrefix("background-blur")
+                    || key.hasPrefix("window-") ? nil : String(line)
+            }
+        return RemoteAppearance(config: config.joined(separator: "\n"))
     }
 
     static func remotePrompt(_ prompt: PermissionPrompt) -> RemotePrompt {

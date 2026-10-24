@@ -1,7 +1,9 @@
 import Foundation
+import GhosttyMirror
 import Observation
 import PaneActivity
 import Preferences
+import RemoteProtocol
 
 /// A Mac running PrompTTY, as the phone knows it: the demo, or one added by its Tailscale name.
 struct PhoneMac: Identifiable, Equatable, Codable {
@@ -250,6 +252,37 @@ final class PhoneModel {
     func toggleFold(_ project: UUID) {
         guard let index = projects.firstIndex(where: { $0.id == project }) else { return }
         projects[index].folded.toggle()
+    }
+
+    /// The key row's latched Control and Option, used up by the key they go with.
+    func takeLatches() -> [RemoteKey.Mod] {
+        var mods: [RemoteKey.Mod] = []
+        if latched.contains("ctrl") { mods.append(.ctrl) }
+        if latched.contains("opt") { mods.append(.alt) }
+        latched.subtract(["ctrl", "opt"])
+        return mods
+    }
+
+    /// A key from the key row: to the live pane.
+    func pressKey(_ name: String) {
+        guard let mirror = connection?.mirror else { return }
+        let key: MirrorKey? = switch name {
+        case "esc": .escape
+        case "tab": .tab
+        case "←": .left
+        case "→": .right
+        case "↑": .up
+        case "↓": .down
+        default: nil
+        }
+        guard let key else { return }
+        connection?.typed(.key(key, []), in: mirror)
+    }
+
+    /// The keyboard key: the live pane takes the keyboard, or gives it back.
+    func toggleKeyboard() {
+        guard let view = connection?.mirror?.view else { return }
+        if view.isFirstResponder { _ = view.resignFirstResponder() } else { _ = view.becomeFirstResponder() }
     }
 
     func toggleLatch(_ key: String) {

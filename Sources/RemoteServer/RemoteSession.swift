@@ -22,6 +22,8 @@ public struct RemoteSession: Sendable {
         case blocks(BlocksParams, id: RemoteID)
         /// A key pressed in a pane that waits for permission answers `id`.
         case answer(AnswerParams, id: RemoteID)
+        /// The Mac's terminal config answers `id`.
+        case appearance(id: RemoteID)
         /// Mirroring a pane (`MirrorHub`): attach, input, control; its reply answers `id`.
         case mirror(MirrorCall, id: RemoteID)
         /// After the reply: a peer that speaks another version is hung up on.
@@ -81,6 +83,8 @@ public struct RemoteSession: Sendable {
                 return [fail(request, RemoteError.invalidParams, "answer takes a pane and a key: return, escape, y, n, interrupt or a digit")]
             }
             return [.answer(params, id: request.id)]
+        case RemoteProtocol.Method.appearance:
+            return [.appearance(id: request.id)]
         default: break
         }
         if let action = Self.mirrorAction(request) { return [action] }

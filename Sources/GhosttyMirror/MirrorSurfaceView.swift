@@ -13,6 +13,10 @@ public final class MirrorSurfaceView: UIView, UIKeyInput {
     public var onWrite: ((Data) -> Void)?
     /// The grid now on screen (columns, rows), each time it changes. On the main thread.
     public var onResize: ((_ columns: Int, _ rows: Int) -> Void)?
+    /// Set, what is typed, pressed and pasted goes here as keys instead of to this terminal: a
+    /// pane mirrored from the Mac is typed into there, where its terminal encodes the keys for
+    /// the program. `onWrite` then gets only this terminal's replies, which the Mac's has made.
+    public var onInput: ((MirrorInput) -> Void)?
 
     let engine: MirrorEngine
     private let fontSize: Float
@@ -135,6 +139,19 @@ public final class MirrorSurfaceView: UIView, UIKeyInput {
     public var hasText: Bool { true }
 
     public func insertText(_ text: String) {
+        if let onInput {
+            var run = ""
+            for character in text {
+                switch character {
+                case "\n", "\r", "\t":
+                    if !run.isEmpty { onInput(.text(run)); run = "" }
+                    onInput(.key(character == "\t" ? .tab : .return, []))
+                default: run.append(character)
+                }
+            }
+            if !run.isEmpty { onInput(.text(run)) }
+            return
+        }
         for character in text {
             switch character {
             case "\n", "\r": send(.return)
@@ -157,6 +174,7 @@ public final class MirrorSurfaceView: UIView, UIKeyInput {
 
     /// A key, pressed and released, as the key row and the hardware keyboard send them.
     public func send(_ key: MirrorKey, modifiers: MirrorModifiers = []) {
+        if let onInput { return onInput(.key(key, modifiers)) }
         // With Control the text is still the letter, as Ghostty's own app passes it: given the
         // control character, the encoder takes it for an unusual key and sends a CSI u sequence.
         let text: String? = if case .character(let c) = key, !modifiers.contains(.command) {
@@ -169,6 +187,7 @@ public final class MirrorSurfaceView: UIView, UIKeyInput {
 
     /// Text, as a paste: in brackets when the program asked for them (mode 2004).
     public func paste(_ text: String) {
+        if let onInput { return onInput(.paste(text)) }
         guard let surface else { return }
         let bytes = Array(text.utf8)
         bytes.withUnsafeBufferPointer { buffer in
@@ -214,6 +233,25 @@ public final class MirrorSurfaceView: UIView, UIKeyInput {
 
     public override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         var unhandled = Set<UIPress>()
+        if let onInput {
+            for press in presses {
+                guard let key = press.key else { unhandled.insert(press); continue }
+                let modifiers = MirrorModifiers(key.modifierFlags)
+                if modifiers.contains(.command) { unhandled.insert(press); continue }
+                if let named = MirrorKeyCodes.namedKey(key.keyCode) {
+                    onInput(.key(named, modifiers))
+                } else if !modifiers.isDisjoint(with: [.control, .option]), key.charactersIgnoringModifiers.count == 1,
+                          let character = key.charactersIgnoringModifiers.first {
+                    onInput(.key(.character(character), modifiers))
+                } else if !key.characters.isEmpty {
+                    onInput(.text(key.characters))
+                } else {
+                    unhandled.insert(press)
+                }
+            }
+            if !unhandled.isEmpty { super.pressesBegan(unhandled, with: event) }
+            return
+        }
         for press in presses {
             guard let key = press.key, surface != nil, let code = MirrorKeyCodes.keyCode(key.keyCode) else {
                 unhandled.insert(press)
