@@ -111,14 +111,26 @@ struct PermissionBanner: View {
     let request: PermissionRequest
 
     var body: some View {
-        // A real Mac's prompts are answered there until the remote API can (PTY-72).
         if model.isRemote {
-            BannerView(content: BannerContent(message: "\(request.agent) wants to use \(request.command): answer on the Mac",
-                                              symbol: "exclamationmark.shield.fill"))
-                .accessibilityIdentifier("permission")
+            remoteBanner
         } else {
             demoBanner
         }
+    }
+
+    /// A real Mac's prompt: its choices, each pressing its digit there; Return and Escape (its
+    /// selected choice, and no) when they couldn't be read off its screen.
+    private var remoteBanner: some View {
+        let choices = request.choices.isEmpty
+            ? [PermissionRequest.Choice(key: "return", label: "Yes"), PermissionRequest.Choice(key: "escape", label: "No")]
+            : request.choices
+        let first = choices[0]
+        return BannerView(content: BannerContent(
+            message: "\(request.agent) wants to run \(request.command)",
+            actionTitle: first.shortLabel, action: { model.answer(key: first.key, tab: tab.id) },
+            symbol: "exclamationmark.shield.fill",
+            extraActions: choices.dropFirst().map { choice in (choice.shortLabel, { model.answer(key: choice.key, tab: tab.id) }) }))
+            .accessibilityIdentifier("permission")
     }
 
     private var demoBanner: some View {

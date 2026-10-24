@@ -97,6 +97,8 @@ public struct RemotePane: Codable, Equatable, Sendable {
     public var exitCode: Int?
     /// While an agent works or waits: its tool and since when.
     public var agent: RemoteAgent?
+    /// While an agent waits for permission: what it asks, when its screen shows that.
+    public var prompt: RemotePrompt?
     /// It printed while the user looked elsewhere.
     public var unseen: Bool
     /// The ports its programs listen on.
@@ -107,7 +109,7 @@ public struct RemotePane: Codable, Equatable, Sendable {
     public var commands: [RemoteCommand]
 
     public init(id: String, label: String? = nil, title: String, folder: String, program: String? = nil, state: RemotePaneState = .idle,
-                exitCode: Int? = nil, agent: RemoteAgent? = nil, unseen: Bool = false, ports: [Int] = [], remote: String? = nil,
+                exitCode: Int? = nil, agent: RemoteAgent? = nil, prompt: RemotePrompt? = nil, unseen: Bool = false, ports: [Int] = [], remote: String? = nil,
                 commands: [RemoteCommand] = []) {
         self.id = id
         self.label = label
@@ -117,6 +119,7 @@ public struct RemotePane: Codable, Equatable, Sendable {
         self.state = state
         self.exitCode = exitCode
         self.agent = agent
+        self.prompt = prompt
         self.unseen = unseen
         self.ports = ports
         self.remote = remote

@@ -1,5 +1,6 @@
 import CommandBlocks
 import Foundation
+import GhosttyBridge
 import PaneActivity
 import RemoteControl
 import RemoteProtocol
@@ -12,8 +13,11 @@ extension WorkspaceCoordinator {
     var remoteWorkspace: RemoteServer.Workspace {
         RemoteServer.Workspace(
             snapshot: { [weak self] in self?.remoteSnapshot() ?? RemoteWorkspace(windows: [], projects: []) },
-            blocks: { [weak self] params in self?.remoteBlocks(params) ?? .failure(RemoteError(code: RemoteError.internalError, message: "PrompTTY is quitting")) })
+            blocks: { [weak self] params in self?.remoteBlocks(params) ?? .failure(Self.quitting) },
+            answer: { [weak self] params in self?.remoteAnswer(params) ?? .failure(Self.quitting) })
     }
+
+    private static let quitting = RemoteError(code: RemoteError.internalError, message: "PrompTTY is quitting")
 
     func remoteSnapshot() -> RemoteWorkspace {
         let windows = workspace.windows.map { window in
@@ -42,8 +46,11 @@ extension WorkspaceCoordinator {
         let (state, exitCode) = Self.remoteState(visible.display)
         let agent = visible.program?.isAgent == true && [.working, .permission, .attention].contains(state)
             ? RemoteAgent(tool: visible.tool, since: visible.agentSince?.timeIntervalSince1970) : nil
+        // What it asks, read off its screen, while it waits: the phone shows the choices as buttons.
+        let prompt = state == .permission
+            ? controller(for: window.id)?.existingSurface(for: pane.id)?.activeScreenText().flatMap(PromptReader.read).map(Self.remotePrompt) : nil
         return RemotePane(id: pane.id.rawValue.uuidString, label: pane.label, title: pane.title, folder: pane.workingDirectory,
-                          program: visible.program?.id, state: state, exitCode: exitCode, agent: agent, unseen: status.unseenOutput,
+                          program: visible.program?.id, state: state, exitCode: exitCode, agent: agent, prompt: prompt, unseen: status.unseenOutput,
                           ports: status.ports, remote: status.remoteHost,
                           commands: recentCommands(pane.id, in: window, limit: 10))
     }
@@ -57,6 +64,32 @@ extension WorkspaceCoordinator {
             let limit = max(1, min(params.limit ?? 20, 200))
             return .success(BlocksResult(pane: pane.rawValue.uuidString, commands: recentCommands(pane, in: window, limit: limit)))
         }
+    }
+
+    /// Presses a key in a pane whose agent waits for permission, as the user would at the Mac; a pane
+    /// that waits for nothing is refused, so a late tap on the phone types nothing into it.
+    func remoteAnswer(_ params: AnswerParams) -> Result<AnswerResult, RemoteError> {
+        switch resolvePane(ControlRequest(command: "answer", target: params.pane)) {
+        case .failure(let response):
+            return .failure(RemoteError(code: RemoteError.invalidParams, message: response.text))
+        case .success(let pane):
+            guard let key = PromptKey(name: params.key) else {
+                return .failure(RemoteError(code: RemoteError.invalidParams, message: "no key \(params.key)"))
+            }
+            guard activity.status(for: pane).activity.display == .permission else {
+                return .failure(RemoteError(code: RemoteError.notWaiting, message: "nothing in that pane waits for an answer"))
+            }
+            guard let (window, _) = workspace.tab(containing: pane), let surface = controller(for: window.id)?.existingSurface(for: pane) else {
+                return .failure(RemoteError(code: RemoteError.invalidParams, message: "no pane \(params.pane)"))
+            }
+            surface.answerPrompt(key)
+            return .success(AnswerResult(pane: pane.rawValue.uuidString))
+        }
+    }
+
+    static func remotePrompt(_ prompt: PermissionPrompt) -> RemotePrompt {
+        RemotePrompt(title: prompt.title, detail: prompt.detail, question: prompt.question,
+                     choices: prompt.choices.map { RemotePrompt.Choice(key: String($0.number), label: $0.label) })
     }
 
     /// Tells subscribers a pane's command ended (its shell has just recorded it).

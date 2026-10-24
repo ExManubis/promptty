@@ -20,6 +20,8 @@ public struct RemoteSession: Sendable {
         case unsubscribe(id: RemoteID)
         /// A pane's recent commands answer `id`.
         case blocks(BlocksParams, id: RemoteID)
+        /// A key pressed in a pane that waits for permission answers `id`.
+        case answer(AnswerParams, id: RemoteID)
         /// After the reply: a peer that speaks another version is hung up on.
         case close
     }
@@ -72,6 +74,11 @@ public struct RemoteSession: Sendable {
                 return [fail(request, RemoteError.invalidParams, "blocks takes a pane and a limit")]
             }
             return [.blocks(params, id: request.id)]
+        case RemoteProtocol.Method.answer:
+            guard let params = try? request.params(as: AnswerParams.self), AnswerParams.keys.contains(params.key) else {
+                return [fail(request, RemoteError.invalidParams, "answer takes a pane and a key: return, escape, y, n, interrupt or a digit")]
+            }
+            return [.answer(params, id: request.id)]
         default: break
         }
         guard RemoteProtocol.controlMethods.contains(request.method) else {

@@ -1,3 +1,4 @@
+import Foundation
 import GhosttyKit
 
 extension TerminalSurfaceView {
@@ -19,6 +20,23 @@ extension TerminalSurfaceView {
         let codes: [Character: UInt32] = ["d": 2, "l": 37, "c": 8, "u": 32]
         guard let code = codes[letter], let scalar = letter.unicodeScalars.first else { return }
         sendKeyPress(keyCode: code, text: String(letter), mods: GHOSTTY_MODS_CTRL, unshifted: scalar.value)
+    }
+
+    /// Answers the program's prompt for a choice with `key`, as pressing it here would, and marks
+    /// the answer as a key pressed here does (`lastAnswerKey`): an agent's wait for permission ends.
+    public func answerPrompt(_ key: PromptKey) {
+        switch key {
+        case .return: sendReturn()
+        case .escape: sendKeyPress(keyCode: UInt32(PromptAnswerKey.escape), text: "\u{1b}", mods: GHOSTTY_MODS_NONE, unshifted: 0)
+        case .yes: sendKeyPress(keyCode: 16, text: "y", mods: GHOSTTY_MODS_NONE, unshifted: 121)
+        case .no: sendKeyPress(keyCode: 45, text: "n", mods: GHOSTTY_MODS_NONE, unshifted: 110)
+        case .digit(let digit):
+            guard (0...9).contains(digit) else { return }
+            sendKeyPress(keyCode: PromptKey.digitCodes[digit], text: String(digit), mods: GHOSTTY_MODS_NONE, unshifted: 48 + UInt32(digit))
+        case .interrupt: sendControl("c")
+        }
+        lastKeyPress = Date()
+        lastAnswerKey = lastKeyPress
     }
 
     private func sendKeyPress(keyCode: UInt32, text: String, mods: ghostty_input_mods_e, unshifted: UInt32) {

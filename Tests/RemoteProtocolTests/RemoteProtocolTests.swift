@@ -10,7 +10,10 @@ private enum Samples {
         windows: [RemoteWindow(id: "W1", key: true, selectedTab: "T1", tabs: [
             RemoteTab(id: "T1", title: "Remote API", project: "R1", pinned: false, focusedPane: "P1", panes: [
                 RemotePane(id: "P1", title: "claude", folder: "/Users/me/promptty", program: "claude", state: .permission,
-                           agent: RemoteAgent(tool: "Bash", since: 1_792_850_100), commands: [command]),
+                           agent: RemoteAgent(tool: "Bash", since: 1_792_850_100),
+                           prompt: RemotePrompt(title: "Bash command", detail: ["make test"], question: "Do you want to proceed?",
+                                                choices: [.init(key: "1", label: "Yes"), .init(key: "2", label: "No")]),
+                           commands: [command]),
                 RemotePane(id: "P2", label: "logs", title: "zsh", folder: "/Users/me/promptty", state: .failed, exitCode: 1, unseen: true,
                            ports: [3000], remote: "deploy@munin-01"),
             ]),
@@ -37,6 +40,9 @@ private enum Samples {
                                                                       params: CommandFinished(pane: "P1", tab: "T1", command: command)))),
             ("blocks", .request(try RemoteRequest(id: 5, method: RemoteProtocol.Method.blocks, params: BlocksParams(pane: "tests", limit: 5)))),
             ("blocks-result", .response(try .result(BlocksResult(pane: "P1", commands: [command]), id: 5))),
+            ("answer", .request(try RemoteRequest(id: 6, method: RemoteProtocol.Method.answer, params: AnswerParams(pane: "P1", key: "1")))),
+            ("answer-result", .response(try .result(AnswerResult(pane: "P1"), id: 6))),
+            ("not-waiting", .response(.error(RemoteError(code: RemoteError.notWaiting, message: "claude is not waiting for an answer"), id: 6))),
         ]
     }
 }

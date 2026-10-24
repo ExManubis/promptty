@@ -27,11 +27,15 @@ public final class RemoteServer: @unchecked Sendable {
     public struct Workspace: Sendable {
         public var snapshot: @MainActor @Sendable () -> RemoteWorkspace
         public var blocks: @MainActor @Sendable (BlocksParams) -> Result<BlocksResult, RemoteError>
+        /// Presses the key in a pane that waits for permission, or says why not.
+        public var answer: @MainActor @Sendable (AnswerParams) -> Result<AnswerResult, RemoteError>
 
         public init(snapshot: @escaping @MainActor @Sendable () -> RemoteWorkspace,
-                    blocks: @escaping @MainActor @Sendable (BlocksParams) -> Result<BlocksResult, RemoteError>) {
+                    blocks: @escaping @MainActor @Sendable (BlocksParams) -> Result<BlocksResult, RemoteError>,
+                    answer: @escaping @MainActor @Sendable (AnswerParams) -> Result<AnswerResult, RemoteError>) {
             self.snapshot = snapshot
             self.blocks = blocks
+            self.answer = answer
         }
     }
 
@@ -226,6 +230,8 @@ public final class RemoteServer: @unchecked Sendable {
                 send(.response(RemoteResponse(id: replyID, outcome: .result(.object([:])))), on: id)
             case .blocks(let params, let replyID):
                 answerOnMain(replyID, on: id) { workspace in workspace.blocks(params) }
+            case .answer(let params, let replyID):
+                answerOnMain(replyID, on: id) { workspace in workspace.answer(params) }
             case .control(let request, let replyID):
                 // Held until the command answers (`wait` can take minutes).
                 let handler = handler, server = self

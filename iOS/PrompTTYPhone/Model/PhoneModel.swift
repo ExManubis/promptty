@@ -24,6 +24,19 @@ struct PermissionRequest: Equatable {
     var agent: String
     var tool: String
     var command: String
+    /// A real Mac's choices as its agent's screen shows them, each with the key that picks it.
+    var choices: [Choice] = []
+
+    struct Choice: Equatable {
+        var key: String
+        var label: String
+
+        /// "Yes, and don't ask again for swift test" as a button says it: "Always".
+        var shortLabel: String {
+            if label.localizedCaseInsensitiveContains("don't ask again") || label.localizedCaseInsensitiveContains("always") { return "Always" }
+            return label.split(separator: ",").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? label
+        }
+    }
 }
 
 /// A pane's shell at a prompt: what the input bar shows.
@@ -245,9 +258,15 @@ final class PhoneModel {
 
     enum Answer { case yes, always, no }
 
+    /// Answers a real Mac's waiting prompt with a key, as pressed there: a choice's digit, or
+    /// Return and Escape when its choices couldn't be read.
+    func answer(key: String, tab id: UUID) {
+        guard let connection, let pane = tab(id)?.panes.first(where: { $0.permission != nil }) else { return }
+        connection.answer(key, in: pane.id)
+    }
+
     /// Answers the tab's waiting prompt. The demo's agent then works for a moment and finishes.
     func answer(_ answer: Answer, tab id: UUID) {
-        // A real Mac's prompts are answered over the remote API with PTY-72.
         guard !isRemote, let pane = tab(id)?.panes.first(where: { $0.permission != nil }) else { return }
         update(id, pane: pane.id) { pane in
             let command = pane.permission?.command ?? ""
