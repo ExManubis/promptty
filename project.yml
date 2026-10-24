@@ -155,6 +155,8 @@ targets:
     platform: iOS
     sources:
       - path: iOS/PrompTTYPhone
+        excludes:
+          - Info.plist
     dependencies:
       - package: PrompTTYCore
         product: PrompTTYChrome
@@ -162,14 +164,24 @@ targets:
         product: PaneActivity
       - package: PrompTTYCore
         product: Preferences
+      - package: PrompTTYCore
+        product: RemoteClient
+      - package: PrompTTYCore
+        product: RemoteProtocol
+      - package: PrompTTYCore
+        product: RemoteControl
     settings:
       base:
         PRODUCT_NAME: PrompTTY
         PRODUCT_BUNDLE_IDENTIFIER: dev.promptty.PrompTTY2.phone
+        # A Mac's PrompTTY is reached over Tailscale by plain ws://: the tailnet encrypts it.
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "PrompTTY connects to PrompTTY on your Macs."
+        INFOPLIST_KEY_NSFaceIDUsageDescription: "PrompTTY asks for Face ID before showing a Mac's terminals."
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: iOS/PrompTTYPhone/Info.plist
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"

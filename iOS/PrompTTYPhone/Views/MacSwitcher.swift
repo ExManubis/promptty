@@ -5,6 +5,10 @@ import SwiftUI
 struct MacSwitcher: View {
     @Bindable var model: PhoneModel
     @State private var query = ""
+    /// Adding a Mac: its Tailscale name, being typed.
+    @State private var adding = false
+    @State private var host = ""
+    @FocusState private var hostFocused: Bool
 
     private static let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
 
@@ -24,7 +28,7 @@ struct MacSwitcher: View {
             Divider().opacity(0.5)
             VStack(spacing: 2) {
                 ForEach(macs) { mac in
-                    row(symbol: mac.symbol, title: mac.name, subtitle: mac.online ? mac.host : mac.status, selected: mac.id == model.macID) {
+                    row(symbol: mac.symbol, title: mac.name, subtitle: subtitle(mac), selected: mac.id == model.macID) {
                         if mac.id == model.macID {
                             Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold))
                         } else if mac.waiting > 0 {
@@ -33,13 +37,43 @@ struct MacSwitcher: View {
                                 .font(.system(size: 13, weight: .medium))
                         }
                     } action: {
-                        guard mac.online else { return }
-                        model.macID = mac.id
+                        if mac.id != model.macID { model.selectMac(mac.id) }
                         model.switchingMac = false
                     }
-                    .opacity(mac.online ? 1 : 0.55)
+                    .contextMenu {
+                        if !mac.isDemo {
+                            Button("Remove", systemImage: "trash", role: .destructive) { model.removeMac(mac.id) }
+                        }
+                    }
                 }
-                row(symbol: "plus", title: "Add a Mac…", subtitle: "by its Tailscale name", selected: false) { EmptyView() } action: {}
+                if adding {
+                    HStack(spacing: 12) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 14, weight: .medium))
+                            .frame(width: 30, height: 30)
+                            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        TextField("Tailscale name, as mikkels-studio", text: $host)
+                            .font(.system(size: 16))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                            .focused($hostFocused)
+                            .submitLabel(.go)
+                            .onSubmit(add)
+                            .accessibilityIdentifier("mac-host")
+                        Button("Add", action: add)
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .disabled(MacConnection.url(for: host) == nil)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 46)
+                } else {
+                    row(symbol: "plus", title: "Add a Mac…", subtitle: "by its Tailscale name", selected: false) { EmptyView() } action: {
+                        adding = true
+                        hostFocused = true
+                    }
+                }
             }
             .padding(8)
             Divider().opacity(0.5)
@@ -58,6 +92,20 @@ struct MacSwitcher: View {
         .glassEffect(.regular, in: Self.shape)
         .environment(\.colorScheme, .dark)
         .accessibilityIdentifier("mac-switcher")
+    }
+
+    private func add() {
+        guard MacConnection.url(for: host) != nil else { return }
+        model.addMac(host: host)
+        host = ""
+        adding = false
+        model.switchingMac = false
+    }
+
+    /// Where it is, or how the connection to it is doing.
+    private func subtitle(_ mac: PhoneMac) -> String {
+        guard mac.id == model.macID, !mac.isDemo else { return mac.isDemo ? mac.status : mac.host }
+        return mac.status.isEmpty ? mac.host : mac.status
     }
 
     private var macs: [PhoneMac] {

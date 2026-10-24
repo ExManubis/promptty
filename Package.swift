@@ -23,6 +23,8 @@ let package = Package(
         // The messages the Mac's remote API and the iPhone app send each other.
         .library(name: "RemoteProtocol", targets: ["RemoteProtocol"]),
         .library(name: "RemoteServer", targets: ["RemoteServer"]),
+        // The iPhone app's side of the remote API.
+        .library(name: "RemoteClient", targets: ["RemoteClient"]),
         // `promptty`, the command line every pane has on its PATH; the app bundle carries its own
         // copy (project.yml).
         .executable(name: "promptty", targets: ["promptty"]),
@@ -53,7 +55,8 @@ let package = Package(
         .target(name: "RemoteProtocol", dependencies: ["RemoteControl"]),
         // The remote API's server, in the Mac app only (Network.framework, the `tailscale` command).
         .target(name: "RemoteServer", dependencies: ["RemoteProtocol", "RemoteControl"]),
-        .testTarget(name: "RemoteServerTests", dependencies: ["RemoteServer"]),
+        .testTarget(name: "RemoteServerTests", dependencies: ["RemoteServer", "RemoteClient"]),
+        .target(name: "RemoteClient", dependencies: ["RemoteProtocol"]),
         .testTarget(name: "RemoteProtocolTests", dependencies: ["RemoteProtocol"], resources: [.copy("Fixtures")]),
         .target(
             name: "GhosttyBridge",

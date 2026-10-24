@@ -3,11 +3,11 @@ import Observation
 import PaneActivity
 import Preferences
 
-/// A Mac running PrompTTY, as the phone knows it.
-struct PhoneMac: Identifiable, Equatable {
-    let id = UUID()
+/// A Mac running PrompTTY, as the phone knows it: the demo, or one added by its Tailscale name.
+struct PhoneMac: Identifiable, Equatable, Codable {
+    var id = UUID()
     var name: String
-    /// Its Tailscale name.
+    /// Its Tailscale name ("mikkels-studio"), or a name and port.
     var host: String
     /// An SF Symbol for the kind of Mac.
     var symbol: String
@@ -15,6 +15,8 @@ struct PhoneMac: Identifiable, Equatable {
     /// What waits for the user on it.
     var waiting = 0
     var status: String
+    /// The demo's scripted Macs, not a connection.
+    var isDemo = false
 }
 
 /// A command waiting for the user's answer.
@@ -41,9 +43,11 @@ struct ShellState: Equatable {
 
 /// One pane: what runs in it, its state, and what its screen shows.
 struct PhonePane: Identifiable, Equatable {
-    let id = UUID()
+    var id = UUID()
     var program: Program?
     var title: String
+    /// Its label on the Mac (`promptty --label`).
+    var label: String?
     var folder: String
     var display: PaneActivity.Display = .idle
     /// The agent's tool, while it works or asks.
@@ -53,20 +57,26 @@ struct PhonePane: Identifiable, Equatable {
     var screen: [TerminalLine]
     var shell: ShellState?
     var permission: PermissionRequest?
+    /// On a Mac, its newest commands' ids, newest last: what `capture` reads the output of.
+    var commandIDs: [String] = []
 }
 
 struct PhoneTab: Identifiable, Equatable {
-    let id = UUID()
+    var id = UUID()
     var title: String
+    /// The folder its row shows dimmed after the title, as the Mac's; nil for the lead pane's own.
+    var folder: String?
     var panes: [PhonePane]
     var focusedPane: UUID
     /// Something happened while it was out of sight.
     var unseen = false
 
-    init(title: String, panes: [PhonePane], unseen: Bool = false) {
+    init(id: UUID = UUID(), title: String, folder: String? = nil, panes: [PhonePane], focusedPane: UUID? = nil, unseen: Bool = false) {
+        self.id = id
         self.title = title
+        self.folder = folder
         self.panes = panes
-        focusedPane = panes[0].id
+        self.focusedPane = focusedPane ?? panes[0].id
         self.unseen = unseen
     }
 
@@ -80,7 +90,8 @@ struct PhoneTab: Identifiable, Equatable {
 }
 
 struct PhoneProject: Identifiable, Equatable {
-    let id = UUID()
+    var id = UUID()
+    /// Empty for the tabs in no project.
     var name: String
     var folded = false
     var tabs: [PhoneTab]
@@ -97,11 +108,17 @@ final class PhoneModel {
     var selectedTab: UUID?
     /// On a phone-width screen, the pane is open over the sidebar.
     var paneOpen = false
+    /// A tab to open once a Mac's workspace has come (`-open`).
+    var pendingOpen: String?
     /// The sidebar lists only the tabs running agents (the eye).
     var showsActivity = false
     var switchingMac = false
     /// The Mac's terminal theme.
     let theme: ThemeSwatch
+    /// The selected Mac's connection; nil for the demo.
+    private(set) var connection: MacConnection?
+    /// How the connection to the selected Mac is doing; nil for the demo.
+    private(set) var connectionState: MacConnection.State?
     /// The modifier keys latched on the key row.
     var latched: Set<String> = []
 
@@ -115,6 +132,88 @@ final class PhoneModel {
 
     var mac: PhoneMac { macs.first { $0.id == macID } ?? macs[0] }
 
+    /// Connected to a real Mac rather than showing the demo.
+    var isRemote: Bool { connection != nil }
+
+    // MARK: Macs
+
+    /// Shows a Mac: the demo's scripted tabs, or a real Mac's, connecting to it.
+    func selectMac(_ id: UUID) {
+        guard let mac = macs.first(where: { $0.id == id }) else { return }
+        connection?.stop()
+        connection = nil
+        connectionState = nil
+        macID = id
+        UserDefaults.standard.set(id.uuidString, forKey: "selectedMac")
+        paneOpen = false
+        if mac.isDemo {
+            projects = DemoData.projects
+            selectedTab = projects.first?.tabs.first?.id
+        } else {
+            projects = []
+            selectedTab = nil
+            let connection = MacConnection(mac: mac, model: self)
+            self.connection = connection
+            connection.start()
+        }
+    }
+
+    /// Adds a Mac by its Tailscale name (or name:port) and connects to it.
+    func addMac(host: String) {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard MacConnection.url(for: trimmed) != nil else { return }
+        let name = trimmed.split(separator: ":").first.map(String.init) ?? trimmed
+        let mac = PhoneMac(name: name, host: trimmed, symbol: "laptopcomputer", online: false, status: "Connecting…")
+        macs.append(mac)
+        SavedMacs.save(macs)
+        selectMac(mac.id)
+    }
+
+    func removeMac(_ id: UUID) {
+        guard let mac = macs.first(where: { $0.id == id }), !mac.isDemo else { return }
+        macs.removeAll { $0.id == id }
+        SavedMacs.save(macs)
+        if macID == id, let demo = macs.first { selectMac(demo.id) }
+    }
+
+    /// From the connection: how it is doing, shown in the switcher and the sidebar.
+    func connectionChanged(_ state: MacConnection.State, for mac: UUID) {
+        guard mac == macID else { return }
+        connectionState = state
+        guard let index = macs.firstIndex(where: { $0.id == mac }) else { return }
+        switch state {
+        case .connecting:
+            macs[index].status = "Connecting…"
+        case .connected(let name):
+            macs[index].online = true
+            macs[index].status = macs[index].host
+            if macs[index].name != name {
+                macs[index].name = name
+                SavedMacs.save(macs)
+            }
+        case .failed(let reason):
+            macs[index].online = false
+            macs[index].status = reason
+        }
+    }
+
+    /// From the connection: the Mac's tabs now. The selection stays where it was while that tab is
+    /// there.
+    func applyRemote(_ projects: [PhoneProject]) {
+        self.projects = projects
+        if let index = macs.firstIndex(where: { $0.id == macID }) {
+            macs[index].waiting = allTabs.filter { $0.permission != nil }.count
+        }
+        if let title = pendingOpen, let tab = allTabs.first(where: { $0.title == title || $0.panes.contains { $0.label == title } }) {
+            pendingOpen = nil
+            select(tab.id)
+        }
+        if selectedTab.flatMap(tab(_:)) == nil {
+            selectedTab = allTabs.first?.id
+            if paneOpen, selectedTab == nil { paneOpen = false }
+        }
+    }
+
     var tab: PhoneTab? { selectedTab.flatMap(tab(_:)) }
 
     var allTabs: [PhoneTab] { projects.flatMap(\.tabs) }
@@ -127,10 +226,12 @@ final class PhoneModel {
         selectedTab = tab
         update(tab) { $0.unseen = false }
         paneOpen = true
+        if let pane = self.tab(tab)?.focused { connection?.readOutputs(of: pane) }
     }
 
     func focus(_ pane: UUID, in tab: UUID) {
         update(tab) { $0.focusedPane = pane }
+        if let focused = self.tab(tab)?.focused { connection?.readOutputs(of: focused) }
     }
 
     func toggleFold(_ project: UUID) {
@@ -146,7 +247,8 @@ final class PhoneModel {
 
     /// Answers the tab's waiting prompt. The demo's agent then works for a moment and finishes.
     func answer(_ answer: Answer, tab id: UUID) {
-        guard let pane = tab(id)?.panes.first(where: { $0.permission != nil }) else { return }
+        // A real Mac's prompts are answered over the remote API with PTY-72.
+        guard !isRemote, let pane = tab(id)?.panes.first(where: { $0.permission != nil }) else { return }
         update(id, pane: pane.id) { pane in
             let command = pane.permission?.command ?? ""
             pane.permission = nil
@@ -187,10 +289,15 @@ final class PhoneModel {
         if selectedTab != tab { update(tab) { $0.unseen = true } }
     }
 
-    /// Runs the input bar's command: the demo prints it as a block.
+    /// Runs the input bar's command: in the Mac's pane, or, in the demo, printed as a block.
     func run(_ command: String, tab: UUID, pane: UUID) {
         let trimmed = command.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
+        if let connection {
+            connection.run(trimmed, in: pane)
+            update(tab, pane: pane) { $0.shell?.draft = "" }
+            return
+        }
         update(tab, pane: pane) { pane in
             let words = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
             pane.screen.append(TerminalLine(""))

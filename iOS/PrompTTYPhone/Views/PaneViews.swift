@@ -50,8 +50,8 @@ struct TabStrip: View {
                 Text(tab.title)
                     .font(.system(size: 15, weight: selected ? .semibold : .regular))
                     .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.8))
-                if !tab.isAgent {
-                    Text(tab.lead.folder)
+                if let folder = tab.folder ?? (tab.isAgent ? nil : tab.lead.folder) {
+                    Text(folder)
                         .font(.system(size: 15))
                         .foregroundStyle(.tertiary)
                         .truncationMode(.head)
@@ -111,6 +111,17 @@ struct PermissionBanner: View {
     let request: PermissionRequest
 
     var body: some View {
+        // A real Mac's prompts are answered there until the remote API can (PTY-72).
+        if model.isRemote {
+            BannerView(content: BannerContent(message: "\(request.agent) wants to use \(request.command): answer on the Mac",
+                                              symbol: "exclamationmark.shield.fill"))
+                .accessibilityIdentifier("permission")
+        } else {
+            demoBanner
+        }
+    }
+
+    private var demoBanner: some View {
         BannerView(content: BannerContent(
             message: "\(request.agent) wants to run \(request.command)",
             actionTitle: "Yes", action: { model.answer(.yes, tab: tab.id) },

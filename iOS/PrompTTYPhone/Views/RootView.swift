@@ -6,6 +6,10 @@ import SwiftUI
 struct RootView: View {
     @Bindable var model: PhoneModel
     @State private var hingePartlyOpen = false
+    @AppStorage("requireFaceID") private var requireFaceID = true
+    /// Locked until Face ID says so, while a real Mac is shown (`LockScreen`).
+    @State private var locked = true
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -20,6 +24,8 @@ struct RootView: View {
         .background(Backdrop())
         .background(HingeReader(partlyOpen: $hingePartlyOpen))
         .overlay { if model.switchingMac { switcher } }
+        .overlay { if locked, requireFaceID, model.isRemote { LockScreen { locked = false } } }
+        .onChange(of: scenePhase) { _, phase in if phase == .background { locked = true } }
         .animation(.spring(duration: 0.3, bounce: 0.1), value: model.switchingMac)
         .preferredColorScheme(.dark)
     }

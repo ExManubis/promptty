@@ -31,6 +31,7 @@ and stops unless it is version 0.16.
     Sources/promptty         the `promptty` command line, bundled in the app
     Sources/RemoteProtocol   the messages the Mac's remote API and the iPhone app send each other
     Sources/RemoteServer     the remote API's WebSocket server and who it lets in (Mac only)
+    Sources/RemoteClient     the iPhone app's side of the remote API
     Sources/PrompTTYChrome   SwiftUI chrome the Mac and iPhone apps share: program tiles and logos, activity, rows, banner
     Sources/PrompTTYApp      AppKit windows and menus; SwiftUI chrome, input bar and Settings
     Engine/                  libghostty as a local SwiftPM package; patches/ holds PrompTTY's engine patches
@@ -42,7 +43,7 @@ and stops unless it is version 0.16.
 
 The iPhone app shares PrompTTY's own modules, so these build for iOS as well as macOS:
 `WorkspaceModel`, `Preferences`, `CommandBlocks`, `CommandEditing`, `PaneActivity`, `AgentHooks`,
-`RemoteControl`, `RemoteProtocol` and `PrompTTYChrome`. Their Mac-only parts are behind `#if os(macOS)`: `ProcessRunner`'s running
+`RemoteControl`, `RemoteProtocol`, `RemoteClient` and `PrompTTYChrome`. Their Mac-only parts are behind `#if os(macOS)`: `ProcessRunner`'s running
 of a program (its `Outcome` is shared), the hook listener (`HookListener`) and the control server
 (`ControlServer`), and `PaneActivity`'s process inspection (`ListeningPorts`,
 `ProcessTree.snapshot`, `ProcessArguments.read` and `.workingDirectory`). `script/test` builds the
@@ -59,9 +60,15 @@ Its looping animations run in Core Animation on both platforms (`LoopingLayerVie
 ## The iPhone app
 
 `iOS/PrompTTYPhone` is PrompTTY for iPhone and iPhone Duo: the Mac's tabs and panes, drawn with the
-Mac's own chrome (`PrompTTYChrome`) and its theme (`ThemeCatalog`). For now it runs on demo data
-(`DemoData`): its tabs, agents and screens are scripted, and answering the demo's permission prompt
-runs the command for a moment. The connection to a Mac comes with the remote API.
+Mac's own chrome (`PrompTTYChrome`) and its theme (`ThemeCatalog`). It connects to a Mac's remote API
+(Settings › Tabs › Remote access) with `RemoteClient` (`Sources/RemoteClient`), by the Mac's
+Tailscale name, added in the Mac switcher and kept on the phone (`SavedMacs`). `MacConnection`
+subscribes to the workspace and keeps the sidebar in step with its events (`RemoteMapping`), reads
+the output of a pane's newest commands with `capture` and shows them as blocks (the live terminal
+is PTY-78), and runs what the input bar sends with `send`. Gone, it tries again every 5 seconds.
+A real Mac's tabs are behind Face ID (or the passcode), at launch and each time the app comes back;
+Settings (the gear) turns that off. The Demo Mac is scripted (`DemoData`): no connection, and its
+permission prompt can be answered.
 
     script/run-ios                                build and launch on the "iPhone Duo" simulator
     script/run-ios "iPhone 18 Pro" -open zsh      another simulator; launch arguments after its name
@@ -73,7 +80,15 @@ pane; half-folded (the hinge part-way open, from `UIHingeInteraction` on iOS 27.
 above the hinge and the controls below it. The simulator cannot unfold an iPhone Duo from the
 command line, so the launch arguments can force a posture and a canvas the app lays itself out in,
 scaled to fit: `-posture flat -canvas 951x669` (open) and `-posture halfFolded -canvas 669x951`.
-`-open <tab>` opens a tab and `-activity YES` shows the Activity.
+`-open <tab>` opens a tab (by title, or a pane's label) and `-activity YES` shows the Activity;
+`-connect <host>` adds and shows a Mac, `-demo YES` shows the demo whatever was shown last, and
+`-requireFaceID NO` skips the lock.
+
+To try it against the Mac without a second device: start a Debug build of the Mac app with
+`PROMPTTY_REMOTE_HOST=127.0.0.1` (it listens on the loopback address, which the Simulator shares),
+turn on Remote access, and `script/run-ios "iPhone 18 Pro" -connect 127.0.0.1`.
+`TEST_RUNNER_PROMPTTY_LIVE_MAC=1` runs `LiveMacTests` too, which types a command on the phone and
+waits for its output from the Mac (it needs a pane labelled `gitlog`).
 
 ## Remote protocol
 
