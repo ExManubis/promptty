@@ -137,7 +137,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     /// The remote API, on while Settings says so (`RemoteAccess`).
     private func applyRemoteAccess(_ settings: Preferences.Settings) {
-        RemoteAccess.shared.configure(enabled: settings.remoteAccess, handler: controlHandler)
+        RemoteAccess.shared.configure(enabled: settings.remoteAccess, handler: controlHandler, workspace: remoteWorkspace)
     }
 
     // MARK: Activity

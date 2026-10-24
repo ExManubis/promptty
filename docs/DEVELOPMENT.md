@@ -91,6 +91,15 @@ frame (`RemoteMessage`: a request, its response, or a notification for an event)
   the status `promptty` would exit with, not an error; errors are the protocol's own (JSON-RPC's
   codes, and PrompTTY's from -32001 down).
 
+- `subscribe` answers with the workspace as the sidebar shows it (`RemoteWorkspace`: windows,
+  projects, tabs and panes, each pane's program, state, agent tool, unseen output, ports, ssh host
+  and newest commands; times in Unix seconds). From then on the Mac sends events, which ask for no
+  answer: `workspace` with the whole workspace again whenever it changed (looked at twice a second
+  while a device is connected, sent only when different, so a change arrives within a second), and
+  `command.finished` when a command ends in a pane. `unsubscribe` stops them.
+- `blocks` lists a pane's newest commands (`BlocksParams` → `BlocksResult`); a command's output is
+  `capture` with its id as `cmd`, as text or with `markdown`.
+
 Every message is pinned by a fixture in `Tests/RemoteProtocolTests/Fixtures`, so a change to the
 wire format shows in review; `PROMPTTY_RECORD_FIXTURES=1 swift test --filter RemoteProtocolTests`
 writes them again. Features that add messages (subscriptions, prompt answers, mirroring) add them
@@ -140,7 +149,9 @@ shows the address to connect to and the devices connected, each with Disconnect.
 A connection from the Mac to its own Tailscale address does not complete with Network.framework's
 listener (the listener sees it, the handshake never finishes; a BSD socket on the same address is
 reached), so try it from another device on the tailnet. The tests run the server on the loopback
-address with a stand-in for Tailscale.
+address with a stand-in for Tailscale. A Debug build started with `PROMPTTY_REMOTE_HOST=127.0.0.1`
+listens on the loopback address instead and takes every caller for the owner, for driven runs
+(`eval settings remote on`, `eval remote`) and the iPhone app in the Simulator.
 
 ## Restored output
 

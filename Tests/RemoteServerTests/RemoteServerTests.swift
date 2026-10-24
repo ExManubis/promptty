@@ -61,12 +61,15 @@ final class RemoteSessionTests: XCTestCase {
         _ = session.receive(try data(.request(try RemoteRequest(id: 1, method: "hello", params: Hello(client: "phone")))))
         let send = session.receive(try data(.request(try RemoteRequest(id: 2, method: "send", params: ControlParams(target: "tests", arguments: ["make"], flags: ["enter"])))))
         XCTAssertEqual(send, [.control(ControlRequest(command: "send", target: "tests", arguments: ["make"], flags: ["enter"]), id: 2)])
-        XCTAssertEqual(RemoteSession.reply(.ok("sent"), to: 2), .send(.response(try .result(ControlResponse.ok("sent"), id: 2))))
+        XCTAssertEqual(RemoteSession.reply(ControlResponse.ok("sent"), to: 2), .send(.response(try .result(ControlResponse.ok("sent"), id: 2))))
     }
 
     func testUnknownMethodsBadParamsAndGarbage() throws {
         var session = session()
         _ = session.receive(try data(.request(try RemoteRequest(id: 1, method: "hello", params: Hello(client: "phone")))))
+        XCTAssertEqual(session.receive(try data(.request(RemoteRequest(id: 9, method: "subscribe")))), [.subscribe(id: 9)])
+        XCTAssertEqual(session.receive(try data(.request(try RemoteRequest(id: 8, method: "blocks", params: BlocksParams(pane: "P", limit: 3))))),
+                       [.blocks(BlocksParams(pane: "P", limit: 3), id: 8)])
         XCTAssertEqual(session.receive(try data(.request(RemoteRequest(id: 2, method: "rm-rf")))),
                        [.send(.response(.error(RemoteError(code: RemoteError.methodNotFound, message: "no method rm-rf"), id: 2)))])
         let badParams = session.receive(try data(.request(RemoteRequest(id: 3, method: "send", params: .object(["arguments": .int(1)])))))
@@ -139,5 +142,69 @@ final class RemoteServerTests: XCTestCase {
         guard case .response(let response) = refusal, case .error(let error) = response.outcome else { return XCTFail("\(refusal)") }
         XCTAssertEqual(error.code, RemoteError.notAllowed)
         XCTAssertEqual(error.message, "them@github is not this Mac's owner")
+    }
+}
+
+/// Subscribing: the workspace now, then its changes, and the commands that end.
+final class RemoteSubscriptionTests: XCTestCase {
+    private let owner: Int64 = 7
+
+    private static func pane(_ state: RemotePaneState) -> RemoteWorkspace {
+        RemoteWorkspace(windows: [RemoteWindow(id: "W", key: true, selectedTab: "T", tabs: [
+            RemoteTab(id: "T", title: "claude", project: nil, pinned: false, focusedPane: "P", panes: [
+                RemotePane(id: "P", title: "claude", folder: "/tmp", program: "claude", state: state),
+            ]),
+        ])], projects: [])
+    }
+
+    func testASubscriberGetsTheWorkspaceThenOnlyItsChanges() async throws {
+        let port = UInt16.random(in: 40_000...60_000)
+        let workspace = RemoteServer.Workspace(
+            snapshot: { Self.pane(.working) },
+            blocks: { params in .success(BlocksResult(pane: params.pane, commands: [])) })
+        let server = RemoteServer(host: "127.0.0.1", port: port, owner: owner, server: "test", mac: "Mac",
+                                  identify: { _ in TailnetIdentity.Caller(userID: 7, login: "me") },
+                                  handler: { _, reply in reply(.ok()) }, workspace: workspace, onClients: { _ in })
+        try server.start()
+        defer { server.stop() }
+        try await Task.sleep(for: .milliseconds(200))
+        let task = URLSession.shared.webSocketTask(with: URL(string: "ws://127.0.0.1:\(port)")!)
+        task.resume()
+        defer { task.cancel(with: .goingAway, reason: nil) }
+
+        _ = try await exchange(task, .request(try RemoteRequest(id: 1, method: "hello", params: Hello(client: "test"))))
+        let subscribed = try await exchange(task, .request(RemoteRequest(id: 2, method: RemoteProtocol.Method.subscribe)))
+        guard case .response(let response) = subscribed else { return XCTFail("\(subscribed)") }
+        XCTAssertEqual(try response.result(as: RemoteWorkspace.self), Self.pane(.working))
+
+        // The same workspace again is not sent; an agent starting to wait is, at once.
+        server.publish(Self.pane(.working))
+        let started = Date()
+        server.publish(Self.pane(.permission))
+        let event = try await receive(task)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1)
+        guard case .notification(let changed) = event else { return XCTFail("\(event)") }
+        XCTAssertEqual(changed.method, RemoteProtocol.Event.workspace)
+        XCTAssertEqual(try changed.params(as: RemoteWorkspace.self), Self.pane(.permission))
+
+        let finished = CommandFinished(pane: "P", tab: "T", command: RemoteCommand(id: "cmd:1", command: "make", running: false, exitCode: 2, started: 1, finished: 2))
+        server.publish(finished)
+        guard case .notification(let ended) = try await receive(task) else { return XCTFail() }
+        XCTAssertEqual(ended.method, RemoteProtocol.Event.commandFinished)
+        XCTAssertEqual(try ended.params(as: CommandFinished.self), finished)
+
+        let blocks = try await exchange(task, .request(try RemoteRequest(id: 3, method: RemoteProtocol.Method.blocks, params: BlocksParams(pane: "P"))))
+        guard case .response(let listed) = blocks else { return XCTFail() }
+        XCTAssertEqual(try listed.result(as: BlocksResult.self), BlocksResult(pane: "P", commands: []))
+    }
+
+    private func exchange(_ task: URLSessionWebSocketTask, _ message: RemoteMessage) async throws -> RemoteMessage {
+        try await task.send(.string(String(decoding: message.encoded(), as: UTF8.self)))
+        return try await receive(task)
+    }
+
+    private func receive(_ task: URLSessionWebSocketTask) async throws -> RemoteMessage {
+        guard case .string(let text) = try await task.receive() else { throw URLError(.cannotParseResponse) }
+        return try RemoteMessage.decode(Data(text.utf8))
     }
 }

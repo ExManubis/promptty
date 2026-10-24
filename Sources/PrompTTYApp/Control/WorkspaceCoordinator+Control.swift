@@ -63,7 +63,7 @@ extension WorkspaceCoordinator {
         }
     }
 
-    private func resolvePane(_ request: ControlRequest) -> Result<PaneID, ControlResponse> {
+    func resolvePane(_ request: ControlRequest) -> Result<PaneID, ControlResponse> {
         guard let query = request.target ?? request.caller else {
             return .failure(ControlResponse(status: .target, text: "no pane: run this in a PrompTTY pane, or name one with -p"))
         }

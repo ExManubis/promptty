@@ -23,6 +23,18 @@ public final class RemoteServer: @unchecked Sendable {
     /// Who is at an address on the tailnet.
     public typealias Identify = @Sendable (String) async -> TailnetIdentity.Caller?
 
+    /// What subscribers see, read on the main queue.
+    public struct Workspace: Sendable {
+        public var snapshot: @MainActor @Sendable () -> RemoteWorkspace
+        public var blocks: @MainActor @Sendable (BlocksParams) -> Result<BlocksResult, RemoteError>
+
+        public init(snapshot: @escaping @MainActor @Sendable () -> RemoteWorkspace,
+                    blocks: @escaping @MainActor @Sendable (BlocksParams) -> Result<BlocksResult, RemoteError>) {
+            self.snapshot = snapshot
+            self.blocks = blocks
+        }
+    }
+
     public static let defaultPort: UInt16 = 7445
     /// Connections at once.
     static let maxConnections = 64
@@ -38,6 +50,7 @@ public final class RemoteServer: @unchecked Sendable {
     private let mac: String
     private let identify: Identify
     private let handler: Handler
+    private let workspace: Workspace?
     private let onClients: @Sendable ([Client]) -> Void
     private let onFailure: @Sendable (String) -> Void
 
@@ -50,12 +63,15 @@ public final class RemoteServer: @unchecked Sendable {
         let connection: NWConnection
         var session: RemoteSession?
         var client: Client
+        /// Subscribed: the snapshot it last got, so only a change is sent.
+        var lastWorkspace: RemoteWorkspace?
         init(connection: NWConnection, client: Client) { self.connection = connection; self.client = client }
     }
 
     /// `onClients` is called on the main queue whenever a client comes, introduces itself or goes.
     public init(host: String, port: UInt16 = RemoteServer.defaultPort, owner: Int64, server: String, mac: String,
-                identify: @escaping Identify, handler: @escaping Handler, onClients: @escaping @Sendable ([Client]) -> Void,
+                identify: @escaping Identify, handler: @escaping Handler, workspace: Workspace? = nil,
+                onClients: @escaping @Sendable ([Client]) -> Void,
                 onFailure: @escaping @Sendable (String) -> Void = { _ in }) {
         self.host = host
         self.port = port
@@ -64,6 +80,7 @@ public final class RemoteServer: @unchecked Sendable {
         self.mac = mac
         self.identify = identify
         self.handler = handler
+        self.workspace = workspace
         self.onClients = onClients
         self.onFailure = onFailure
     }
@@ -100,6 +117,27 @@ public final class RemoteServer: @unchecked Sendable {
             for connection in connections.values { connection.connection.cancel() }
             connections.removeAll()
             publishClients()
+        }
+    }
+
+    /// Sends subscribers the workspace if it changed since they last got it.
+    public func publish(_ snapshot: RemoteWorkspace) {
+        queue.async { [weak self] in
+            guard let self, let event = try? RemoteNotification(method: RemoteProtocol.Event.workspace, params: snapshot) else { return }
+            for (id, entry) in self.connections where entry.lastWorkspace != nil && entry.lastWorkspace != snapshot {
+                entry.lastWorkspace = snapshot
+                self.send(.notification(event), on: id)
+            }
+        }
+    }
+
+    /// Tells subscribers a command ended.
+    public func publish(_ finished: CommandFinished) {
+        queue.async { [weak self] in
+            guard let self, let event = try? RemoteNotification(method: RemoteProtocol.Event.commandFinished, params: finished) else { return }
+            for (id, entry) in self.connections where entry.lastWorkspace != nil {
+                self.send(.notification(event), on: id)
+            }
         }
     }
 
@@ -177,6 +215,17 @@ public final class RemoteServer: @unchecked Sendable {
                     guard let self else { return }
                     self.queue.async { self.close(id) }
                 })
+            case .subscribe(let replyID):
+                answerOnMain(replyID, on: id) { workspace in
+                    .success(workspace.snapshot())
+                } then: { [weak self] snapshot in
+                    self?.connections[id]?.lastWorkspace = snapshot
+                }
+            case .unsubscribe(let replyID):
+                entry.lastWorkspace = nil
+                send(.response(RemoteResponse(id: replyID, outcome: .result(.object([:])))), on: id)
+            case .blocks(let params, let replyID):
+                answerOnMain(replyID, on: id) { workspace in workspace.blocks(params) }
             case .control(let request, let replyID):
                 // Held until the command answers (`wait` can take minutes).
                 let handler = handler, server = self
@@ -187,6 +236,31 @@ public final class RemoteServer: @unchecked Sendable {
                             server.send(message, on: id)
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /// Answers a request from the workspace, read on the main queue; `then` runs on the queue
+    /// before the answer is sent.
+    private func answerOnMain<R: Encodable & Sendable>(_ replyID: RemoteID, on id: UUID,
+                                                       _ read: @escaping @MainActor @Sendable (Workspace) -> Result<R, RemoteError>,
+                                                       then: (@Sendable (R) -> Void)? = nil) {
+        guard let workspace else {
+            return send(.response(.error(RemoteError(code: RemoteError.methodNotFound, message: "no workspace here"), id: replyID)), on: id)
+        }
+        let server = self
+        DispatchQueue.main.async {
+            let result = read(workspace)
+            server.queue.async {
+                switch result {
+                case .success(let value):
+                    then?(value)
+                    guard case .send(let message) = RemoteSession.reply(value, to: replyID) else { return }
+                    server.send(message, on: id)
+                case .failure(let error):
+                    guard case .send(let message) = RemoteSession.reply(error, to: replyID) else { return }
+                    server.send(message, on: id)
                 }
             }
         }
