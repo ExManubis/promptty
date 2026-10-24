@@ -42,8 +42,7 @@ enum RemoteMapping {
         let shell = atPrompt ? ShellState(folder: folder, branch: nil, dirty: false,
                                           lastExit: last.map { ($0.exitCode ?? 0, ($0.finished ?? $0.started) - $0.started) },
                                           draft: drafts[id] ?? "") : nil
-        let permission = pane.state == .permission
-            ? PermissionRequest(agent: program?.name ?? "The agent", tool: pane.agent?.tool ?? "", command: pane.agent?.tool ?? "a tool") : nil
+        let permission = pane.state == .permission ? permissionRequest(pane, agent: program?.name ?? "The agent") : nil
         // A shell's terminal title is often its folder: the header says what the row says ("zsh").
         let ownTitle = pane.title.isEmpty || pane.title.hasPrefix("/") || pane.title.hasPrefix("~") ? rowTitle : pane.title
         return PhonePane(id: id, program: program, title: program?.isAgent == true ? pane.title : (program?.name ?? ownTitle), label: pane.label,
@@ -51,6 +50,14 @@ enum RemoteMapping {
                          since: pane.agent?.since.map(Date.init(timeIntervalSince1970:)) ?? Date(),
                          screen: screen(pane.commands, outputs: outputs), shell: shell, permission: permission,
                          commandIDs: pane.commands.map(\.id))
+    }
+
+    /// What the pane's agent asks: what it wants to run, read off the Mac's screen when it could be.
+    private static func permissionRequest(_ pane: RemotePane, agent: String) -> PermissionRequest {
+        let tool = pane.agent?.tool ?? ""
+        let command = pane.prompt.flatMap { $0.detail.first ?? $0.title } ?? (tool.isEmpty ? "a tool" : tool)
+        return PermissionRequest(agent: agent, tool: tool, command: command,
+                                 choices: pane.prompt?.choices.map { .init(key: $0.key, label: $0.label) } ?? [])
     }
 
     /// The pane's newest commands as blocks: each command, then what it printed (once read).

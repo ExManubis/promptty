@@ -65,7 +65,8 @@ Mac's own chrome (`PrompTTYChrome`) and its theme (`ThemeCatalog`). It connects 
 Tailscale name, added in the Mac switcher and kept on the phone (`SavedMacs`). `MacConnection`
 subscribes to the workspace and keeps the sidebar in step with its events (`RemoteMapping`), reads
 the output of a pane's newest commands with `capture` and shows them as blocks (the live terminal
-is PTY-78), and runs what the input bar sends with `send`. Gone, it tries again every 5 seconds.
+is PTY-78), runs what the input bar sends with `send`, and answers an agent's permission prompt
+with `answer`: the banner's buttons are the prompt's choices as the Mac's screen shows them. Gone, it tries again every 5 seconds.
 A real Mac's tabs are behind Face ID (or the passcode), at launch and each time the app comes back;
 Settings (the gear) turns that off. The Demo Mac is scripted (`DemoData`): no connection, and its
 permission prompt can be answered.
@@ -114,6 +115,11 @@ frame (`RemoteMessage`: a request, its response, or a notification for an event)
   `command.finished` when a command ends in a pane. `unsubscribe` stops them.
 - `blocks` lists a pane's newest commands (`BlocksParams` → `BlocksResult`); a command's output is
   `capture` with its id as `cmd`, as text or with `markdown`.
+- A pane whose agent waits for permission carries its `prompt` (`RemotePrompt`: what it asks and its
+  numbered choices), read off its screen by `PromptReader` (`Sources/PaneActivity`). `answer`
+  (`AnswerParams` → `AnswerResult`) presses a key there as the user would at the Mac: a choice's
+  digit, `return`, `escape`, `y`, `n` or `interrupt` (`PromptKey`, `answerPrompt` in GhosttyBridge).
+  A pane that waits for nothing refuses it (`notWaiting`, -32004), so a late tap types nothing.
 
 Every message is pinned by a fixture in `Tests/RemoteProtocolTests/Fixtures`, so a change to the
 wire format shows in review; `PROMPTTY_RECORD_FIXTURES=1 swift test --filter RemoteProtocolTests`

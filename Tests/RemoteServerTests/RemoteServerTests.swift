@@ -71,6 +71,11 @@ final class RemoteSessionTests: XCTestCase {
         XCTAssertEqual(session.receive(try data(.request(RemoteRequest(id: 9, method: "subscribe")))), [.subscribe(id: 9)])
         XCTAssertEqual(session.receive(try data(.request(try RemoteRequest(id: 8, method: "blocks", params: BlocksParams(pane: "P", limit: 3))))),
                        [.blocks(BlocksParams(pane: "P", limit: 3), id: 8)])
+        XCTAssertEqual(session.receive(try data(.request(try RemoteRequest(id: 7, method: "answer", params: AnswerParams(pane: "P", key: "2"))))),
+                       [.answer(AnswerParams(pane: "P", key: "2"), id: 7)])
+        guard case .send(.response(let badKey)) = session.receive(try data(.request(try RemoteRequest(id: 6, method: "answer", params: AnswerParams(pane: "P", key: "rm -rf /"))))).first,
+              case .error(let refused) = badKey.outcome else { return XCTFail() }
+        XCTAssertEqual(refused.code, RemoteError.invalidParams)
         XCTAssertEqual(session.receive(try data(.request(RemoteRequest(id: 2, method: "rm-rf")))),
                        [.send(.response(.error(RemoteError(code: RemoteError.methodNotFound, message: "no method rm-rf"), id: 2)))])
         let badParams = session.receive(try data(.request(RemoteRequest(id: 3, method: "send", params: .object(["arguments": .int(1)])))))
@@ -162,7 +167,8 @@ final class RemoteSubscriptionTests: XCTestCase {
         let port = UInt16.random(in: 40_000...60_000)
         let workspace = RemoteServer.Workspace(
             snapshot: { Self.pane(.working) },
-            blocks: { params in .success(BlocksResult(pane: params.pane, commands: [])) })
+            blocks: { params in .success(BlocksResult(pane: params.pane, commands: [])) },
+            answer: { params in params.pane == "P" ? .success(AnswerResult(pane: "P")) : .failure(RemoteError(code: RemoteError.notWaiting, message: "not waiting")) })
         let server = RemoteServer(host: "127.0.0.1", port: port, owner: owner, server: "test", mac: "Mac",
                                   identify: { _ in TailnetIdentity.Caller(userID: 7, login: "me") },
                                   handler: { _, reply in reply(.ok()) }, workspace: workspace, onClients: { _ in })
@@ -197,6 +203,13 @@ final class RemoteSubscriptionTests: XCTestCase {
         let blocks = try await exchange(task, .request(try RemoteRequest(id: 3, method: RemoteProtocol.Method.blocks, params: BlocksParams(pane: "P"))))
         guard case .response(let listed) = blocks else { return XCTFail() }
         XCTAssertEqual(try listed.result(as: BlocksResult.self), BlocksResult(pane: "P", commands: []))
+
+        let answered = try await exchange(task, .request(try RemoteRequest(id: 4, method: RemoteProtocol.Method.answer, params: AnswerParams(pane: "P", key: "1"))))
+        guard case .response(let pressed) = answered else { return XCTFail() }
+        XCTAssertEqual(try pressed.result(as: AnswerResult.self), AnswerResult(pane: "P"))
+        let refused = try await exchange(task, .request(try RemoteRequest(id: 5, method: RemoteProtocol.Method.answer, params: AnswerParams(pane: "Q", key: "1"))))
+        guard case .response(let notWaiting) = refused, case .error(let error) = notWaiting.outcome else { return XCTFail() }
+        XCTAssertEqual(error.code, RemoteError.notWaiting)
     }
 
     private func exchange(_ task: URLSessionWebSocketTask, _ message: RemoteMessage) async throws -> RemoteMessage {
@@ -215,7 +228,8 @@ final class RemoteClientTests: XCTestCase {
     private func server(caller: TailnetIdentity.Caller, workspace: RemoteWorkspace = RemoteWorkspace(windows: [], projects: [])) throws -> RemoteServer {
         let server = RemoteServer(host: "127.0.0.1", port: UInt16.random(in: 40_000...60_000), owner: 7, server: "PrompTTY test", mac: "Test Mac",
                                   identify: { _ in caller }, handler: { request, reply in reply(.ok("ran \(request.command)")) },
-                                  workspace: RemoteServer.Workspace(snapshot: { workspace }, blocks: { .success(BlocksResult(pane: $0.pane, commands: [])) }),
+                                  workspace: RemoteServer.Workspace(snapshot: { workspace }, blocks: { .success(BlocksResult(pane: $0.pane, commands: [])) },
+                                                                    answer: { .success(AnswerResult(pane: $0.pane)) }),
                                   onClients: { _ in })
         try server.start()
         return server

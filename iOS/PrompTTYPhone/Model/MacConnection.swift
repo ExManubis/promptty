@@ -148,6 +148,15 @@ final class MacConnection {
         }
     }
 
+    /// Presses a key in the pane, which waits for permission (`answer`). A pane that no longer
+    /// waits refuses it: the workspace event that says so is on its way.
+    func answer(_ key: String, in pane: UUID) {
+        guard let client else { return }
+        Task {
+            _ = try? await client.call(RemoteProtocol.Method.answer, AnswerParams(pane: pane.uuidString, key: key), as: AnswerResult.self)
+        }
+    }
+
     static func describe(_ error: Error?) -> String {
         switch error {
         case let remote as RemoteError where remote.code == RemoteError.notAllowed: "Not allowed: \(remote.message)"
