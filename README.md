@@ -101,6 +101,11 @@ Outside PrompTTY (a launcher such as Raycast, a script, another terminal) run it
 is no pane of its own, and `--focus` on `new-tab` or `new-window` brings the new pane forward.
 `open -a PrompTTY ~/api` (or a folder dropped on the Dock icon) opens a folder in a new tab.
 
+The same commands work from your other devices over [Tailscale](https://tailscale.com): turn on
+**Settings › Tabs › Remote access** and PrompTTY listens on this Mac's Tailscale address (port
+7445), for WebSocket clients speaking JSON-RPC. Tailscale says who is calling, and only your own
+devices get in. It is off by default; this is what the coming PrompTTY for iPhone connects to.
+
 ## Connect your agents
 
 PrompTTY can guess an agent's state from its screen, but it knows for sure with hooks:

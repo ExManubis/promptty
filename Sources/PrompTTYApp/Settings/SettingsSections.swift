@@ -184,6 +184,8 @@ struct TabsSection: View {
                 Text("Every terminal has `promptty` on its PATH: list tabs, open and split panes, type into them and read them from scripts and agents. Run `promptty help` in a pane.")
             }
 
+            RemoteAccessSection(enabled: $model.settings.remoteAccess)
+
             Section {
                 Toggle("Mark tabs that printed while you looked elsewhere", isOn: $model.settings.markUnseenOutput)
                 Toggle("Notify when a long command finishes", isOn: $model.settings.notifyCommands)
@@ -462,3 +464,38 @@ private struct CursorColorRow: View {
         return byte(c.redComponent) << 16 | byte(c.greenComponent) << 8 | byte(c.blueComponent)
     }
 }
+
+/// Remote access: the remote API for the owner's other devices on the tailnet (`RemoteAccess`),
+/// where to connect, and who is connected.
+private struct RemoteAccessSection: View {
+    @Binding var enabled: Bool
+    private var access: RemoteAccess { RemoteAccess.shared }
+
+    var body: some View {
+        Section {
+            Toggle("Allow your devices on Tailscale to connect", isOn: $enabled)
+            if enabled {
+                LabeledContent("Address") {
+                    switch access.state {
+                    case .off, .starting: Text("Starting…").foregroundStyle(.secondary)
+                    case .listening(let address): Text(address).textSelection(.enabled)
+                    case .unavailable(let reason): Text(reason).foregroundStyle(.secondary)
+                    }
+                }
+                ForEach(access.clients) { client in
+                    LabeledContent {
+                        Button("Disconnect") { access.disconnect(client.id) }
+                    } label: {
+                        Text(client.name ?? "Connecting…")
+                        Text("\(client.user) · \(client.address)")
+                    }
+                }
+            }
+        } header: {
+            Text("Remote access")
+        } footer: {
+            Text("PrompTTY for iPhone connects over Tailscale, to this Mac's Tailscale address only. Tailscale says who each device belongs to, and only yours get in. Remote commands are answered as `promptty`'s are, so they need the command line allowed too.")
+        }
+    }
+}
+

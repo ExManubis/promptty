@@ -77,6 +77,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         activity.start()
         startHooks()
         startControl()
+        applyRemoteAccess(preferences.settings)
         agents.refresh()
     }
 
@@ -115,18 +116,28 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     /// Listens for `promptty`. Requests are answered on the main thread.
     func startControl() {
-        let server = ControlServer(path: AppPaths.controlSocket) { [weak self] request, reply in
-            MainActor.assumeIsolated {
-                guard let self else { return reply(.failed("PrompTTY is quitting")) }
-                self.handleControl(request, reply: reply)
-            }
-        }
+        let server = ControlServer(path: AppPaths.controlSocket, handler: controlHandler)
         do {
             try server.start()
             controlServer = server
         } catch {
             NSLog("PrompTTY: no control socket at \(AppPaths.controlSocket): \(error)")
         }
+    }
+
+    /// Answers a control command, from `promptty` or the remote API, on the main thread.
+    private var controlHandler: @Sendable (ControlRequest, @escaping @Sendable (ControlResponse) -> Void) -> Void {
+        { [weak self] request, reply in
+            MainActor.assumeIsolated {
+                guard let self else { return reply(.failed("PrompTTY is quitting")) }
+                self.handleControl(request, reply: reply)
+            }
+        }
+    }
+
+    /// The remote API, on while Settings says so (`RemoteAccess`).
+    private func applyRemoteAccess(_ settings: Preferences.Settings) {
+        RemoteAccess.shared.configure(enabled: settings.remoteAccess, handler: controlHandler)
     }
 
     // MARK: Activity
@@ -315,6 +326,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     func applyAppSettings(_ settings: Preferences.Settings) {
         let old = lastAppSettings
         lastAppSettings = settings
+        applyRemoteAccess(settings)
         if old.tintStrength != settings.tintStrength || old.windowOpacity != settings.windowOpacity {
             ChromeTint.opacity = CGFloat(settings.windowOpacity)
             for c in controllers.values { applyConfiguredTint(to: c) }
