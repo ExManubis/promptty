@@ -76,6 +76,15 @@ final class RemoteSessionTests: XCTestCase {
         guard case .send(.response(let badKey)) = session.receive(try data(.request(try RemoteRequest(id: 6, method: "answer", params: AnswerParams(pane: "P", key: "rm -rf /"))))).first,
               case .error(let refused) = badKey.outcome else { return XCTFail() }
         XCTAssertEqual(refused.code, RemoteError.invalidParams)
+        let registration = PushRegistration(token: String(repeating: "ab", count: 32), environment: "development", device: "iPhone",
+                                            kinds: ["done"], keyID: "K", key: Data(count: 32).base64EncodedString())
+        XCTAssertEqual(session.receive(try data(.request(try RemoteRequest(id: 5, method: "push.register", params: registration)))),
+                       [.pushRegister(registration, id: 5)])
+        var badToken = registration
+        badToken.token = "../../etc"
+        guard case .send(.response(let refusedToken)) = session.receive(try data(.request(try RemoteRequest(id: 4, method: "push.register", params: badToken)))).first,
+              case .error(let invalid) = refusedToken.outcome else { return XCTFail() }
+        XCTAssertEqual(invalid.code, RemoteError.invalidParams)
         XCTAssertEqual(session.receive(try data(.request(RemoteRequest(id: 2, method: "rm-rf")))),
                        [.send(.response(.error(RemoteError(code: RemoteError.methodNotFound, message: "no method rm-rf"), id: 2)))])
         let badParams = session.receive(try data(.request(RemoteRequest(id: 3, method: "send", params: .object(["arguments": .int(1)])))))

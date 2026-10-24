@@ -4,6 +4,7 @@ import SwiftUI
 /// on demo data (`DemoData`); the connection to a Mac comes with the remote API (PTY-70, PTY-71).
 @main
 struct PrompTTYPhoneApp: App {
+    @UIApplicationDelegateAdaptor(PhoneAppDelegate.self) private var delegate
     @State private var model = DemoData.model()
 
     var body: some Scene {

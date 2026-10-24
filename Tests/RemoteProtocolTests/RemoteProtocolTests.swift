@@ -42,6 +42,10 @@ private enum Samples {
             ("blocks-result", .response(try .result(BlocksResult(pane: "P1", commands: [command]), id: 5))),
             ("answer", .request(try RemoteRequest(id: 6, method: RemoteProtocol.Method.answer, params: AnswerParams(pane: "P1", key: "1")))),
             ("answer-result", .response(try .result(AnswerResult(pane: "P1"), id: 6))),
+            ("push-register", .request(try RemoteRequest(id: 7, method: RemoteProtocol.Method.pushRegister, params: PushRegistration(
+                token: String(repeating: "ab", count: 32), environment: "development", device: "Mikkel's iPhone", kinds: ["permission", "done"],
+                keyID: "K1", key: Data(repeating: 7, count: 32).base64EncodedString())))),
+            ("push-registered", .response(try .result(PushRegistered(token: String(repeating: "ab", count: 32), relay: true), id: 7))),
             ("not-waiting", .response(.error(RemoteError(code: RemoteError.notWaiting, message: "claude is not waiting for an answer"), id: 6))),
         ]
     }
@@ -117,5 +121,28 @@ final class RemoteMethodTests: XCTestCase {
     func testEveryControlCommandIsAMethod() {
         XCTAssertTrue(RemoteProtocol.controlMethods.isSuperset(of: ["ls", "send", "capture", "split", "new-tab", "wait"]))
         XCTAssertFalse(RemoteProtocol.controlMethods.contains(RemoteProtocol.Method.hello))
+    }
+}
+
+final class PushSealTests: XCTestCase {
+    func testASealedNoticeOpensWithItsKeyOnly() throws {
+        let key = PushSeal.newKey()
+        let notice = PushNotice(kind: .permission, title: "Claude Code", body: "Needs your permission to use Bash", mac: "Studio", pane: "P1", tab: "T1")
+        let sealed = try PushSeal.seal(notice, key: key)
+        XCTAssertFalse(sealed.contains("Bash"))
+        XCTAssertNotEqual(sealed, try PushSeal.seal(notice, key: key), "a fresh nonce each time")
+        XCTAssertEqual(try PushSeal.open(sealed, key: key), notice)
+        XCTAssertThrowsError(try PushSeal.open(sealed, key: PushSeal.newKey()))
+    }
+
+    func testARegistrationIsCheckedBeforeItIsKept() {
+        var registration = PushRegistration(token: String(repeating: "0f", count: 32), environment: "production", device: "iPhone",
+                                            kinds: ["done"], keyID: "K", key: PushSeal.newKey().base64EncodedString())
+        XCTAssertTrue(registration.isValid)
+        registration.token = "not hex at all, not hex at all, not hex"
+        XCTAssertFalse(registration.isValid)
+        registration.token = String(repeating: "0f", count: 32)
+        registration.key = Data(count: 16).base64EncodedString()
+        XCTAssertFalse(registration.isValid)
     }
 }

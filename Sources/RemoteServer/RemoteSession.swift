@@ -22,6 +22,9 @@ public struct RemoteSession: Sendable {
         case blocks(BlocksParams, id: RemoteID)
         /// A key pressed in a pane that waits for permission answers `id`.
         case answer(AnswerParams, id: RemoteID)
+        /// Push this device the Mac's notices; forget it (its token). The result answers `id`.
+        case pushRegister(PushRegistration, id: RemoteID)
+        case pushUnregister(token: String, id: RemoteID)
         /// After the reply: a peer that speaks another version is hung up on.
         case close
     }
@@ -79,6 +82,16 @@ public struct RemoteSession: Sendable {
                 return [fail(request, RemoteError.invalidParams, "answer takes a pane and a key: return, escape, y, n, interrupt or a digit")]
             }
             return [.answer(params, id: request.id)]
+        case RemoteProtocol.Method.pushRegister:
+            guard let registration = try? request.params(as: PushRegistration.self), registration.isValid else {
+                return [fail(request, RemoteError.invalidParams, "push.register takes a device token, an environment, a key and its id")]
+            }
+            return [.pushRegister(registration, id: request.id)]
+        case RemoteProtocol.Method.pushUnregister:
+            guard let params = try? request.params(as: PushUnregistration.self) else {
+                return [fail(request, RemoteError.invalidParams, "push.unregister takes a device token")]
+            }
+            return [.pushUnregister(token: params.token, id: request.id)]
         default: break
         }
         guard RemoteProtocol.controlMethods.contains(request.method) else {

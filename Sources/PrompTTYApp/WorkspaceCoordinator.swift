@@ -7,6 +7,7 @@ import GhosttyBridge
 import PaneActivity
 import PrompTTYChrome
 import RemoteControl
+import RemoteProtocol
 import Preferences
 import WorkspaceModel
 
@@ -138,6 +139,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
     /// The remote API, on while Settings says so (`RemoteAccess`).
     private func applyRemoteAccess(_ settings: Preferences.Settings) {
         RemoteAccess.shared.configure(enabled: settings.remoteAccess, handler: controlHandler, workspace: remoteWorkspace)
+        RemotePush.shared.configure(relay: settings.remoteAccess ? settings.pushRelay : "")
     }
 
     // MARK: Activity
@@ -191,12 +193,8 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     private func post(_ notice: Notice, for pane: PaneID) {
         guard let (state, tab) = workspace.tab(containing: pane) else { return }
-        switch notice.kind {
-        case .finished, .failed:
-            let settings = preferences.settings
-            guard settings.notifyCommands, (notice.duration ?? 0) >= settings.notifyAfterSeconds else { return }
-        default: break
-        }
+        let settings = preferences.settings
+        let longCommand = (notice.duration ?? 0) >= settings.notifyAfterSeconds
         // A finished command is the bar's last one; an attention is about whatever runs now.
         // The pane's own title, or its folder as the tab shows it.
         var command = tab.pane(pane).map { pane -> String in
@@ -205,6 +203,16 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         }
         if case .attention = notice.kind {} else if let fromBar = controllers[state.id]?.shell(for: pane)?.lastCommand {
             command = fromBar
+        }
+        // The phones that asked for it, whether or not the Mac shows it (its own setting).
+        if let kind = Self.pushKind(notice.kind), kind != .command || longCommand {
+            RemotePush.shared.send(PushNotice(kind: kind, title: notice.title(command: command), body: notice.body, mac: TabStripView.computerName,
+                                              pane: pane.rawValue.uuidString, tab: tab.id.rawValue.uuidString))
+        }
+        switch notice.kind {
+        case .finished, .failed:
+            guard settings.notifyCommands, longCommand else { return }
+        default: break
         }
         Notifications.post(title: notice.title(command: command), body: notice.body, pane: pane)
         #if DEBUG

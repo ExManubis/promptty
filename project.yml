@@ -157,7 +157,10 @@ targets:
       - path: iOS/PrompTTYPhone
         excludes:
           - Info.plist
+          - PrompTTYPhone.entitlements
+      - path: iOS/Shared
     dependencies:
+      - target: PrompTTYPhoneNotifications
       - package: PrompTTYCore
         product: PrompTTYChrome
       - package: PrompTTYCore
@@ -177,6 +180,8 @@ targets:
       base:
         PRODUCT_NAME: PrompTTY
         PRODUCT_BUNDLE_IDENTIFIER: dev.promptty.PrompTTY2.phone
+        # Push notifications and the app group its notification extension reads the keys from.
+        CODE_SIGN_ENTITLEMENTS: iOS/PrompTTYPhone/PrompTTYPhone.entitlements
         # A Mac's PrompTTY is reached over Tailscale by plain ws://: the tailnet encrypts it.
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "PrompTTY connects to PrompTTY on your Macs."
         INFOPLIST_KEY_NSFaceIDUsageDescription: "PrompTTY asks for Face ID before showing a Mac's terminals."
@@ -189,6 +194,28 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+  # Opens the Macs' sealed push notifications (`NotificationService`).
+  PrompTTYPhoneNotifications:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: iOS/PrompTTYPhoneNotifications
+        excludes:
+          - Info.plist
+          - PrompTTYPhoneNotifications.entitlements
+      - path: iOS/Shared
+    dependencies:
+      - package: PrompTTYCore
+        product: RemoteProtocol
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.promptty.PrompTTY2.phone.notifications
+        INFOPLIST_FILE: iOS/PrompTTYPhoneNotifications/Info.plist
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: iOS/PrompTTYPhoneNotifications/PrompTTYPhoneNotifications.entitlements
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
   PrompTTYPhoneUITests:
     type: bundle.ui-testing
     platform: iOS

@@ -29,6 +29,8 @@ enum DemoData {
             if let tab = model.allTabs.first(where: { $0.title == title }) { model.select(tab.id) } else { model.pendingOpen = title }
         }
         model.showsActivity = defaults.bool(forKey: "activity")
+        PushRegistrar.shared.onToken = { [weak model] in model?.connection?.registerPush() }
+        PushRegistrar.shared.onOpen = { [weak model] mac, tab in model?.openFromNotification(mac: mac, tab: tab) }
         return model
     }
 

@@ -1,0 +1,9 @@
+name = "promptty-push-relay"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+APNS_TOPIC = "dev.promptty.PrompTTY2.phone"
+APNS_TEAM_ID = "RQ2CW4W282"
+# Secrets, set with `wrangler secret put`: APNS_KEY (the .p8's text), APNS_KEY_ID, and optionally
+# RELAY_SECRET.

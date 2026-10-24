@@ -29,13 +29,19 @@ public final class RemoteServer: @unchecked Sendable {
         public var blocks: @MainActor @Sendable (BlocksParams) -> Result<BlocksResult, RemoteError>
         /// Presses the key in a pane that waits for permission, or says why not.
         public var answer: @MainActor @Sendable (AnswerParams) -> Result<AnswerResult, RemoteError>
+        /// Keeps a device to push notices to, or forgets one (nil registration: its token).
+        public var push: @MainActor @Sendable (PushRegistration?, String) -> Result<PushRegistered, RemoteError>
 
         public init(snapshot: @escaping @MainActor @Sendable () -> RemoteWorkspace,
                     blocks: @escaping @MainActor @Sendable (BlocksParams) -> Result<BlocksResult, RemoteError>,
-                    answer: @escaping @MainActor @Sendable (AnswerParams) -> Result<AnswerResult, RemoteError>) {
+                    answer: @escaping @MainActor @Sendable (AnswerParams) -> Result<AnswerResult, RemoteError>,
+                    push: @escaping @MainActor @Sendable (PushRegistration?, String) -> Result<PushRegistered, RemoteError> = { _, token in
+                        .success(PushRegistered(token: token, relay: false))
+                    }) {
             self.snapshot = snapshot
             self.blocks = blocks
             self.answer = answer
+            self.push = push
         }
     }
 
@@ -232,6 +238,10 @@ public final class RemoteServer: @unchecked Sendable {
                 answerOnMain(replyID, on: id) { workspace in workspace.blocks(params) }
             case .answer(let params, let replyID):
                 answerOnMain(replyID, on: id) { workspace in workspace.answer(params) }
+            case .pushRegister(let registration, let replyID):
+                answerOnMain(replyID, on: id) { workspace in workspace.push(registration, registration.token) }
+            case .pushUnregister(let token, let replyID):
+                answerOnMain(replyID, on: id) { workspace in workspace.push(nil, token) }
             case .control(let request, let replyID):
                 // Held until the command answers (`wait` can take minutes).
                 let handler = handler, server = self

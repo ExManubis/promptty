@@ -1,3 +1,4 @@
+import RemoteProtocol
 import LocalAuthentication
 import SwiftUI
 
@@ -63,6 +64,15 @@ struct PhoneSettings: View {
                 } footer: {
                     Text("Before showing a Mac's tabs, when the app opens or comes back. The demo never asks.")
                 }
+                Section {
+                    kindToggle("An agent asks for permission", .permission)
+                    kindToggle("An agent is done", .done)
+                    kindToggle("A long command finishes", .command)
+                } header: {
+                    Text("Notify me when")
+                } footer: {
+                    Text("Your Macs send these through PrompTTY's push relay, sealed with a key only this phone has.")
+                }
                 Section("Macs") {
                     ForEach(model.macs.filter { !$0.isDemo }) { mac in
                         LabeledContent(mac.name, value: mac.host)
@@ -80,5 +90,17 @@ struct PhoneSettings: View {
             .toolbar { Button("Done") { dismiss() } }
         }
         .preferredColorScheme(.dark)
+    }
+
+    /// Changing what to be told about tells the connected Mac at once.
+    private func kindToggle(_ title: String, _ kind: PushKind) -> some View {
+        Toggle(title, isOn: Binding {
+            PushRegistrar.kinds.contains(kind.rawValue)
+        } set: { on in
+            var kinds = PushRegistrar.kinds.filter { $0 != kind.rawValue }
+            if on { kinds.append(kind.rawValue) }
+            UserDefaults.standard.set(kinds, forKey: "pushKinds")
+            model.connection?.registerPush()
+        })
     }
 }

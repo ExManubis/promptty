@@ -653,6 +653,7 @@ enum DebugHooks {
             case "fullrate": coordinator.preferences.update { $0.fullRefreshRate = args[1] == "on" }
             case "notify": coordinator.preferences.update { $0.notifyCommands = args[1] == "on" }
             case "remote": coordinator.preferences.update { $0.remoteAccess = args[1] == "on" }
+            case "pushRelay": coordinator.preferences.update { $0.pushRelay = args.count > 1 ? args[1] : "" }
             case "notifyAfter": coordinator.preferences.update { $0.notifyAfterSeconds = Double(args[1]) ?? 10 }
             case "cursor":
                 let value: CursorColor = switch args[1] {

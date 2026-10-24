@@ -1,4 +1,5 @@
 import Foundation
+import os
 import RemoteClient
 import RemoteControl
 import RemoteProtocol
@@ -22,6 +23,8 @@ final class MacConnection {
             }
         }
     }
+
+    private static let log = Logger(subsystem: "dev.promptty.PrompTTY2.phone", category: "push")
 
     /// The remote API's port on every Mac.
     static let port = 7445
@@ -81,6 +84,8 @@ final class MacConnection {
                 guard self.client === client else { return }
                 model?.connectionChanged(.connected(mac: welcome.mac), for: mac.id)
                 apply(workspace)
+                PushRegistrar.shared.start()
+                registerPush()
             } catch {
                 closed(error, client: client)
             }
@@ -154,6 +159,27 @@ final class MacConnection {
         guard let client else { return }
         Task {
             _ = try? await client.call(RemoteProtocol.Method.answer, AnswerParams(pane: pane.uuidString, key: key), as: AnswerResult.self)
+        }
+    }
+
+    /// Has the Mac push this phone its notices, sealed with this Mac's key (once there's a token).
+    func registerPush() {
+        guard let client, let registration = PushRegistrar.shared.registration(for: mac.id) else { return }
+        Task {
+            do {
+                let registered = try await client.call(RemoteProtocol.Method.pushRegister, registration, as: PushRegistered.self)
+                Self.log.notice("registered for pushes, relay: \(registered.relay)")
+            } catch {
+                Self.log.error("push registration failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// No more pushes from this Mac: the phone forgets it.
+    func unregisterPush() {
+        guard let client, let token = PushRegistrar.shared.token else { return }
+        Task {
+            _ = try? await client.call(RemoteProtocol.Method.pushUnregister, PushUnregistration(token: token), as: PushRegistered.self)
         }
     }
 

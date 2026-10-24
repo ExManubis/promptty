@@ -14,7 +14,8 @@ extension WorkspaceCoordinator {
         RemoteServer.Workspace(
             snapshot: { [weak self] in self?.remoteSnapshot() ?? RemoteWorkspace(windows: [], projects: []) },
             blocks: { [weak self] params in self?.remoteBlocks(params) ?? .failure(Self.quitting) },
-            answer: { [weak self] params in self?.remoteAnswer(params) ?? .failure(Self.quitting) })
+            answer: { [weak self] params in self?.remoteAnswer(params) ?? .failure(Self.quitting) },
+            push: { registration, token in RemotePush.shared.handle(registration, token: token) })
     }
 
     private static let quitting = RemoteError(code: RemoteError.internalError, message: "PrompTTY is quitting")
@@ -84,6 +85,15 @@ extension WorkspaceCoordinator {
             }
             surface.answerPrompt(key)
             return .success(AnswerResult(pane: pane.rawValue.uuidString))
+        }
+    }
+
+    /// What a device chooses to be pushed (`PushKind`) a notice as.
+    static func pushKind(_ kind: Notice.Kind) -> PushKind? {
+        switch kind {
+        case .permission, .attention: .permission
+        case .waiting: .done
+        case .finished, .failed: .command
         }
     }
 

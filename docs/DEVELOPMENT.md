@@ -193,6 +193,33 @@ address with a stand-in for Tailscale. A Debug build started with `PROMPTTY_REMO
 listens on the loopback address instead and takes every caller for the owner, for driven runs
 (`eval settings remote on`, `eval remote`) and the iPhone app in the Simulator.
 
+## Push notifications
+
+iOS drops a background app's socket, so the Mac's notices reach the phone through APNs.
+
+- **Registering.** Once a Mac connects, the phone asks for notifications and sends that Mac
+  `push.register`: its APNs device token, a 32-byte key made for that Mac, and the kinds it wants
+  (`permission`, `done`, `command`; the phone's Settings). The Mac keeps these in
+  `push-devices.json` in its support folder (mode 600). Settings › Tabs › Remote access lists them.
+- **Sending.** Each notice the Mac raises for a pane (`WorkspaceCoordinator.post`) is sealed with
+  ChaCha20-Poly1305 for every device that wants its kind (`PushSender`, `PushSeal`). It is posted
+  to the push relay set in Settings › Tabs › Remote access, whether or not the Mac shows it
+  itself. A token APNs no longer knows (410) is forgotten.
+- **The relay (`Relay/`).** It holds the APNs key and hands APNs a placeholder alert, the key's id
+  (`k`) and the sealed notice (`s`). It sees a device token, an environment and ciphertext; it
+  stores nothing and logs only status codes. `cd Relay && npm test` runs its tests against a fake
+  APNs.
+- **Opening.** The phone's notification service extension (`iOS/PrompTTYPhoneNotifications`)
+  opens the sealed notice with the key from the app group (`PushKeys`) and shows the Mac's words.
+  A notification it can't open shows the placeholder. Tapping a notification opens its tab.
+- **Deploying the relay.** As a Cloudflare Worker: `cd Relay && npx wrangler deploy`, then
+  `wrangler secret put APNS_KEY` (the .p8's text) and `APNS_KEY_ID`, and optionally
+  `RELAY_SECRET`, which makes the path `/push/<secret>`. On a server of your own: `node server.js`
+  with the same variables, plus `HOST` and `PORT`. Then paste the relay's `/push` address into
+  the Mac's Settings.
+- **Signing.** A real phone needs the Push Notifications capability and the app group
+  `group.dev.promptty.PrompTTY2.phone` on both bundle ids, under team RQ2CW4W282.
+
 ## Restored output
 
 With **Settings › Tabs › Keep each tab's output when quitting** on (and session restore on), the

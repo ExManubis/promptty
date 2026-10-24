@@ -184,7 +184,7 @@ struct TabsSection: View {
                 Text("Every terminal has `promptty` on its PATH: list tabs, open and split panes, type into them and read them from scripts and agents. Run `promptty help` in a pane.")
             }
 
-            RemoteAccessSection(enabled: $model.settings.remoteAccess)
+            RemoteAccessSection(enabled: $model.settings.remoteAccess, relay: $model.settings.pushRelay)
 
             Section {
                 Toggle("Mark tabs that printed while you looked elsewhere", isOn: $model.settings.markUnseenOutput)
@@ -469,7 +469,9 @@ private struct CursorColorRow: View {
 /// where to connect, and who is connected.
 private struct RemoteAccessSection: View {
     @Binding var enabled: Bool
+    @Binding var relay: String
     private var access: RemoteAccess { RemoteAccess.shared }
+    private var push: RemotePush { RemotePush.shared }
 
     var body: some View {
         Section {
@@ -490,11 +492,22 @@ private struct RemoteAccessSection: View {
                         Text("\(client.user) · \(client.address)")
                     }
                 }
+                TextField("Push relay", text: $relay, prompt: Text("https://…/push"))
+                if !push.devices.devices.isEmpty {
+                    ForEach(push.devices.devices, id: \.token) { device in
+                        LabeledContent {
+                            Button("Forget") { push.forget(device.token) }
+                        } label: {
+                            Text(device.device)
+                            Text("Notifications: " + device.kinds.joined(separator: ", "))
+                        }
+                    }
+                }
             }
         } header: {
             Text("Remote access")
         } footer: {
-            Text("PrompTTY for iPhone connects over Tailscale, to this Mac's Tailscale address only. Tailscale says who each device belongs to, and only yours get in. Remote commands are answered as `promptty`'s are, so they need the command line allowed too.")
+            Text("PrompTTY for iPhone connects over Tailscale, to this Mac's Tailscale address only. Tailscale says who each device belongs to, and only yours get in. Remote commands are answered as `promptty`'s are, so they need the command line allowed too. Notifications reach a phone through the push relay, sealed with the phone's own key: the relay sees only where they go.")
         }
     }
 }

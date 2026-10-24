@@ -123,6 +123,8 @@ final class PhoneModel {
     var paneOpen = false
     /// A tab to open once a Mac's workspace has come (`-open`).
     var pendingOpen: String?
+    /// A tapped notification's tab, opened once its Mac's workspace has come.
+    var pendingOpenTab: UUID?
     /// The sidebar lists only the tabs running agents (the eye).
     var showsActivity = false
     var switchingMac = false
@@ -171,6 +173,12 @@ final class PhoneModel {
         }
     }
 
+    /// A tapped notification: its Mac, then its tab.
+    func openFromNotification(mac: UUID, tab: UUID) {
+        if macID != mac { selectMac(mac) }
+        if self.tab(tab) != nil { select(tab) } else { pendingOpenTab = tab }
+    }
+
     /// Adds a Mac by its Tailscale name (or name:port) and connects to it.
     func addMac(host: String) {
         let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -184,6 +192,8 @@ final class PhoneModel {
 
     func removeMac(_ id: UUID) {
         guard let mac = macs.first(where: { $0.id == id }), !mac.isDemo else { return }
+        if macID == id { connection?.unregisterPush() }
+        PushKeys.forget(mac: id)
         macs.removeAll { $0.id == id }
         SavedMacs.save(macs)
         if macID == id, let demo = macs.first { selectMac(demo.id) }
@@ -216,6 +226,10 @@ final class PhoneModel {
         self.projects = projects
         if let index = macs.firstIndex(where: { $0.id == macID }) {
             macs[index].waiting = allTabs.filter { $0.permission != nil }.count
+        }
+        if let id = pendingOpenTab, tab(id) != nil {
+            pendingOpenTab = nil
+            select(id)
         }
         if let title = pendingOpen, let tab = allTabs.first(where: { $0.title == title || $0.panes.contains { $0.label == title } }) {
             pendingOpen = nil
