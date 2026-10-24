@@ -13,6 +13,11 @@ order: a patch may build on an earlier one.
 - `0004-program-status`: a program's status reports (OSC 7501, which Ghostty parses but its app
   ignores) go to the apprt as `GHOSTTY_ACTION_PROGRAM_STATUS`, decoded; the support query
   `OSC 7501 ; ?` is answered, and a full reset clears every record.
+- `0005-pty-tap`: `ghostty_surface_set_output_tap`, a callback given each chunk of a surface's
+  pty output as read, before it is parsed (for mirroring a pane). Termio's `processOutput` calls
+  it on the read thread with the terminal locked, so a reader of the screen sees it before or
+  after a chunk, never halfway; setting it takes the same lock, so once it is turned off (NULL)
+  no call is running or follows. Without a tap a chunk costs one null check.
 
 ## Authoring a patch
 
@@ -35,6 +40,6 @@ Move `PIN` in `script/build-engine` and run `script/build-engine --force`. It fa
 of the first patch that no longer applies. Redo that change against the new source (committing
 each patch in a scratch branch and `git apply --3way` the next one helps), regenerate the patch
 files from the commits, and run the patches' Zig tests: `zig build test -Dtest-filter=blocks:`
-in `.build/engine/ghostty`. Delete a patch once upstream has an equivalent: `0002`, which parsed
-each synchronized update (mode 2026) whole so Claude Code rendered smoothly, went when Ghostty's
-pipelined pty reader made it render at 60 fps without it.
+and `-Dtest-filter=output_tap:` in `.build/engine/ghostty`. Delete a patch once upstream has an
+equivalent: `0002`, which parsed each synchronized update (mode 2026) whole so Claude Code
+rendered smoothly, went when Ghostty's pipelined pty reader made it render at 60 fps without it.
