@@ -177,6 +177,10 @@ targets:
       base:
         PRODUCT_NAME: PrompTTY
         PRODUCT_BUNDLE_IDENTIFIER: dev.promptty.PrompTTY2.phone
+        # On a device, signed by Xcode for the team (script/run-device); the simulator's stays ad hoc.
+        DEVELOPMENT_TEAM: RQ2CW4W282
+        "CODE_SIGN_STYLE[sdk=iphoneos*]": Automatic
+        "CODE_SIGN_IDENTITY[sdk=iphoneos*]": "Apple Development"
         # A Mac's PrompTTY is reached over Tailscale by plain ws://: the tailnet encrypts it.
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "PrompTTY connects to PrompTTY on your Macs."
         INFOPLIST_KEY_NSFaceIDUsageDescription: "PrompTTY asks for Face ID before showing a Mac's terminals."

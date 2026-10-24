@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Builds the iPhone app for a real iPhone, signed for the team, installs it and launches it.
+# Usage:
+#   script/run-device                 the first iPhone connected (USB, or paired over Wi-Fi)
+#   script/run-device "Mikkel's iPhone"
+# Needs the engine's iOS slices (script/build-engine --ios) and Xcode signed in to the team.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+[ -d Engine/GhosttyKit.xcframework/ios-arm64 ] || script/build-engine --ios
+xcodegen generate >/dev/null
+json=$(mktemp)
+trap 'rm -f "$json"' EXIT
+xcrun devicectl list devices --json-output "$json" >/dev/null
+device=$(python3 - "$json" "${1:-}" <<'PY'
+import json, sys
+wanted = sys.argv[2]
+devices = json.load(open(sys.argv[1]))["result"]["devices"]
+for d in devices:
+    props, hw = d.get("deviceProperties", {}), d.get("hardwareProperties", {})
+    if hw.get("platform") != "iOS" or hw.get("reality") != "physical":
+        continue
+    if wanted and props.get("name") != wanted:
+        continue
+    print(d["identifier"]); break
+PY
+)
+[ -n "$device" ] || { echo "run-device: no iPhone connected${1:+ named $1}" >&2; exit 1; }
+xcodebuild -project PrompTTY.xcodeproj -scheme PrompTTYPhone -configuration Debug -destination 'generic/platform=iOS' \
+  -derivedDataPath .build/DerivedData-Device -allowProvisioningUpdates build -quiet
+app=.build/DerivedData-Device/Build/Products/Debug-iphoneos/PrompTTY.app
+xcrun devicectl device install app --device "$device" "$app"
+xcrun devicectl device process launch --device "$device" --terminate-existing dev.promptty.PrompTTY2.phone

@@ -104,7 +104,14 @@ is no pane of its own, and `--focus` on `new-tab` or `new-window` brings the new
 The same commands work from your other devices over [Tailscale](https://tailscale.com): turn on
 **Settings › Tabs › Remote access** and PrompTTY listens on this Mac's Tailscale address (port
 7445), for WebSocket clients speaking JSON-RPC. Tailscale says who is calling, and only your own
-devices get in. It is off by default; this is what the coming PrompTTY for iPhone connects to.
+devices get in. It is off by default.
+
+**PrompTTY for iPhone** connects there: add your Mac by its Tailscale name in the Mac switcher and
+your tabs show as on the Mac, with each agent's state. The open pane is live: pinch to zoom, answer
+an agent's permission prompt from its banner, and, with **Let them type into panes** on,
+type into it or **Take control** to fit it to the phone. **+** opens a tab on the Mac at the
+phone's size: a shell in a folder you use, an ssh host, or a saved command. It keeps running when
+the phone goes. Clicking a pane on the Mac gives it the Mac's size back.
 
 ## Connect your agents
 
