@@ -87,7 +87,7 @@ private struct KeyRow: View {
             HStack(spacing: 0) {
                 ForEach(keys, id: \.self) { key in
                     let modifier = key == "ctrl" || key == "opt"
-                    Button { if modifier { model.toggleLatch(key) } } label: {
+                    Button { if modifier { model.toggleLatch(key) } else { model.pressKey(key) } } label: {
                         Text(key)
                             .font(key.count > 1 ? .system(size: 15, design: .monospaced) : .system(size: 19))
                             .frame(maxWidth: .infinity, minHeight: PhoneMetrics.control)
@@ -102,7 +102,7 @@ private struct KeyRow: View {
                     .foregroundStyle(Color.primary.opacity(0.88))
                 }
             }
-            Button {} label: {
+            Button { model.toggleKeyboard() } label: {
                 Image(systemName: "keyboard")
                     .font(.system(size: 18))
                     .frame(width: 60, height: PhoneMetrics.control)

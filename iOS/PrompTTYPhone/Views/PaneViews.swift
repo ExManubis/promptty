@@ -1,6 +1,7 @@
 import PaneActivity
 import Preferences
 import PrompTTYChrome
+import RemoteProtocol
 import SwiftUI
 
 /// The tabs as the Mac's strip shows them: pills in one smoked-glass track, the selected one on a
@@ -150,23 +151,35 @@ struct PaneCard: View {
     let tab: PhoneTab
     let pane: PhonePane
 
+    /// The pane live from the Mac, once it is shown.
+    private var live: LiveMirror? { model.connection?.mirror.flatMap { $0.pane == pane.id ? $0 : nil } }
+
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: PhoneMetrics.paneCornerRadius, style: .continuous)
         VStack(spacing: 0) {
-            PaneHeaderRow(pane: pane)
-            TerminalScreen(lines: pane.screen, theme: model.theme)
-            if let shell = pane.shell, pane.permission == nil, pane.display != .working {
-                PhoneInputBar(model: model, tab: tab, pane: pane, shell: shell)
+            PaneHeaderRow(pane: pane, mirror: live)
+            if model.isRemote {
+                // A real Mac's pane: its terminal, live.
+                if let live { LiveTerminal(mirror: live) } else { Color.clear }
+            } else {
+                TerminalScreen(lines: pane.screen, theme: model.theme)
+                if let shell = pane.shell, pane.permission == nil, pane.display != .working {
+                    PhoneInputBar(model: model, tab: tab, pane: pane, shell: shell)
+                }
             }
         }
         .smokedGlass(shape, panel: Color(model.theme.background), edges: true)
         .clipShape(shape)
+        .task(id: pane.id) { if model.isRemote { model.connection?.showLive(pane.id) } }
+        // Gone from the screen: let go of it, unless another card already shows a pane live.
+        .onDisappear { if model.connection?.mirror?.pane == pane.id { model.connection?.showLive(nil) } }
     }
 }
 
 /// The pane's header, as the Mac's: its program's glyph in one color, its title, its folder dimmed.
 private struct PaneHeaderRow: View {
     let pane: PhonePane
+    var mirror: LiveMirror?
 
     var body: some View {
         HStack(spacing: 9) {
@@ -182,9 +195,34 @@ private struct PaneHeaderRow: View {
                 .lineLimit(1)
                 .truncationMode(.head)
             Spacer(minLength: 0)
+            if let mirror, let state = mirror.state {
+                controlButton(mirror, state: state)
+            }
         }
         .padding(.horizontal, 14)
         .frame(height: 38)
+    }
+
+    /// Takes control of the pane's size (it fits the phone) or gives it back; says who has it.
+    @ViewBuilder
+    private func controlButton(_ mirror: LiveMirror, state: MirrorState) -> some View {
+        if !state.typing {
+            // Settings › Tabs › Remote access on the Mac lets other devices type.
+            Text("View only")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("live.viewOnly")
+        } else if state.inControl {
+            Button("Let go") { mirror.releaseControl() }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .accessibilityIdentifier("live.release")
+        } else {
+            Button(state.controller.map { "\($0) has it" } ?? "Take control") { mirror.takeControl() }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .accessibilityIdentifier("live.take")
+        }
     }
 }
 

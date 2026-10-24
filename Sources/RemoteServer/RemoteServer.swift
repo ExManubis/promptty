@@ -29,13 +29,17 @@ public final class RemoteServer: @unchecked Sendable {
         public var blocks: @MainActor @Sendable (BlocksParams) -> Result<BlocksResult, RemoteError>
         /// Presses the key in a pane that waits for permission, or says why not.
         public var answer: @MainActor @Sendable (AnswerParams) -> Result<AnswerResult, RemoteError>
+        /// The terminal config a client draws mirrored panes with.
+        public var appearance: @MainActor @Sendable () -> RemoteAppearance
 
         public init(snapshot: @escaping @MainActor @Sendable () -> RemoteWorkspace,
                     blocks: @escaping @MainActor @Sendable (BlocksParams) -> Result<BlocksResult, RemoteError>,
-                    answer: @escaping @MainActor @Sendable (AnswerParams) -> Result<AnswerResult, RemoteError>) {
+                    answer: @escaping @MainActor @Sendable (AnswerParams) -> Result<AnswerResult, RemoteError>,
+                    appearance: @escaping @MainActor @Sendable () -> RemoteAppearance = { RemoteAppearance(config: "") }) {
             self.snapshot = snapshot
             self.blocks = blocks
             self.answer = answer
+            self.appearance = appearance
         }
     }
 
@@ -241,6 +245,8 @@ public final class RemoteServer: @unchecked Sendable {
                 answerOnMain(replyID, on: id) { workspace in workspace.blocks(params) }
             case .answer(let params, let replyID):
                 answerOnMain(replyID, on: id) { workspace in workspace.answer(params) }
+            case .appearance(let replyID):
+                answerOnMain(replyID, on: id) { workspace in .success(workspace.appearance()) }
             case .mirror(let call, let replyID):
                 handleMirror(call, replyID: replyID, on: id)
             case .control(let request, let replyID):

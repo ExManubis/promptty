@@ -11,6 +11,14 @@ public enum MirrorKey: Sendable, Hashable {
     case character(Character)
 }
 
+/// What is typed on the phone, as keys rather than bytes (`MirrorSurfaceView.onInput`): for a
+/// pane mirrored from the Mac, whose own terminal encodes them for its program.
+public enum MirrorInput: Sendable, Equatable {
+    case text(String)
+    case key(MirrorKey, MirrorModifiers)
+    case paste(String)
+}
+
 /// Modifiers held with a `MirrorKey`.
 public struct MirrorModifiers: OptionSet, Sendable, Hashable {
     public let rawValue: UInt32
@@ -51,6 +59,26 @@ enum MirrorKeyCodes {
         case .pageUp: return 0x74
         case .pageDown: return 0x79
         case .character(let c): return characterCodes[Character(c.lowercased())]
+        }
+    }
+
+    /// A hardware keyboard's named key (Return, arrows, …) as a `MirrorKey`.
+    static func namedKey(_ usage: UIKeyboardHIDUsage) -> MirrorKey? {
+        switch usage {
+        case .keyboardReturnOrEnter, .keypadEnter: .return
+        case .keyboardTab: .tab
+        case .keyboardEscape: .escape
+        case .keyboardDeleteOrBackspace: .backspace
+        case .keyboardDeleteForward: .forwardDelete
+        case .keyboardUpArrow: .up
+        case .keyboardDownArrow: .down
+        case .keyboardLeftArrow: .left
+        case .keyboardRightArrow: .right
+        case .keyboardHome: .home
+        case .keyboardEnd: .end
+        case .keyboardPageUp: .pageUp
+        case .keyboardPageDown: .pageDown
+        default: nil
         }
     }
 

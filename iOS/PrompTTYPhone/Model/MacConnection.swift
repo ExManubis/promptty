@@ -1,4 +1,6 @@
 import Foundation
+import GhosttyMirror
+import os
 import RemoteClient
 import RemoteControl
 import RemoteProtocol
@@ -28,7 +30,11 @@ final class MacConnection {
 
     let mac: PhoneMac
     private weak var model: PhoneModel?
-    private var client: RemoteClient?
+    private(set) var client: RemoteClient?
+    /// The pane shown live, if any (`LiveMirror`).
+    private(set) var mirror: LiveMirror?
+    /// The Mac's terminal config, for drawing its panes with its font and colors.
+    private var terminalConfig: String?
     private var retry: Task<Void, Never>?
     private var stopped = false
     /// The output of the commands read so far, by command id.
@@ -55,6 +61,8 @@ final class MacConnection {
     }
 
     func stop() {
+        mirror?.detach()
+        mirror = nil
         stopped = true
         retry?.cancel()
         client?.close()
@@ -81,6 +89,13 @@ final class MacConnection {
                 guard self.client === client else { return }
                 model?.connectionChanged(.connected(mac: welcome.mac), for: mac.id)
                 apply(workspace)
+                if let appearance = try? await client.call(RemoteProtocol.Method.appearance, as: RemoteAppearance.self) {
+                    terminalConfig = appearance.config
+                }
+                // Back after a reconnect: the pane goes on from where it got to.
+                if let mirror {
+                    if mirror.view == nil { mirror.start(config: terminalConfig ?? "") } else { mirror.attach() }
+                }
             } catch {
                 closed(error, client: client)
             }
@@ -103,6 +118,12 @@ final class MacConnection {
         switch event.method {
         case RemoteProtocol.Event.workspace:
             if let workspace = try? event.params(as: RemoteWorkspace.self) { apply(workspace) }
+        case RemoteProtocol.Event.output:
+            if let output = try? event.params(as: MirrorOutput.self), output.pane == mirror?.pane.uuidString { mirror?.received(output) }
+        case RemoteProtocol.Event.paneState:
+            if let state = try? event.params(as: MirrorState.self), state.pane == mirror?.pane.uuidString { mirror?.apply(state) }
+        case RemoteProtocol.Event.detached:
+            if let detached = try? event.params(as: Detached.self), detached.pane == mirror?.pane.uuidString { mirror?.detached(detached.reason) }
         case RemoteProtocol.Event.commandFinished:
             // Its output, once the workspace that lists it has come: read now, so the pane shows it.
             if let finished = try? event.params(as: CommandFinished.self) {
@@ -138,6 +159,69 @@ final class MacConnection {
             }
         }
     }
+
+    /// Shows the pane live (nil: none), letting go of the one shown before.
+    func showLive(_ pane: UUID?) {
+        guard mirror?.pane != pane else { return }
+        mirror?.detach()
+        mirror = pane.map { LiveMirror(pane: $0, connection: self) }
+        if let mirror, client != nil, let terminalConfig { mirror.start(config: terminalConfig) }
+    }
+
+    /// Typed on the phone in the live pane: to the pane as keys, with the key row's latched
+    /// Control and Option on the next one.
+    func typed(_ input: MirrorInput, in mirror: LiveMirror?) {
+        guard let client, let mirror else { return }
+        let latched = model?.takeLatches() ?? []
+        var params = InputParams(pane: mirror.pane.uuidString)
+        switch input {
+        case .text(let text) where !latched.isEmpty && text.count == 1:
+            params.key = RemoteKey(text.lowercased(), mods: latched)
+        case .text(let text):
+            params.text = text
+        case .paste(let text):
+            params.paste = text
+        case .key(let key, let modifiers):
+            params.key = RemoteKey(Self.keyName(key), mods: Array(Set(Self.mods(modifiers) + latched)))
+        }
+        Task {
+            do {
+                _ = try await client.call(RemoteProtocol.Method.input, params, as: JSONValue.self)
+            } catch {
+                Self.log.error("input refused: \(MacConnection.describe(error), privacy: .public)")
+            }
+        }
+    }
+
+    static func keyName(_ key: MirrorKey) -> String {
+        switch key {
+        case .return: "enter"
+        case .tab: "tab"
+        case .escape: "escape"
+        case .backspace: "backspace"
+        case .forwardDelete: "delete"
+        case .up: "up"
+        case .down: "down"
+        case .left: "left"
+        case .right: "right"
+        case .home: "home"
+        case .end: "end"
+        case .pageUp: "pageUp"
+        case .pageDown: "pageDown"
+        case .character(let c): String(c)
+        }
+    }
+
+    static func mods(_ modifiers: MirrorModifiers) -> [RemoteKey.Mod] {
+        var mods: [RemoteKey.Mod] = []
+        if modifiers.contains(.shift) { mods.append(.shift) }
+        if modifiers.contains(.control) { mods.append(.ctrl) }
+        if modifiers.contains(.option) { mods.append(.alt) }
+        if modifiers.contains(.command) { mods.append(.super) }
+        return mods
+    }
+
+    private static let log = Logger(subsystem: "dev.promptty.PrompTTY2.phone", category: "mirror")
 
     /// Types the command into the pane and presses Return, as `promptty send --enter` does.
     func run(_ command: String, in pane: UUID) {

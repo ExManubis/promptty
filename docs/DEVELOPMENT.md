@@ -65,10 +65,16 @@ Its looping animations run in Core Animation on both platforms (`LoopingLayerVie
 Mac's own chrome (`PrompTTYChrome`) and its theme (`ThemeCatalog`). It connects to a Mac's remote API
 (Settings › Tabs › Remote access) with `RemoteClient` (`Sources/RemoteClient`), by the Mac's
 Tailscale name, added in the Mac switcher and kept on the phone (`SavedMacs`). `MacConnection`
-subscribes to the workspace and keeps the sidebar in step with its events (`RemoteMapping`), reads
-the output of a pane's newest commands with `capture` and shows them as blocks (the live terminal
-is PTY-78), runs what the input bar sends with `send`, and answers an agent's permission prompt
-with `answer`: the banner's buttons are the prompt's choices as the Mac's screen shows them. Gone, it tries again every 5 seconds.
+subscribes to the workspace and keeps the sidebar in step with its events (`RemoteMapping`), and
+answers an agent's permission prompt with `answer`: the banner's buttons are the prompt's choices
+as the Mac's screen shows them. The open pane is live (`LiveMirror`, `LiveTerminal`): attached
+with `attach`, drawn by the phone's libghostty (`GhosttyMirror`) with the Mac's font and theme
+(`appearance`) at the pane's grid, zoomed out to the card's width (pinch to zoom, two fingers to
+move, one to scroll its scrollback). What is typed goes to the pane as keys (`input`, the view's
+`onInput`), with the key row's Control and Option on the next key; "Take control" sizes the pane
+to the card until "Let go". Typing needs Settings › Tabs › Remote access › typing on the Mac;
+without it the pane is view only. Gone, it tries again every 5 seconds and resumes the pane where
+it got to.
 A real Mac's tabs are behind Face ID (or the passcode), at launch and each time the app comes back;
 Settings (the gear) turns that off. The Demo Mac is scripted (`DemoData`): no connection, and its
 permission prompt can be answered.
