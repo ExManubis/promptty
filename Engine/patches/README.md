@@ -18,6 +18,21 @@ order: a patch may build on an earlier one.
   it on the read thread with the terminal locked, so a reader of the screen sees it before or
   after a chunk, never halfway; setting it takes the same lock, so once it is turned off (NULL)
   no call is running or follows. Without a tap a chunk costs one null check.
+- `0006-host-fed-surface`: a surface whose program runs elsewhere, for the iPhone (iOS can't start
+  one). termio gets a second backend, `host` (`src/termio/Host.zig`), beside `exec`: it spawns
+  nothing and has no pty. Setting `io_write_cb` on `ghostty_surface_config_s` makes a surface use
+  it: `ghostty_surface_feed(surface, bytes, len)` puts the program's output on screen (through
+  `Termio.processOutput`, as a pty read would), and everything the terminal writes to the program
+  (keys, paste, mouse and focus reports, replies to queries, size reports; `\r` as `\r\n` in
+  linefeed mode) goes to `io_write_cb`, and each new grid to `io_resize_cb`. Both run on the
+  surface's IO thread, sometimes with its terminal locked: they copy and return, never calling
+  back into the surface. Surfaces made without it start a command on a pty as before. The patch
+  also puts back the iOS slices upstream dropped from the xcframework (7a171895d; the runtime
+  code was kept) as `-Dxcframework-target=ios`: macOS native plus iOS and the iOS simulator,
+  built by `script/build-engine --ios`. With them, Aro needs `-fblocks` for the iOS SDK's
+  CoreGraphics headers (it enables blocks for macOS only), and the default DPI is 72 on iOS as on
+  macOS, so a font size is the same size on both (it was 96, a third larger). Zig tests:
+  `zig build test -Dtest-filter=Host:`.
 
 ## Authoring a patch
 

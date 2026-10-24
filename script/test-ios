@@ -3,6 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 device=${DEVICE:-iPhone 18 Pro}
+script/build-engine --ios >/dev/null
 xcodegen generate >/dev/null
 id=$(xcrun simctl list devices available | grep -F "    $device (" | head -1 | grep -oE '[0-9A-F-]{36}')
 [ -n "$id" ] || { echo "No simulator named \"$device\""; exit 1; }

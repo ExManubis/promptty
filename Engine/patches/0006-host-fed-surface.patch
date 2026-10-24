@@ -1,0 +1,673 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 1dbe908a0..53ba92967 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -545,6 +545,16 @@ typedef enum {
+   GHOSTTY_SURFACE_CONTEXT_SPLIT = 2,
+ } ghostty_surface_context_e;
+ 
++// Callbacks of a surface the embedder feeds (termio's host backend); both
++// run on the surface's IO thread, sometimes with its terminal locked, so
++// they copy what they need and never call back into the surface.
++typedef void (*ghostty_surface_io_write_cb)(void*, const uint8_t*, size_t);
++typedef void (*ghostty_surface_io_resize_cb)(void*,
++                                             uint16_t,
++                                             uint16_t,
++                                             uint32_t,
++                                             uint32_t);
++
+ typedef struct {
+   ghostty_platform_e platform_tag;
+   ghostty_platform_u platform;
+@@ -558,6 +568,11 @@ typedef struct {
+   const char* initial_input;
+   bool wait_after_command;
+   ghostty_surface_context_e context;
++  // Set to feed the surface yourself: no command starts, output goes in
++  // with ghostty_surface_feed and what the terminal writes back comes to
++  // io_write_cb (with the surface's userdata), the new grid to io_resize_cb.
++  ghostty_surface_io_write_cb io_write_cb;
++  ghostty_surface_io_resize_cb io_resize_cb;
+ } ghostty_surface_config_s;
+ 
+ typedef struct {
+@@ -1256,6 +1271,7 @@ GHOSTTY_API ghostty_surface_config_s ghostty_surface_inherited_config(ghostty_su
+ GHOSTTY_API void ghostty_surface_update_config(ghostty_surface_t, ghostty_config_t);
+ GHOSTTY_API bool ghostty_surface_needs_confirm_quit(ghostty_surface_t);
+ GHOSTTY_API bool ghostty_surface_process_exited(ghostty_surface_t);
++GHOSTTY_API void ghostty_surface_feed(ghostty_surface_t, const uint8_t*, size_t);
+ GHOSTTY_API void ghostty_surface_refresh(ghostty_surface_t);
+ GHOSTTY_API void ghostty_surface_draw(ghostty_surface_t);
+ GHOSTTY_API void ghostty_surface_set_content_scale(ghostty_surface_t, double, double);
+diff --git a/pkg/macos/build.zig b/pkg/macos/build.zig
+index f6b6f2e52..76abd5b7d 100644
+--- a/pkg/macos/build.zig
++++ b/pkg/macos/build.zig
+@@ -74,6 +74,10 @@ pub fn build(b: *std.Build) !void {
+         ) } },
+         .target = target,
+         .optimize = optimize,
++        // Aro turns blocks on for macOS only (its isBlocksSupported asks
++        // `isAtLeast(.macos, ...)`, false on iOS), and the iOS SDK's
++        // CoreGraphics headers use them as much as the macOS one's do.
++        .extra_args = if (target.result.os.tag == .ios) &.{"-fblocks"} else &.{},
+     });
+ 
+     const lib = b.addLibrary(.{
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 5ab905fd6..9404021d6 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -648,10 +648,32 @@ pub fn init(
+         break :command config.command;
+     };
+ 
++    // A surface whose apprt feeds it (termio's host backend) runs no
++    // command: its output comes from Termio.processOutput.
++    const host_io: ?termio.Host.Config = if (comptime @hasDecl(
++        apprt.runtime.Surface,
++        "termioHost",
++    )) rt_surface.termioHost() else null;
++
+     // Start our IO implementation
+     // This separate block ({}) is important because our errdefers must
+     // be scoped here to be valid.
+-    {
++    if (host_io) |host| {
++        var io_mailbox = try termio.Mailbox.initSPSC(alloc);
++        errdefer io_mailbox.deinit(alloc);
++
++        try termio.Termio.init(&self.io, alloc, .{
++            .size = size,
++            .full_config = config,
++            .config = try termio.Termio.DerivedConfig.init(alloc, config),
++            .backend = .{ .host = .init(host) },
++            .mailbox = io_mailbox,
++            .renderer_state = &self.renderer_state,
++            .renderer_wakeup = render_thread.wakeup,
++            .renderer_mailbox = render_thread.mailbox,
++            .surface_mailbox = .{ .surface = self, .app = app_mailbox },
++        });
++    } else {
+         var env = rt_surface.defaultTermioEnv() catch |err| env: {
+             // If an error occurs, we don't want to block surface startup.
+             log.warn("error getting env map for surface err={}", .{err});
+@@ -1371,6 +1393,7 @@ fn childExitedAbnormally(
+     // Build up our command for the error message
+     const command = try std.mem.join(alloc, " ", switch (self.io.backend) {
+         .exec => |*exec| exec.subprocess.args,
++        .host => return,
+     });
+     const runtime_str = try std.fmt.allocPrint(alloc, "{d} ms", .{info.runtime_ms});
+ 
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index 0d78d9456..eb54292d6 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -459,6 +459,10 @@ pub const Surface = struct {
+     /// that getTitle works without the implementer needing to save it.
+     title: ?[:0]const u8 = null,
+ 
++    /// Set when the embedder feeds this surface (Options.io_write_cb):
++    /// termio's host backend instead of a command on a pty.
++    termio_host: ?termio.Host.Config = null,
++
+     /// PrompTTY: lets ghostty_surface_blocks skip history it walked before.
+     blocks_hint: terminal.blocks.Hint = .{},
+ 
+@@ -503,6 +507,19 @@ pub const Surface = struct {
+ 
+         /// Context for the new surface
+         context: apprt.surface.NewSurfaceContext = .window,
++
++        /// Set to make a surface the embedder feeds: no command starts,
++        /// ghostty_surface_feed puts output on the screen, and what the
++        /// terminal writes back (keys, paste, mouse and focus reports,
++        /// query replies) goes to this callback instead of a pty, with
++        /// the surface's userdata. `command`, `working_directory`,
++        /// `env_vars`, `initial_input` and `wait_after_command` are
++        /// ignored. Called on the surface's IO thread.
++        io_write_cb: ?termio.Host.WriteFn = null,
++
++        /// With io_write_cb: the new grid each time the surface resizes,
++        /// on the IO thread.
++        io_resize_cb: ?termio.Host.ResizeFn = null,
+     };
+ 
+     pub fn init(self: *Surface, app: *App, opts: Options) !void {
+@@ -517,6 +534,11 @@ pub const Surface = struct {
+             },
+             .size = .{ .width = 800, .height = 600 },
+             .cursor_pos = .{ .x = -1, .y = -1 },
++            .termio_host = if (opts.io_write_cb) |write| .{
++                .userdata = opts.userdata,
++                .write = write,
++                .resize = opts.io_resize_cb,
++            } else null,
+         };
+ 
+         // Add ourselves to the list of surfaces on the app.
+@@ -1214,6 +1236,11 @@ pub const Surface = struct {
+         };
+     }
+ 
++    /// The core surface asks this whether it is fed by the embedder.
++    pub fn termioHost(self: *const Surface) ?termio.Host.Config {
++        return self.termio_host;
++    }
++
+     pub fn defaultTermioEnv(self: *const Surface) !std.process.Environ.Map {
+         _ = self;
+         var env = try global.environMap();
+@@ -2158,6 +2185,18 @@ pub const CAPI = struct {
+         core_surface.io.output_tap = .{ .callback = callback, .userdata = userdata };
+     }
+ 
++    /// Puts a program's output on a surface the embedder feeds (made
++    /// with io_write_cb), as if read from its pty. Safe from any thread
++    /// but the surface's own callbacks; ignored on any other surface.
++    export fn ghostty_surface_feed(
++        surface: *Surface,
++        ptr: [*]const u8,
++        len: usize,
++    ) void {
++        if (surface.termio_host == null or len == 0) return;
++        surface.core_surface.io.processOutput(ptr[0..len]);
++    }
++
+     /// Tell the surface that it needs to schedule a render
+     export fn ghostty_surface_refresh(surface: *Surface) void {
+         surface.refresh();
+diff --git a/src/build/Config.zig b/src/build/Config.zig
+index 71fa4d289..3f2e8af58 100644
+--- a/src/build/Config.zig
++++ b/src/build/Config.zig
+@@ -796,6 +796,14 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
+             .patch = 0,
+         } },
+ 
++        // The full build's iOS slices (`-Dxcframework-target=ios`): its
++        // Metal shaders need iOS 14.
++        .ios => .{ .semver = .{
++            .major = 14,
++            .minor = 0,
++            .patch = 0,
++        } },
++
+         // This should never happen currently. If we add a new target then
+         // we should add a new case here.
+         else => null,
+diff --git a/src/build/GhosttyXCFramework.zig b/src/build/GhosttyXCFramework.zig
+index 3f3b97eb2..4de37620c 100644
+--- a/src/build/GhosttyXCFramework.zig
++++ b/src/build/GhosttyXCFramework.zig
+@@ -24,6 +24,33 @@ pub fn init(
+         Config.genericMacOSTarget(b, null),
+     ));
+ 
++    // iOS and the iOS simulator, for `-Dxcframework-target=ios`. The full
++    // build stopped targeting iOS upstream; the runtime code (Metal on a
++    // UIView, the null pty) is still there, and a surface on termio's host
++    // backend needs no pty.
++    const ios = try GhosttyLib.initStatic(b, &try deps.retarget(
++        b,
++        b.resolveTargetQuery(.{
++            .cpu_arch = .aarch64,
++            .os_tag = .ios,
++            .os_version_min = Config.osVersionMin(.ios),
++            .abi = null,
++        }),
++    ));
++    const ios_sim = try GhosttyLib.initStatic(b, &try deps.retarget(
++        b,
++        b.resolveTargetQuery(.{
++            .cpu_arch = .aarch64,
++            .os_tag = .ios,
++            .os_version_min = Config.osVersionMin(.ios),
++            .abi = .simulator,
++
++            // The simulator rejects the generic CPU model (missing
++            // "altnzcv" instructions, which is false).
++            .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.apple_a17 },
++        }),
++    ));
++
+     // Generate a headers directory with only ghostty.h and the module
+     // map. We can't use include/ directly because it also contains the
+     // libghostty-vt headers under include/ghostty/, which would trigger
+@@ -53,6 +80,24 @@ pub fn init(
+                 .headers = headers,
+                 .dsym = macos_native.dsym,
+             }},
++
++            .ios => &.{
++                .{
++                    .library = macos_native.output,
++                    .headers = headers,
++                    .dsym = macos_native.dsym,
++                },
++                .{
++                    .library = ios.output,
++                    .headers = headers,
++                    .dsym = ios.dsym,
++                },
++                .{
++                    .library = ios_sim.output,
++                    .headers = headers,
++                    .dsym = ios_sim.dsym,
++                },
++            },
+         },
+     });
+ 
+diff --git a/src/build/GhosttyXcodebuild.zig b/src/build/GhosttyXcodebuild.zig
+index 6f7e18dc3..44ab31ed3 100644
+--- a/src/build/GhosttyXcodebuild.zig
++++ b/src/build/GhosttyXcodebuild.zig
+@@ -40,8 +40,9 @@ pub fn init(
+         .universal => null,
+ 
+         // Native we need to override the architecture in the Xcode
+-        // project with the -arch flag.
+-        .native => switch (builtin.cpu.arch) {
++        // project with the -arch flag. The iOS target's macOS slice is
++        // the native one.
++        .native, .ios => switch (builtin.cpu.arch) {
+             .aarch64 => "arm64",
+             .x86_64 => "x86_64",
+             else => @panic("unsupported macOS arch"),
+diff --git a/src/build/MetallibStep.zig b/src/build/MetallibStep.zig
+index 81c7a4a9f..bf2142643 100644
+--- a/src/build/MetallibStep.zig
++++ b/src/build/MetallibStep.zig
+@@ -24,10 +24,16 @@ output: LazyPath,
+ pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
+     const sdk = switch (opts.target.result.os.tag) {
+         .macos => "macosx",
++        // The simulator uses the device's Metal SDK; the version flag differs.
++        .ios => "iphoneos",
+         else => return null,
+     };
+     const platform_version_arg = switch (opts.target.result.os.tag) {
+         .macos => "-mmacos-version-min",
++        .ios => switch (opts.target.result.abi) {
++            .simulator => "-mios-simulator-version-min",
++            else => "-mios-version-min",
++        },
+         else => null,
+     };
+ 
+@@ -37,6 +43,7 @@ pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
+         b.fmt("{f}", .{v.semver})
+     else switch (opts.target.result.os.tag) {
+         .macos => "10.14",
++        .ios => "14.0",
+         else => unreachable,
+     };
+ 
+diff --git a/src/build/xcframework.zig b/src/build/xcframework.zig
+index 8713a1c9a..7e5bc7a1d 100644
+--- a/src/build/xcframework.zig
++++ b/src/build/xcframework.zig
+@@ -1,3 +1,11 @@
+ /// Target for xcframework builds. This is a separate file so that
+ /// our runtime code doesn't need to import build code.
+-pub const Target = enum { native, universal };
++pub const Target = enum {
++    native,
++    universal,
++
++    /// The native macOS library plus iOS and the iOS simulator (arm64),
++    /// for an embedder that feeds its surfaces bytes from elsewhere
++    /// (termio's host backend): iOS can't start a shell.
++    ios,
++};
+diff --git a/src/font/face.zig b/src/font/face.zig
+index aeb7280c7..12f07b084 100644
+--- a/src/font/face.zig
++++ b/src/font/face.zig
+@@ -26,7 +26,10 @@ pub const Face = switch (options.backend) {
+ /// If a DPI can't be calculated, this DPI is used. This is probably
+ /// wrong on modern devices so it is highly recommended you get the DPI
+ /// using whatever platform method you can.
+-pub const default_dpi = if (builtin.os.tag == .macos) 72 else 96;
++///
++/// UIKit's points are AppKit's (1/72 inch at a content scale of 1), so
++/// iOS takes macOS's DPI: a font size is the same size on both.
++pub const default_dpi = if (builtin.os.tag.isDarwin()) 72 else 96;
+ 
+ /// These are the flags to customize how freetype loads fonts. This is
+ /// only non-void if the freetype backend is enabled.
+diff --git a/src/termio.zig b/src/termio.zig
+index 1fe1696cf..4b5a6e93b 100644
+--- a/src/termio.zig
++++ b/src/termio.zig
+@@ -23,6 +23,7 @@ const message = @import("termio/message.zig");
+ pub const backend = @import("termio/backend.zig");
+ pub const mailbox = @import("termio/mailbox.zig");
+ pub const Exec = @import("termio/Exec.zig");
++pub const Host = @import("termio/Host.zig");
+ pub const Options = @import("termio/Options.zig");
+ pub const OutputTap = @import("termio/OutputTap.zig");
+ pub const Termio = @import("termio/Termio.zig");
+diff --git a/src/termio/Host.zig b/src/termio/Host.zig
+new file mode 100644
+index 000000000..876a14b6c
+--- /dev/null
++++ b/src/termio/Host.zig
+@@ -0,0 +1,202 @@
++//! Host is the backend for a terminal whose program runs somewhere the
++//! embedder reaches and we don't: on another machine, or anywhere from
++//! iOS, which can't start one. Nothing is spawned and there is no pty.
++//! The embedder feeds the program's output in (Termio.processOutput, the
++//! C API's ghostty_surface_feed) and gets back, through callbacks, what
++//! the terminal writes to the program (keys, paste, mouse and focus
++//! reports, query replies) and every new grid size.
++const Host = @This();
++
++const std = @import("std");
++const Allocator = std.mem.Allocator;
++const renderer = @import("../renderer.zig");
++const terminal = @import("../terminal/main.zig");
++const termio = @import("../termio.zig");
++const ProcessInfo = @import("../pty.zig").ProcessInfo;
++
++/// Called with bytes for the program, in order.
++pub const WriteFn = *const fn (
++    userdata: ?*anyopaque,
++    data: [*]const u8,
++    len: usize,
++) callconv(.c) void;
++
++/// Called with the new grid (and its size in pixels, padding excluded),
++/// as a pty would get TIOCSWINSZ.
++pub const ResizeFn = *const fn (
++    userdata: ?*anyopaque,
++    columns: u16,
++    rows: u16,
++    width_px: u32,
++    height_px: u32,
++) callconv(.c) void;
++
++/// Both callbacks run on the surface's IO thread, sometimes with the
++/// terminal locked: they must copy what they need and return without
++/// calling back into the surface.
++pub const Config = struct {
++    userdata: ?*anyopaque = null,
++    write: WriteFn,
++    resize: ?ResizeFn = null,
++};
++
++config: Config,
++
++pub fn init(config: Config) Host {
++    return .{ .config = config };
++}
++
++pub fn deinit(self: *Host) void {
++    _ = self;
++}
++
++pub fn initTerminal(self: *Host, t: *terminal.Terminal) void {
++    // The first grid reaches the host with the surface's first resize,
++    // on the IO thread like every later one.
++    _ = self;
++    _ = t;
++}
++
++pub fn threadEnter(
++    self: *Host,
++    alloc: Allocator,
++    io: *termio.Termio,
++    td: *termio.Termio.ThreadData,
++) !void {
++    _ = self;
++    _ = alloc;
++    _ = io;
++    td.backend = .{ .host = .{} };
++}
++
++pub fn threadExit(self: *Host, td: *termio.Termio.ThreadData) void {
++    _ = self;
++    _ = td;
++}
++
++pub fn focusGained(
++    self: *Host,
++    td: *termio.Termio.ThreadData,
++    focused: bool,
++) !void {
++    // Focus reports (mode 1004) are written by Termio itself; Exec only
++    // polls termios here, which a host has none of.
++    _ = self;
++    _ = td;
++    _ = focused;
++}
++
++pub fn resize(
++    self: *Host,
++    grid_size: renderer.GridSize,
++    screen_size: renderer.ScreenSize,
++) !void {
++    const f = self.config.resize orelse return;
++    f(
++        self.config.userdata,
++        grid_size.columns,
++        grid_size.rows,
++        screen_size.width,
++        screen_size.height,
++    );
++}
++
++pub fn queueWrite(
++    self: *Host,
++    alloc: Allocator,
++    td: *termio.Termio.ThreadData,
++    data: []const u8,
++    linefeed: bool,
++) !void {
++    _ = alloc;
++    _ = td;
++    if (!linefeed) {
++        if (data.len > 0) self.config.write(self.config.userdata, data.ptr, data.len);
++        return;
++    }
++
++    // Linefeed mode (LNM): every \r goes out as \r\n, as Exec does.
++    var buf: [256]u8 = undefined;
++    var len: usize = 0;
++    for (data) |ch| {
++        if (len + 2 > buf.len) {
++            self.config.write(self.config.userdata, &buf, len);
++            len = 0;
++        }
++        buf[len] = ch;
++        len += 1;
++        if (ch == '\r') {
++            buf[len] = '\n';
++            len += 1;
++        }
++    }
++    if (len > 0) self.config.write(self.config.userdata, &buf, len);
++}
++
++pub fn childExitedAbnormally(
++    self: *Host,
++    gpa: Allocator,
++    t: *terminal.Terminal,
++    exit_code: u32,
++    runtime_ms: u64,
++) !void {
++    // There is no child.
++    _ = self;
++    _ = gpa;
++    _ = t;
++    _ = exit_code;
++    _ = runtime_ms;
++}
++
++pub fn getProcessInfo(self: *Host, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
++    // The program and its pty are the host's.
++    _ = self;
++    return null;
++}
++
++/// Host keeps no state on the IO thread.
++pub const ThreadData = struct {
++    pub fn deinit(self: *ThreadData, alloc: Allocator) void {
++        _ = self;
++        _ = alloc;
++    }
++};
++
++const testing = std.testing;
++
++const TestSink = struct {
++    out: [64]u8 = undefined,
++    len: usize = 0,
++    grid: [2]u16 = .{ 0, 0 },
++
++    fn write(ud: ?*anyopaque, data: [*]const u8, len: usize) callconv(.c) void {
++        const self: *TestSink = @ptrCast(@alignCast(ud.?));
++        @memcpy(self.out[self.len..][0..len], data[0..len]);
++        self.len += len;
++    }
++
++    fn resize(ud: ?*anyopaque, columns: u16, rows: u16, _: u32, _: u32) callconv(.c) void {
++        const self: *TestSink = @ptrCast(@alignCast(ud.?));
++        self.grid = .{ columns, rows };
++    }
++};
++
++test "Host: writes go to the callback, with CRLF in linefeed mode" {
++    var sink: TestSink = .{};
++    var host: Host = .init(.{
++        .userdata = &sink,
++        .write = TestSink.write,
++        .resize = TestSink.resize,
++    });
++    var td: termio.Termio.ThreadData = undefined;
++
++    try host.queueWrite(testing.allocator, &td, "ls\r", false);
++    try testing.expectEqualStrings("ls\r", sink.out[0..sink.len]);
++
++    sink.len = 0;
++    try host.queueWrite(testing.allocator, &td, "a\rb\r", true);
++    try testing.expectEqualStrings("a\r\nb\r\n", sink.out[0..sink.len]);
++
++    try host.resize(.{ .columns = 80, .rows = 24 }, .{ .width = 800, .height = 480 });
++    try testing.expectEqual([2]u16{ 80, 24 }, sink.grid);
++}
+diff --git a/src/termio/backend.zig b/src/termio/backend.zig
+index c29009acb..8b071fb20 100644
+--- a/src/termio/backend.zig
++++ b/src/termio/backend.zig
+@@ -11,28 +11,34 @@ const ProcessInfo = @import("../pty.zig").ProcessInfo;
+ const WRITE_REQ_PREALLOC = std.math.pow(usize, 2, 5);
+ 
+ /// The kinds of backends.
+-pub const Kind = enum { exec };
++pub const Kind = enum { exec, host };
+ 
+ /// Configuration for the various backend types.
+ pub const Config = union(Kind) {
+     /// Exec uses posix exec to run a command with a pty.
+     exec: termio.Exec.Config,
++
++    /// Host has no program: the embedder feeds output and takes writes.
++    host: termio.Host.Config,
+ };
+ 
+ /// Backend implementations. A backend is responsible for owning the pty
+ /// behavior and providing read/write capabilities.
+ pub const Backend = union(Kind) {
+     exec: termio.Exec,
++    host: termio.Host,
+ 
+     pub fn deinit(self: *Backend) void {
+         switch (self.*) {
+             .exec => |*exec| exec.deinit(),
++            .host => |*host| host.deinit(),
+         }
+     }
+ 
+     pub fn initTerminal(self: *Backend, t: *terminal.Terminal) void {
+         switch (self.*) {
+             .exec => |*exec| exec.initTerminal(t),
++            .host => |*host| host.initTerminal(t),
+         }
+     }
+ 
+@@ -44,12 +50,14 @@ pub const Backend = union(Kind) {
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.threadEnter(alloc, io, td),
++            .host => |*host| try host.threadEnter(alloc, io, td),
+         }
+     }
+ 
+     pub fn threadExit(self: *Backend, td: *termio.Termio.ThreadData) void {
+         switch (self.*) {
+             .exec => |*exec| exec.threadExit(td),
++            .host => |*host| host.threadExit(td),
+         }
+     }
+ 
+@@ -60,6 +68,7 @@ pub const Backend = union(Kind) {
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.focusGained(td, focused),
++            .host => |*host| try host.focusGained(td, focused),
+         }
+     }
+ 
+@@ -70,6 +79,7 @@ pub const Backend = union(Kind) {
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.resize(grid_size, screen_size),
++            .host => |*host| try host.resize(grid_size, screen_size),
+         }
+     }
+ 
+@@ -82,6 +92,7 @@ pub const Backend = union(Kind) {
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.queueWrite(alloc, td, data, linefeed),
++            .host => |*host| try host.queueWrite(alloc, td, data, linefeed),
+         }
+     }
+ 
+@@ -99,6 +110,12 @@ pub const Backend = union(Kind) {
+                 exit_code,
+                 runtime_ms,
+             ),
++            .host => |*host| try host.childExitedAbnormally(
++                gpa,
++                t,
++                exit_code,
++                runtime_ms,
++            ),
+         }
+     }
+ 
+@@ -108,6 +125,7 @@ pub const Backend = union(Kind) {
+     pub fn getProcessInfo(self: *Backend, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+         return switch (self.*) {
+             .exec => |*exec| exec.getProcessInfo(info),
++            .host => |*host| host.getProcessInfo(info),
+         };
+     }
+ };
+@@ -115,10 +133,12 @@ pub const Backend = union(Kind) {
+ /// Termio thread data. See termio.ThreadData for docs.
+ pub const ThreadData = union(Kind) {
+     exec: termio.Exec.ThreadData,
++    host: termio.Host.ThreadData,
+ 
+     pub fn deinit(self: *ThreadData, alloc: Allocator) void {
+         switch (self.*) {
+             .exec => |*exec| exec.deinit(alloc),
++            .host => |*host| host.deinit(alloc),
+         }
+     }
+ 

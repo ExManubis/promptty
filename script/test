@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-script/build-engine >/dev/null  # rebuilds only when the pin or a patch changed
+script/build-engine --ios >/dev/null  # rebuilds only when the pin or a patch changed; iOS for the iPhone app
 swift test
 # The portable modules, which the iPhone app shares, built for iOS so a Mac-only API slipping into
-# one fails here. Package schemes, so GhosttyKit (macOS only) is never built for iOS.
-for scheme in WorkspaceModel Preferences CommandBlocks CommandEditing PaneActivity AgentHooks RemoteControl RemoteProtocol RemoteClient PrompTTYChrome; do
+# one fails here. Package schemes, so GhosttyBridge (macOS only) is never built for iOS.
+for scheme in WorkspaceModel Preferences CommandBlocks CommandEditing PaneActivity AgentHooks RemoteControl RemoteProtocol RemoteClient PrompTTYChrome GhosttyMirror; do
   xcodebuild -scheme "$scheme" -destination 'generic/platform=iOS Simulator' \
     -derivedDataPath .build/DerivedData-iOS build -quiet
 done

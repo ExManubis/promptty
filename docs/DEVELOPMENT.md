@@ -12,6 +12,7 @@ later ones about one.
     ./script/run                  # builds Debug and launches the app
     ./script/test                 # library tests, an iOS Simulator build of the portable modules, then an app build
     ./script/build-engine --force # rebuilds the engine (run, test and release rebuild it when the pin or a patch changed)
+    ./script/build-engine --ios   # with the iOS slices too (test, run-ios and test-ios ask for them; run and release don't)
     ./script/release              # a Developer ID signed, notarized disk image in dist/
 
 `script/build-engine` uses `$ZIG` if set, else Homebrew's `zig@0.16`, else the `zig` on `PATH`,
@@ -24,7 +25,8 @@ and stops unless it is version 0.16.
     Sources/CommandEditing   the input bar's logic: zsh integration, history, completion, vi mode, git status
     Sources/CommandBlocks    command blocks: where each command and its output start and end
     Sources/PaneActivity     what runs in a pane: foreground process, known programs and agents, repositories
-    Sources/GhosttyBridge    the only code that touches libghostty
+    Sources/GhosttyBridge    the only code that touches libghostty on the Mac
+    Sources/GhosttyMirror    the iPhone's libghostty: a surface fed a pane's bytes, no shell (iOS only)
     Sources/AgentHooks       agents' hook messages, the socket the app listens on, the hook state, Claude's settings merge
     Sources/promptty-hook    the helper agents' hooks run, bundled in the app; sends one line to the socket
     Sources/RemoteControl    the control socket's requests and responses, its server and client, `promptty`'s argument parsing
@@ -49,7 +51,7 @@ of a program (its `Outcome` is shared), the hook listener (`HookListener`) and t
 `ProcessTree.snapshot`, `ProcessArguments.read` and `.workingDirectory`). `script/test` builds the
 portable modules for the iOS Simulator, so a Mac-only API slipping into one fails it.
 `GhosttyBridge`, `PrompTTYApp`, `promptty` and `promptty-hook` are macOS only; only
-`GhosttyBridge` imports GhosttyKit.
+`GhosttyBridge` and, for iOS, `GhosttyMirror` import GhosttyKit.
 
 `PrompTTYChrome` is the SwiftUI chrome both apps draw with: `ProgramStack` and `ProgramIcon` (the
 program logos are its asset catalog), `ActivityIndicator`, `WorkingDots`, `ProgressRing`,
@@ -125,6 +127,23 @@ Every message is pinned by a fixture in `Tests/RemoteProtocolTests/Fixtures`, so
 wire format shows in review; `PROMPTTY_RECORD_FIXTURES=1 swift test --filter RemoteProtocolTests`
 writes them again. Features that add messages (subscriptions, prompt answers, mirroring) add them
 here, with fixtures.
+
+### The phone's terminal
+
+iOS can't start a shell, so the phone's terminal is a libghostty surface the app feeds:
+`GhosttyMirror`'s `MirrorSurfaceView` (engine patch 0006, `Engine/patches/README.md`). `feed(_:)`
+puts a pane's output on screen; `onWrite` gets what the terminal sends the program (typing, the key
+row, pastes, taps as mouse reports, and its own replies to the program's queries) and `onResize`
+the grid the phone has room for. It is Metal-drawn by libghostty, as on the Mac. Its config is the
+Mac's `terminal.conf` with the theme inline (the phone has no theme files) and `SF Mono` mapped to
+the iOS system monospaced font (`MirrorEngine.phoneConfig`). The engine's iOS slices come from
+`script/build-engine --ios`.
+
+Until the Mac streams panes, a Debug build shows it on its own: `script/run-ios "iPhone 18 Pro"
+-mirror vim` (or `-mirror claude`) plays a recording of what vim or Claude Code wrote to its pty on
+the Mac (`iOS/PrompTTYPhone/Debug/Recordings`, made on a 54×40 pty; the terminal is sized to that
+grid first), with every byte the terminal sends back shown under it. `MirrorTests` (in
+`script/test-ios`) types on it and checks the bytes.
 
 ## Settings and config
 

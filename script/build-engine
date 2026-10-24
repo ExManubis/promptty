@@ -11,6 +11,8 @@
 #
 #   script/build-engine           build if Engine/GhosttyKit.xcframework is missing, or was built
 #                                 from another Ghostty pin or other patches
+#   script/build-engine --ios     with iOS and iOS simulator slices too, for the iPhone app
+#                                 (a few minutes more; a Mac-only build takes them when present)
 #   script/build-engine --force   rebuild anyway
 #   ZIG=/path/to/zig script/build-engine
 set -euo pipefail
@@ -22,16 +24,28 @@ GHOSTTY=.build/engine/ghostty
 OUT=Engine/GhosttyKit.xcframework
 RESOURCES=Engine/Sources/GhosttyKitResources/Resources
 REQUIRED_SYMBOLS=(ghostty_surface_new ghostty_surface_read_text_format ghostty_surface_blocks ghostty_surface_block_text
-  ghostty_surface_set_output_tap)
+  ghostty_surface_set_output_tap ghostty_surface_feed)
 
 fail() { echo "build-engine: $1" >&2; exit 1; }
 
-# What the engine is built from: the pin and the patches. Kept beside the build, so a checkout
-# that moves to another pin or other patches rebuilds instead of building the app against a
-# stale header.
+force=false
+target=native
+for arg in "$@"; do
+  case "$arg" in
+    --force) force=true ;;
+    --ios) target=ios ;;
+    *) fail "unknown option $arg (--force, --ios)" ;;
+  esac
+done
+
+# What the engine is built from: the pin and the patches, then the slices (native or ios). Kept
+# beside the build, so a checkout that moves to another pin or other patches rebuilds instead of
+# building the app against a stale header. An ios build serves a Mac-only one, not the reverse.
 STAMP=$OUT/.built-from
 stamp() { { echo "$PIN"; cat Engine/patches/*.patch; } | shasum -a 256 | cut -d' ' -f1; }
-if [ "${1:-}" != "--force" ] && [ -d "$OUT" ] && [ "$(cat "$STAMP" 2>/dev/null)" = "$(stamp)" ]; then
+built=$(cat "$STAMP" 2>/dev/null || true)
+if ! $force && [ -d "$OUT" ] && [ "${built%% *}" = "$(stamp)" ] \
+  && { [ "$target" = native ] || [ "${built#* }" = ios ]; }; then
   echo "Engine already built ($OUT); --force rebuilds"
   exit 0
 fi
@@ -78,21 +92,24 @@ rm -rf "$GHOSTTY/zig-out" "$GHOSTTY/macos/GhosttyKit.xcframework"
   cd "$GHOSTTY"
   SDKROOT=$(xcrun --sdk macosx --show-sdk-path) "$ZIG" build \
     -Doptimize=ReleaseFast -Dstrip=false \
-    -Demit-macos-app=false -Demit-xcframework=true -Dxcframework-target=native
+    -Demit-macos-app=false -Demit-xcframework=true -Dxcframework-target="$target"
 )
 
-LIB=$(find "$GHOSTTY/macos/GhosttyKit.xcframework" -name "libghostty*.a" | head -1)
-[ -n "$LIB" ] || fail "the build made no library"
-symbols=$(nm -g "$LIB" 2>/dev/null)
-for symbol in "${REQUIRED_SYMBOLS[@]}"; do
-  grep -q " T _$symbol\$" <<< "$symbols" || fail "the library lacks $symbol"
-done
+# Every slice: macOS, and with --ios the iOS device and simulator.
+LIBS=$(find "$GHOSTTY/macos/GhosttyKit.xcframework" -name "libghostty*.a")
+[ -n "$LIBS" ] || fail "the build made no library"
+while IFS= read -r lib; do
+  symbols=$(nm -g "$lib" 2>/dev/null)
+  for symbol in "${REQUIRED_SYMBOLS[@]}"; do
+    grep -q " T _$symbol\$" <<< "$symbols" || fail "$(basename "$(dirname "$lib")") lacks $symbol"
+  done
+done <<< "$LIBS"
 
 SHARE=$GHOSTTY/zig-out/share
 [ -f "$SHARE/terminfo/78/xterm-ghostty" ] || fail "the build made no terminfo"
 rm -rf "$OUT" "$RESOURCES"
 ditto "$GHOSTTY/macos/GhosttyKit.xcframework" "$OUT"
-stamp > "$STAMP"
+echo "$(stamp) $target" > "$STAMP"
 mkdir -p "$RESOURCES/ghostty"
 ditto "$SHARE/terminfo" "$RESOURCES/terminfo"
 ditto "$SHARE/ghostty/shell-integration" "$RESOURCES/ghostty/shell-integration"

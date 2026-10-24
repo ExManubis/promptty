@@ -8,7 +8,15 @@ struct PrompTTYPhoneApp: App {
 
     var body: some Scene {
         WindowGroup {
+            #if DEBUG
+            if let recording = MirrorDebug.recording {
+                MirrorDebugScreen(recording: recording)
+            } else {
+                RootView(model: model)
+            }
+            #else
             RootView(model: model)
+            #endif
         }
     }
 }
