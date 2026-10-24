@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# The iPhone app's UI smoke tests, on an iPhone simulator (the first "iPhone 18 Pro", or $DEVICE).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+device=${DEVICE:-iPhone 18 Pro}
+xcodegen generate >/dev/null
+id=$(xcrun simctl list devices available | grep -F "    $device (" | head -1 | grep -oE '[0-9A-F-]{36}')
+[ -n "$id" ] || { echo "No simulator named \"$device\""; exit 1; }
+# Only the tests' lines: xcodebuild's own log runs to thousands.
+set +e
+xcodebuild test -project PrompTTY.xcodeproj -scheme PrompTTYPhone -destination "id=$id" \
+  -derivedDataPath .build/DerivedData-Phone 2>&1 | grep -E "^Test Case|error:|\*\* TEST"
+status=${PIPESTATUS[0]}
+set -e
+[ "$status" -eq 0 ] && echo "OK"
+exit "$status"

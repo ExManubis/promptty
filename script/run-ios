@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Builds the iPhone app and launches it in a simulator. Usage:
+#   script/run-ios                                  the "iPhone Duo" simulator
+#   script/run-ios "iPhone 18 Pro"
+#   script/run-ios "iPhone Duo" -open "Remote API"  launch arguments after the device:
+#       -open <tab>               open that tab
+#       -activity YES             show the Activity
+#       -posture compact|flat|halfFolded
+#       -canvas 951x669           lay out at that size, scaled to fit (an open iPhone Duo's layouts in
+#                                 a simulator that stays folded)
+set -euo pipefail
+cd "$(dirname "$0")/.."
+device=${1:-iPhone Duo}
+shift || true
+xcodegen generate >/dev/null
+id=$(xcrun simctl list devices available -j | python3 -c '
+import json, sys
+name = sys.argv[1]
+devices = [d for runtime in json.load(sys.stdin)["devices"].values() for d in runtime if d["name"] == name]
+devices.sort(key=lambda d: d["state"] != "Booted")
+print(devices[0]["udid"] if devices else "")' "$device")
+[ -n "$id" ] || { echo "No simulator named \"$device\" (xcrun simctl list devices)"; exit 1; }
+xcrun simctl boot "$id" 2>/dev/null || true
+xcodebuild -project PrompTTY.xcodeproj -scheme PrompTTYPhone -configuration Debug -destination "id=$id" \
+  -derivedDataPath .build/DerivedData-Phone build -quiet
+xcrun simctl install "$id" .build/DerivedData-Phone/Build/Products/Debug-iphonesimulator/PrompTTY.app
+xcrun simctl terminate "$id" dev.promptty.PrompTTY2.phone 2>/dev/null || true
+xcrun simctl launch "$id" dev.promptty.PrompTTY2.phone "$@" >/dev/null
+echo "$id"

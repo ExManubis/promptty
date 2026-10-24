@@ -12,4 +12,7 @@ done
 xcodegen generate >/dev/null
 xcodebuild -project PrompTTY.xcodeproj -scheme PrompTTYApp -configuration Debug -destination "platform=macOS,arch=arm64" \
   -derivedDataPath .build/DerivedData CURRENT_PROJECT_VERSION="$(git rev-list --count HEAD)" build -quiet
+# The iPhone app (its UI tests run in script/test-ios: they need a simulator, and minutes).
+xcodebuild -project PrompTTY.xcodeproj -scheme PrompTTYPhone -configuration Debug -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath .build/DerivedData-Phone build -quiet
 echo "OK"

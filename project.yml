@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: dev.promptty
   deploymentTarget:
     macOS: "26.0"
+    iOS: "26.0"
   createIntermediateGroups: true
 packages:
   PrompTTYCore:
@@ -146,6 +147,44 @@ targets:
           ENABLE_HARDENED_RUNTIME: YES
           OTHER_CODE_SIGN_FLAGS: "--timestamp"
           CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+  # PrompTTY for iPhone and iPhone Duo (iOS/): for now on demo data; built from the shared packages.
+  PrompTTYPhone:
+    type: application
+    platform: iOS
+    sources:
+      - path: iOS/PrompTTYPhone
+    dependencies:
+      - package: PrompTTYCore
+        product: PrompTTYChrome
+      - package: PrompTTYCore
+        product: PaneActivity
+      - package: PrompTTYCore
+        product: Preferences
+    settings:
+      base:
+        PRODUCT_NAME: PrompTTY
+        PRODUCT_BUNDLE_IDENTIFIER: dev.promptty.PrompTTY2.phone
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+  PrompTTYPhoneUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: iOS/PrompTTYPhoneUITests
+    dependencies:
+      - target: PrompTTYPhone
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.promptty.PrompTTY2.phone.uitests
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: PrompTTYPhone
 schemes:
   PrompTTYApp:
     build:
@@ -153,3 +192,13 @@ schemes:
         PrompTTYApp: all
     run:
       config: Debug
+  PrompTTYPhone:
+    build:
+      targets:
+        PrompTTYPhone: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - PrompTTYPhoneUITests
