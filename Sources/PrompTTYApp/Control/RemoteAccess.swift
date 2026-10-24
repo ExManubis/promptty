@@ -25,6 +25,8 @@ final class RemoteAccess {
     }
 
     private var server: RemoteServer?
+    /// The panes mirrored to connected devices; set once by the coordinator.
+    var mirror: MirrorHub?
     private var handler: RemoteServer.Handler?
     private var workspace: RemoteServer.Workspace?
     private var publishing: Task<Void, Never>?
@@ -98,8 +100,13 @@ final class RemoteAccess {
         }
         guard enabled, let handler else { return }
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-        let server = RemoteServer(host: address, owner: node.ownerID, server: "PrompTTY \(version)", mac: TabStripView.computerName,
-                                  identify: identify, handler: handler, workspace: workspace,
+        var port = RemoteServer.defaultPort
+        #if DEBUG
+        // PROMPTTY_REMOTE_PORT: another port, for driven runs side by side on the loopback address.
+        if let custom = ProcessInfo.processInfo.environment["PROMPTTY_REMOTE_PORT"].flatMap(UInt16.init) { port = custom }
+        #endif
+        let server = RemoteServer(host: address, port: port, owner: node.ownerID, server: "PrompTTY \(version)", mac: TabStripView.computerName,
+                                  identify: identify, handler: handler, workspace: workspace, mirror: mirror,
                                   onClients: { clients in MainActor.assumeIsolated { RemoteAccess.shared.clients = clients } },
                                   onFailure: { reason in MainActor.assumeIsolated { RemoteAccess.shared.failed(reason) } })
         do {

@@ -101,6 +101,8 @@ public struct Settings: Equatable, Sendable {
     public var remoteControl = true
     /// The remote API listens on the Mac's Tailscale address for the owner's other devices.
     public var remoteAccess = false
+    /// Those devices may type into the panes they mirror, not only watch them.
+    public var remoteTyping = false
 
     // Keyboard
     /// The quick terminal drops down on its global shortcut (`ShortcutAction.quickTerminal`).
@@ -150,7 +152,7 @@ extension Settings: Codable {
         case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, windowOpacity, tabLayout, sidebarWidth, tabListHidden
         case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, secureKeyboardEntry, shortcuts
         case clipboardRead, clipboardWrite, clipboardReadPrograms, clipboardWritePrograms
-        case notifyCommands, notifyAfterSeconds, restoreScrollback, markUnseenOutput, quickTerminal, remoteControl, remoteAccess, savedCommands, paneHeaders, translucentPanes
+        case notifyCommands, notifyAfterSeconds, restoreScrollback, markUnseenOutput, quickTerminal, remoteControl, remoteAccess, remoteTyping, savedCommands, paneHeaders, translucentPanes
     }
 
     public init(from decoder: Decoder) throws {
@@ -185,6 +187,7 @@ extension Settings: Codable {
         s.quickTerminal = value(.quickTerminal, s.quickTerminal)
         s.remoteControl = value(.remoteControl, s.remoteControl)
         s.remoteAccess = value(.remoteAccess, s.remoteAccess)
+        s.remoteTyping = value(.remoteTyping, s.remoteTyping)
         s.savedCommands = value(.savedCommands, s.savedCommands)
         s.paneHeaders = value(.paneHeaders, s.paneHeaders)
         s.translucentPanes = value(.translucentPanes, s.translucentPanes)
@@ -239,6 +242,7 @@ extension Settings: Codable {
         try c.encode(quickTerminal, forKey: .quickTerminal)
         try c.encode(remoteControl, forKey: .remoteControl)
         try c.encode(remoteAccess, forKey: .remoteAccess)
+        try c.encode(remoteTyping, forKey: .remoteTyping)
         try c.encode(savedCommands, forKey: .savedCommands)
         try c.encode(paneHeaders, forKey: .paneHeaders)
         try c.encode(translucentPanes, forKey: .translucentPanes)

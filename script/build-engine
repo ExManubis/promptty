@@ -24,7 +24,7 @@ GHOSTTY=.build/engine/ghostty
 OUT=Engine/GhosttyKit.xcframework
 RESOURCES=Engine/Sources/GhosttyKitResources/Resources
 REQUIRED_SYMBOLS=(ghostty_surface_new ghostty_surface_read_text_format ghostty_surface_blocks ghostty_surface_block_text
-  ghostty_surface_set_output_tap ghostty_surface_feed)
+  ghostty_surface_set_output_tap ghostty_surface_feed ghostty_surface_read_vt_snapshot)
 
 fail() { echo "build-engine: $1" >&2; exit 1; }
 

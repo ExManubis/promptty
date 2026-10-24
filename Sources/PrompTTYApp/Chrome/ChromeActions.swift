@@ -37,6 +37,8 @@ protocol ChromeActions: AnyObject {
     func closeFind(in pane: PaneID)
     /// Whether secure keyboard input is on for a pane (observes that pane alone).
     func isSecure(_ pane: PaneID) -> Bool
+    /// The remote clients mirroring a pane (observes that pane alone).
+    func remote(for pane: PaneID) -> PaneRemote?
     /// The agents of every tab, in every window (each tab's observed alone).
     var agentList: AgentList { get }
     /// Brings a pane forward, in whichever window it is.

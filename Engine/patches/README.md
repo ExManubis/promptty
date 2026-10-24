@@ -33,6 +33,13 @@ order: a patch may build on an earlier one.
   CoreGraphics headers (it enables blocks for macOS only), and the default DPI is 72 on iOS as on
   macOS, so a font size is the same size on both (it was 96, a third larger). Zig tests:
   `zig build test -Dtest-filter=Host:`.
+- `0007-vt-snapshot`: `ghostty_surface_read_vt_snapshot`, the terminal's state as VT bytes that
+  rebuild it in a fresh terminal of the same size (scrollback up to a limit, the screen, cursor,
+  modes, the alternate screen with the primary behind it, changed palette entries), ending with
+  the escape sequence or UTF-8 character the pty output stopped in the middle of (Termio's stream
+  now keeps it: upstream's continuation tracking, up to 16 KiB). Taken with the terminal locked,
+  and a callback there gets the grid size: with the output tap (0005) a mirror knows exactly
+  which chunks the snapshot holds. Its Zig tests replay a snapshot into a second terminal.
 
 ## Authoring a patch
 
@@ -55,6 +62,6 @@ Move `PIN` in `script/build-engine` and run `script/build-engine --force`. It fa
 of the first patch that no longer applies. Redo that change against the new source (committing
 each patch in a scratch branch and `git apply --3way` the next one helps), regenerate the patch
 files from the commits, and run the patches' Zig tests: `zig build test -Dtest-filter=blocks:`
-and `-Dtest-filter=output_tap:` in `.build/engine/ghostty`. Delete a patch once upstream has an
+`-Dtest-filter=output_tap:` and `-Dtest-filter=vt_snapshot:` in `.build/engine/ghostty`. Delete a patch once upstream has an
 equivalent: `0002`, which parsed each synchronized update (mode 2026) whole so Claude Code
 rendered smoothly, went when Ghostty's pipelined pty reader made it render at 60 fps without it.

@@ -22,6 +22,8 @@ public struct RemoteSession: Sendable {
         case blocks(BlocksParams, id: RemoteID)
         /// A key pressed in a pane that waits for permission answers `id`.
         case answer(AnswerParams, id: RemoteID)
+        /// Mirroring a pane (`MirrorHub`): attach, input, control; its reply answers `id`.
+        case mirror(MirrorCall, id: RemoteID)
         /// After the reply: a peer that speaks another version is hung up on.
         case close
     }
@@ -81,6 +83,7 @@ public struct RemoteSession: Sendable {
             return [.answer(params, id: request.id)]
         default: break
         }
+        if let action = Self.mirrorAction(request) { return [action] }
         guard RemoteProtocol.controlMethods.contains(request.method) else {
             return [fail(request, RemoteError.methodNotFound, "no method \(request.method)")]
         }

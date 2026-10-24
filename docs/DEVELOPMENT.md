@@ -123,6 +123,44 @@ frame (`RemoteMessage`: a request, its response, or a notification for an event)
   digit, `return`, `escape`, `y`, `n` or `interrupt` (`PromptKey`, `answerPrompt` in GhosttyBridge).
   A pane that waits for nothing refuses it (`notWaiting`, -32004), so a late tap types nothing.
 
+**Mirroring a pane** (`Mirror.swift`) shows a live terminal on the device. A pane's output is one
+stream of bytes, named by `stream` (a UUID) and counted from 0 by `seq`:
+
+- `attach` (`AttachParams`: the pane as `-p` names one, `scrollback` rows, 1000 by default) answers
+  with `Attached`: the pane's id, a `position` (stream and seq), a `snapshot` and the pane's
+  `MirrorState`. The snapshot is VT bytes, base64 like every byte in the protocol: fed to a fresh
+  terminal of the state's `cols`×`rows`, they rebuild the Mac's (a full reset, the scrollback, the
+  screen, the cursor and its style, the modes such as the alternate screen with the shell's screen
+  behind it, cursor visibility, bracketed paste and mouse reporting, the scrolling region, tab
+  stops, the colors programs changed, and the escape sequence the output stopped in the middle of).
+  It holds exactly the output before `seq`.
+- Then `output` events (`MirrorOutput`): the bytes from their `seq` on, as the programs wrote them,
+  at most 64 KiB each, each starting where the last ended. A gap means bytes were lost: attach
+  again. Feeding them to the same terminal keeps it the Mac's.
+- A client that reconnects attaches with `resume` (the stream and the seq it got to) and, while the
+  Mac still has those bytes (the last 2 MB of each pane, kept a minute after its last client
+  goes), gets `Attached` without a snapshot and the bytes it missed; otherwise a fresh snapshot.
+- `pane.state` (`MirrorState`) comes when the pane's grid, its controller, its password prompt (the
+  program turned echo off: a client hides what it echoes) or whether the client may type changes;
+  `seq` says about where in the output a new size begins. `detached` (`Detached`) says the Mac
+  stopped mirroring the pane to the client: it `closed`, the client fell `behind` (more than 8 MB of
+  output waiting to be sent to it), or remote access `stopped`.
+- `input` (`InputParams`) types `text` as key presses (Return, Tab, Escape and control characters as
+  those keys), pastes `paste` (bracketed when the program asked for that), or presses a `key`
+  (`RemoteKey`: a named key or one character, with `shift`, `ctrl`, `alt`, `super`), through the
+  surface's key input as the Mac's keyboard does. Only while Settings allows typing
+  (`typingOff` otherwise).
+- By default a client sees the pane at the Mac's size. `control.take` (`ControlTake`: the client's
+  grid) resizes the pane to the client's grid until it sends `control.release`, detaches or
+  disconnects; then the pane gets the Mac's size back. One client has control at a time: taking it
+  takes it from the one that had it, and every attached client is told. `resize` changes the grid
+  while in control (`notInControl` otherwise). Several clients can attach to a pane at once, each
+  scrolling its own terminal.
+- `detach` stops it. Mirror methods on a pane not attached to answer `notAttached`.
+
+The messages name panes and streams, not connections, so a daemon speaking for a Mac (PTY-77) can
+send them unchanged.
+
 Every message is pinned by a fixture in `Tests/RemoteProtocolTests/Fixtures`, so a change to the
 wire format shows in review; `PROMPTTY_RECORD_FIXTURES=1 swift test --filter RemoteProtocolTests`
 writes them again. Features that add messages (subscriptions, prompt answers, mirroring) add them
@@ -185,13 +223,25 @@ shows the address to connect to and the devices connected, each with Disconnect.
 - **What it answers**: `hello` first (`RemoteSession`), then the control socket's commands, answered
   by the same handler as `promptty`'s (so Settings › Tabs › Command line must be on too).
 - **Limits** as the control socket's: at most 64 connections, messages up to 1 MB, 10 s to say hello.
+- **Mirroring** (`MirrorHub`, with each pane's `MirrorFeed`; the app's side in
+  `WorkspaceCoordinator+Mirror.swift`): a device can always watch a pane; typing into one is a
+  setting of its own under Remote access, off by default. A pane mirrored shows a badge at its
+  bottom right with the devices watching it, orange while one has control: then the terminal keeps
+  the device's grid whatever its pane's size (`TerminalSurfaceView.gridOverride`), drawn from the
+  top left. The snapshot is libghostty's (`ghostty_surface_read_vt_snapshot`, patch 0006), taken
+  with the terminal locked and lined up with the output tap (patch 0005) by `TerminalOutput`'s byte
+  count, read in the same lock, so the snapshot and the bytes after it never overlap or leave a
+  gap. The output goes to each client as it is read; one with more than 8 MB waiting is detached
+  (`behind`). A snapshot is as big as its scrollback (1000 rows of colored text are a few hundred
+  KB): a client raises its WebSocket's message limit (URLSession's is 1 MB) or asks for less.
 
 A connection from the Mac to its own Tailscale address does not complete with Network.framework's
 listener (the listener sees it, the handshake never finishes; a BSD socket on the same address is
 reached), so try it from another device on the tailnet. The tests run the server on the loopback
 address with a stand-in for Tailscale. A Debug build started with `PROMPTTY_REMOTE_HOST=127.0.0.1`
 listens on the loopback address instead and takes every caller for the owner, for driven runs
-(`eval settings remote on`, `eval remote`) and the iPhone app in the Simulator.
+(`eval settings remote on`, `eval remote`) and the iPhone app in the Simulator;
+`PROMPTTY_REMOTE_PORT` moves it off 7445, for two driven runs at once.
 
 ## Restored output
 

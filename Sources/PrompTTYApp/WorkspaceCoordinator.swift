@@ -58,6 +58,8 @@ final class WorkspaceCoordinator: GhosttyActionSink {
         for pane in allPaneIDs {
             activity.status(for: pane).setSecure(secureInput.isSecure(pane))
         }
+        // A password prompt came or went: clients mirroring a pane are told.
+        remoteSecureInputChanged()
     }
 
     /// Every pane, window by window, tab by tab.
@@ -137,6 +139,7 @@ final class WorkspaceCoordinator: GhosttyActionSink {
 
     /// The remote API, on while Settings says so (`RemoteAccess`).
     private func applyRemoteAccess(_ settings: Preferences.Settings) {
+        configureRemoteMirror(typing: settings.remoteTyping)
         RemoteAccess.shared.configure(enabled: settings.remoteAccess, handler: controlHandler, workspace: remoteWorkspace)
     }
 
