@@ -14,6 +14,8 @@ let package = Package(
         .library(name: "PaneActivity", targets: ["PaneActivity"]),
         .library(name: "CommandBlocks", targets: ["CommandBlocks"]),
         .library(name: "AgentHooks", targets: ["AgentHooks"]),
+        // The SwiftUI chrome the Mac app and the iPhone app share: program tiles, activity, rows.
+        .library(name: "PrompTTYChrome", targets: ["PrompTTYChrome"]),
         // Claude Code's (and Codex's) hooks run it to tell the app what the agent does; the app
         // bundle carries its own copy (project.yml).
         .executable(name: "promptty-hook", targets: ["promptty-hook"]),
@@ -37,6 +39,7 @@ let package = Package(
         .target(name: "CommandBlocks"),
         .testTarget(name: "CommandBlocksTests", dependencies: ["CommandBlocks"]),
         .target(name: "AgentHooks"),
+        .target(name: "PrompTTYChrome", dependencies: ["PaneActivity"], resources: [.process("ProgramLogos.xcassets")]),
         .executableTarget(name: "promptty-hook", dependencies: ["AgentHooks"]),
         // Depends on the helper so `swift test` builds it: the tests run it.
         .testTarget(name: "AgentHooksTests", dependencies: ["AgentHooks", "promptty-hook"]),

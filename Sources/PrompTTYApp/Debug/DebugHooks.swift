@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import IOSurface
+import PrompTTYChrome
 import SwiftUI
 import CommandBlocks
 import GhosttyBridge

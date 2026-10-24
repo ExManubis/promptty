@@ -1,4 +1,5 @@
 import PaneActivity
+import PrompTTYChrome
 import SwiftUI
 import WorkspaceModel
 

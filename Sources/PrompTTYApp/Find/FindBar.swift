@@ -1,3 +1,4 @@
+import PrompTTYChrome
 import SwiftUI
 import WorkspaceModel
 

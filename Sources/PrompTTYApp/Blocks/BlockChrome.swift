@@ -1,4 +1,5 @@
 import AppKit
+import PrompTTYChrome
 import SwiftUI
 
 /// Over the top of a terminal scrolled back into a command's output: the command, and how it

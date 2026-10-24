@@ -1,4 +1,5 @@
 import PaneActivity
+import PrompTTYChrome
 import SwiftUI
 import WorkspaceModel
 
@@ -384,31 +385,6 @@ private struct RowDropDelegate: DropDelegate {
                     actions.placeTab(TabID(rawValue: id), inProject: project, at: destination)
                 }
             }
-        }
-    }
-}
-
-/// The row states: a Liquid Glass pill when selected, like the input box; a faint fill on hover.
-struct RowBackground: View {
-    let selected: Bool
-    let hovering: Bool
-    var dropTarget = false
-    /// Tiles show their shape at rest too, like Dia's pinned tabs.
-    var resting = false
-
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: ChromeMetrics.rowCornerRadius, style: .continuous)
-        if dropTarget {
-            shape.fill(Color.accentColor.opacity(0.22))
-                .overlay(shape.strokeBorder(Color.accentColor.opacity(0.9), lineWidth: 1.5))
-        } else if selected {
-            Color.clear.glassEffect(.regular, in: shape)
-        } else if hovering {
-            shape.fill(Color.primary.opacity(colorScheme == .dark ? (resting ? 0.1 : 0.06) : (resting ? 0.09 : 0.05)))
-        } else if resting {
-            shape.fill(Color.primary.opacity(colorScheme == .dark ? 0.05 : 0.045))
         }
     }
 }
