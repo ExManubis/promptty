@@ -60,31 +60,38 @@ private final class FakePane: MirrorPane {
 
 /// What the hub sends each client.
 private final class Sent: Sendable {
-    private let events = Mutex<[(UUID, RemoteNotification)]>([])
+    private let sent = Mutex<[(UUID, MirrorEvent)]>([])
 
-    func add(_ client: UUID, _ event: RemoteNotification) { events.withLock { $0.append((client, event)) } }
+    func add(_ client: UUID, _ event: MirrorEvent) { sent.withLock { $0.append((client, event)) } }
+    func add(_ client: UUID, _ output: MirrorOutput) { add(client, .output(output)) }
 
     func events(to client: UUID, _ method: String? = nil) -> [RemoteNotification] {
-        events.withLock { $0 }.filter { $0.0 == client && (method == nil || $0.1.method == method) }.map(\.1)
+        sent.withLock { $0 }.compactMap { entry -> RemoteNotification? in
+            guard entry.0 == client, case .event(let event) = entry.1, method == nil || event.method == method else { return nil }
+            return event
+        }
     }
 
     func output(to client: UUID) -> [MirrorOutput] {
-        events(to: client, RemoteProtocol.Event.output).compactMap { try? $0.params(as: MirrorOutput.self) }
+        sent.withLock { $0 }.compactMap { entry -> MirrorOutput? in
+            guard entry.0 == client, case .output(let output) = entry.1 else { return nil }
+            return output
+        }
     }
 
-    func clear() { events.withLock { $0.removeAll() } }
+    func count(to client: UUID) -> Int { sent.withLock { $0 }.filter { $0.0 == client }.count }
+
+    func clear() { sent.withLock { $0.removeAll() } }
 }
 
 final class MirrorFeedTests: XCTestCase {
     private let client = UUID()
 
-    private func outputs(_ events: [RemoteNotification]?) -> [MirrorOutput] {
-        (events ?? []).compactMap { try? $0.params(as: MirrorOutput.self) }
-    }
+    private func outputs(_ outputs: [MirrorOutput]?) -> [MirrorOutput] { outputs ?? [] }
 
     func testAClientGetsTheBytesAfterItsSnapshotOnlyAndInOrder() {
         let sent = Sent()
-        let feed = MirrorFeed(pane: "P") { sent.add($0, $1) }
+        let feed = MirrorFeed(pane: "P") { sent.add($0, $1 as MirrorOutput) }
         feed.receive(MirrorChunk(stream: "S", offset: 0, data: Data("hello ".utf8)))
         feed.receive(MirrorChunk(stream: "S", offset: 6, data: Data("world".utf8)))
         // The snapshot was taken at 8 ("hello wo"): "rld" is what the client lacks.
@@ -96,7 +103,7 @@ final class MirrorFeedTests: XCTestCase {
 
     func testASnapshotAheadOfTheDeliveredOutputSkipsWhatItHolds() {
         let sent = Sent()
-        let feed = MirrorFeed(pane: "P") { sent.add($0, $1) }
+        let feed = MirrorFeed(pane: "P") { sent.add($0, $1 as MirrorOutput) }
         // Taken at 5 before the chunk holding bytes 0..<9 was delivered.
         XCTAssertEqual(feed.activate(client, stream: "S", from: 5)?.count, 0)
         feed.receive(MirrorChunk(stream: "S", offset: 0, data: Data("123456789".utf8)))
@@ -141,14 +148,14 @@ final class MirrorHubTests: XCTestCase {
         }
         let sent = Sent()
         self.sent = sent
-        hub.outbox.connect { sent.add($0, $1) }
+        hub.outbox.connect { sent.add($0, $1 as MirrorEvent) }
     }
 
     /// Attaches as the server does: the answer, then the client goes live.
     private func attach(_ client: MirrorClient, _ params: AttachParams = AttachParams(pane: "claude")) throws -> (Attached, [MirrorOutput]) {
         let reply = hub.handle(.attach(params), from: client)
         let attached = try reply.result.get().decode(Attached.self)
-        let backlog = try XCTUnwrap(reply.activate?()).compactMap { try? $0.params(as: MirrorOutput.self) }
+        let backlog = try XCTUnwrap(reply.activate?())
         return (attached, backlog)
     }
 
@@ -231,9 +238,9 @@ final class MirrorHubTests: XCTestCase {
         hub.paneChanged("P")
         XCTAssertEqual(try sent.events(to: phone.id, RemoteProtocol.Event.paneState).last?.params(as: MirrorState.self).password, true)
         // Nothing changed: nothing more is sent.
-        let count = sent.events(to: phone.id).count
+        let count = sent.count(to: phone.id)
         hub.paneChanged("P")
-        XCTAssertEqual(sent.events(to: phone.id).count, count)
+        XCTAssertEqual(sent.count(to: phone.id), count)
     }
 
     func testAClientThatComesBackResumesWithoutASnapshot() throws {
@@ -302,14 +309,19 @@ final class MirrorServerTests: XCTestCase {
         XCTAssertEqual(attached.position.seq, 8)
 
         await MainActor.run { pane.print("after\r\n") }
-        guard case .notification(let event) = try await receive(task) else { return XCTFail() }
-        XCTAssertEqual(try event.params(as: MirrorOutput.self), MirrorOutput(pane: "P", stream: "S1", seq: 8, data: Data("after\r\n".utf8)))
+        guard case .data(let frame) = try await task.receive() else { return XCTFail("output is a binary frame") }
+        XCTAssertEqual(MirrorOutput(frame: frame), MirrorOutput(pane: "P", stream: "S1", seq: 8, data: Data("after\r\n".utf8)))
 
         guard case .response(let typed) = try await exchange(task, .request(try RemoteRequest(id: 3, method: RemoteProtocol.Method.input,
                                                                                                 params: InputParams(pane: "P", text: "ls\r")))) else { return XCTFail() }
         XCTAssertEqual(typed.id, 3)
+        // Typed as a notification: no answer, the key still goes in.
+        try await task.send(.string(String(decoding: try RemoteMessage.notification(RemoteNotification(method: RemoteProtocol.Method.input,
+                                                                                                         params: InputParams(pane: "P", text: "x"))).encoded(), as: UTF8.self)))
+        let deadline = Date().addingTimeInterval(5)
+        while await MainActor.run(body: { pane.inputs.count }) < 2, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
         let inputs = await MainActor.run { pane.inputs }
-        XCTAssertEqual(inputs, [InputParams(pane: "P", text: "ls\r")])
+        XCTAssertEqual(inputs, [InputParams(pane: "P", text: "ls\r"), InputParams(pane: "P", text: "x")])
 
         guard case .response(let sized) = try await exchange(task, .request(try RemoteRequest(id: 4, method: RemoteProtocol.Method.resize,
                                                                                                 params: GridParams(pane: "P", cols: 50, rows: 20)))) else { return XCTFail() }
@@ -319,8 +331,8 @@ final class MirrorServerTests: XCTestCase {
 
         // Hanging up gives the size back.
         task.cancel(with: .goingAway, reason: nil)
-        let deadline = Date().addingTimeInterval(5)
-        while await MainActor.run(body: { pane.grid?.cols }) != 120, Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        let hangUp = Date().addingTimeInterval(5)
+        while await MainActor.run(body: { pane.grid?.cols }) != 120, Date() < hangUp { try await Task.sleep(for: .milliseconds(50)) }
         let cols = await MainActor.run { pane.grid?.cols }
         XCTAssertEqual(cols, 120)
     }

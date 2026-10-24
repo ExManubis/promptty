@@ -26,8 +26,9 @@ public struct RemoteSession: Sendable {
         case appearance(id: RemoteID)
         /// Where a new tab can open answers `id`.
         case places(id: RemoteID)
-        /// Mirroring a pane (`MirrorHub`): attach, input, control; its reply answers `id`.
-        case mirror(MirrorCall, id: RemoteID)
+        /// Mirroring a pane (`MirrorHub`): attach, input, resize; its reply answers `id`, or
+        /// nothing for a notification (`input`, so no key waits on an answer).
+        case mirror(MirrorCall, id: RemoteID?)
         /// After the reply: a peer that speaks another version is hung up on.
         case close
     }
@@ -49,9 +50,17 @@ public struct RemoteSession: Sendable {
         guard let message = try? RemoteMessage.decode(data) else {
             return [.send(.response(.error(RemoteError(code: RemoteError.parseError, message: "not a JSON-RPC 2.0 message"), id: nil)))]
         }
-        // A client's notifications and responses ask for nothing yet.
-        guard case .request(let request) = message else { return [] }
-        return receive(request)
+        switch message {
+        case .request(let request):
+            return receive(request)
+        case .notification(let notification):
+            // Typing, sent without an id so no key waits on an answer; nothing else yet.
+            guard case .introduced = state, notification.method == RemoteProtocol.Method.input,
+                  let params = try? notification.params(as: InputParams.self) else { return [] }
+            return [.mirror(.input(params), id: nil)]
+        case .response:
+            return []
+        }
     }
 
     private mutating func receive(_ request: RemoteRequest) -> [Action] {

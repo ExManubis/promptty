@@ -33,6 +33,7 @@ public final class RemoteClient: @unchecked Sendable {
     private var closed = false
     private var ready: CheckedContinuation<Void, Error>?
     private var eventHandler: (@Sendable (RemoteNotification) -> Void)?
+    private var outputHandler: (@Sendable (MirrorOutput) -> Void)?
     private var closeHandler: (@Sendable (Error?) -> Void)?
 
     public init(url: URL, clientName: String) {
@@ -51,6 +52,12 @@ public final class RemoteClient: @unchecked Sendable {
     /// The Mac's events (`workspace`, `command.finished`), on a background thread, in order.
     public func onEvent(_ handler: @escaping @Sendable (RemoteNotification) -> Void) {
         lock.withLock { eventHandler = handler }
+    }
+
+    /// A mirrored pane's output (binary frames), on the same thread as the events and in order
+    /// with them.
+    public func onOutput(_ handler: @escaping @Sendable (MirrorOutput) -> Void) {
+        lock.withLock { outputHandler = handler }
     }
 
     /// Called once when the connection ends, with why if it was not closed on purpose.
@@ -86,6 +93,12 @@ public final class RemoteClient: @unchecked Sendable {
     /// A request without params.
     public func call<R: Decodable>(_ method: String, as type: R.Type) async throws -> R {
         try await call(method, [String: String](), as: type)
+    }
+
+    /// A notification: sent in order with the requests, nothing waits on an answer (`input`).
+    public func notify<P: Encodable>(_ method: String, _ params: P) {
+        guard !lock.withLock({ closed }), let data = try? RemoteMessage.notification(RemoteNotification(method: method, params: params)).encoded() else { return }
+        send(data, opcode: .text)
     }
 
     public func close() {
@@ -156,7 +169,13 @@ public final class RemoteClient: @unchecked Sendable {
             if let error { return self.finish(error) }
             let metadata = context?.protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata
             if metadata?.opcode == .close { return self.finish(nil) }
-            if let data, !data.isEmpty { self.handle(data) }
+            if let data, !data.isEmpty {
+                if metadata?.opcode == .binary {
+                    if let output = MirrorOutput(frame: data) { self.lock.withLock { self.outputHandler }?(output) }
+                } else {
+                    self.handle(data)
+                }
+            }
             self.receiveNext()
         }
     }

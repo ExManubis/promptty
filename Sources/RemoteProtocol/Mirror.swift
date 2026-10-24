@@ -4,8 +4,8 @@ import Foundation
 // every byte the pane's programs write, numbered, so its own terminal shows what the Mac's does.
 // It can type into the pane, and the device used last sizes it: attaching, typing or sending its
 // grid fits the pane to the client, a click or a key in it on the Mac gives it the Mac's size back
-// (tmux's `window-size latest`). Bytes travel base64 in JSON (`Data`'s Codable form), so every
-// message is one JSON-RPC text frame like the rest of the protocol.
+// (tmux's `window-size latest`). Snapshots travel base64 in JSON (`Data`'s Codable form), in
+// JSON-RPC text frames like the rest of the protocol.
 //
 // As Rex does, a client can attach with the screen alone (`scrollback` 0), show it and take keys at
 // once, then ask for the scrollback (`history`): a snapshot with it at a later position, which the
@@ -13,7 +13,9 @@ import Foundation
 //
 // A pane's output is one stream of bytes: `stream` names it and `seq` counts its bytes from 0. The
 // snapshot holds everything before `seq`; each `output` event carries the bytes from its `seq` on,
-// and the next one starts where it ended. A client that reconnects attaches with the stream and
+// and the next one starts where it ended. Output goes in binary frames (`MirrorOutput.frame`), not
+// JSON: no base64, nothing to parse but a short header. A client types with `input` as a JSON-RPC
+// notification, so no key waits on an answer. A client that reconnects attaches with the stream and
 // seq it got to (`resume`), and gets the bytes it missed instead of a snapshot while the Mac still
 // has them.
 
@@ -34,7 +36,7 @@ extension RemoteProtocol.Method {
 }
 
 extension RemoteProtocol.Event {
-    /// An attached pane's output (`MirrorOutput`).
+    /// An attached pane's output (`MirrorOutput`), sent as a binary frame (`MirrorOutput.frame`).
     public static let output = "output"
     /// An attached pane's size, whose grid it has or its password prompt changed (`MirrorState`).
     public static let paneState = "pane.state"
@@ -168,7 +170,7 @@ public struct History: Codable, Equatable, Sendable {
     }
 }
 
-/// `output`'s params.
+/// A pane's output (an `output` binary frame, `frame`).
 public struct MirrorOutput: Codable, Equatable, Sendable {
     public var pane: String
     public var stream: String
@@ -182,6 +184,44 @@ public struct MirrorOutput: Codable, Equatable, Sendable {
         self.stream = stream
         self.seq = seq
         self.data = data
+    }
+}
+
+extension MirrorOutput {
+    /// The first byte of an `output` binary frame.
+    static let frameKind: UInt8 = 1
+
+    /// The output as a binary WebSocket frame: its kind (1), the pane and the stream (a length
+    /// byte, then UTF-8), the seq (8 bytes, big-endian), then the bytes.
+    public var frame: Data {
+        let pane = Data(pane.utf8.prefix(255)), stream = Data(stream.utf8.prefix(255))
+        var frame = Data(capacity: 3 + pane.count + stream.count + 8 + data.count)
+        frame.append(Self.frameKind)
+        frame.append(UInt8(pane.count))
+        frame.append(pane)
+        frame.append(UInt8(stream.count))
+        frame.append(stream)
+        withUnsafeBytes(of: UInt64(seq).bigEndian) { frame.append(contentsOf: $0) }
+        frame.append(data)
+        return frame
+    }
+
+    /// The output a binary frame holds; nil for another kind or a short one.
+    public init?(frame: Data) {
+        let bytes = [UInt8](frame.prefix(3 + 255 + 255 + 8))
+        var index = 0
+        func take(_ count: Int) -> ArraySlice<UInt8>? {
+            guard index + count <= bytes.count else { return nil }
+            defer { index += count }
+            return bytes[index..<index + count]
+        }
+        guard take(1)?.first == Self.frameKind,
+              let paneLength = take(1)?.first, let pane = take(Int(paneLength)),
+              let streamLength = take(1)?.first, let stream = take(Int(streamLength)),
+              let seq = take(8) else { return nil }
+        self.init(pane: String(decoding: pane, as: UTF8.self), stream: String(decoding: stream, as: UTF8.self),
+                  seq: Int(seq.reduce(UInt64(0)) { $0 << 8 | UInt64($1) }),
+                  data: Data(frame.dropFirst(index)))
     }
 }
 

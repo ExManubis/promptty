@@ -138,21 +138,27 @@ frame (`RemoteMessage`: a request, its response, or a notification for an event)
 **Mirroring a pane** (`Mirror.swift`) shows a live terminal on the device. A pane's output is one
 stream of bytes, named by `stream` (a UUID) and counted from 0 by `seq`:
 
-- `attach` (`AttachParams`: the pane as `-p` names one, `scrollback` rows, 1000 by default) answers
-  with `Attached`: the pane's id, a `position` (stream and seq), a `snapshot` and the pane's
-  `MirrorState`. The snapshot is VT bytes, base64 like every byte in the protocol: fed to a fresh
+- `attach` (`AttachParams`: the pane as `-p` names one, `scrollback` rows, 1000 by default, and
+  the client's grid, `cols` and `rows`, which the pane takes) answers with `Attached`: the pane's
+  id, a `position` (stream and seq), a `snapshot` and the pane's `MirrorState`. The snapshot is VT
+  bytes, base64 in the JSON: fed to a fresh
   terminal of the state's `cols`×`rows`, they rebuild the Mac's (a full reset, the scrollback, the
   screen, the cursor and its style, the modes such as the alternate screen with the shell's screen
   behind it, cursor visibility, bracketed paste and mouse reporting, the scrolling region, tab
   stops, the colors programs changed, and the escape sequence the output stopped in the middle of).
-  It holds exactly the output before `seq`.
-- Then `output` events (`MirrorOutput`): the bytes from their `seq` on, as the programs wrote them,
-  at most 64 KiB each, each starting where the last ended. A gap means bytes were lost: attach
-  again. Feeding them to the same terminal keeps it the Mac's.
+  It holds exactly the output before `seq`. As Rex does, the phone attaches with `scrollback` 0, so
+  the screen shows and takes keys at once, then asks for `history` (`HistoryParams` → `History`):
+  a snapshot with the scrollback at a later position, which it swaps in once its own output has
+  got there, replaying the output since in the same feed.
+- Then `output` (`MirrorOutput`), in binary WebSocket frames, not JSON (`MirrorOutput.frame`: a
+  kind byte, 1; the pane and the stream, each a length byte and UTF-8; the seq, 8 bytes
+  big-endian; then the bytes): the bytes from their `seq` on, as the programs wrote them, at most
+  64 KiB each, each starting where the last ended. A gap means bytes were lost: attach again.
+  Feeding them to the same terminal keeps it the Mac's.
 - A client that reconnects attaches with `resume` (the stream and the seq it got to) and, while the
   Mac still has those bytes (the last 2 MB of each pane, kept a minute after its last client
   goes), gets `Attached` without a snapshot and the bytes it missed; otherwise a fresh snapshot.
-- `pane.state` (`MirrorState`) comes when the pane's grid, its controller, its password prompt (the
+- `pane.state` (`MirrorState`) comes when the pane's grid, whose grid it has, its password prompt (the
   program turned echo off: a client hides what it echoes) or whether the client may type changes;
   `seq` says about where in the output a new size begins. `detached` (`Detached`) says the Mac
   stopped mirroring the pane to the client: it `closed`, the client fell `behind` (more than 8 MB of
@@ -161,13 +167,14 @@ stream of bytes, named by `stream` (a UUID) and counted from 0 by `seq`:
   those keys), pastes `paste` (bracketed when the program asked for that), or presses a `key`
   (`RemoteKey`: a named key or one character, with `shift`, `ctrl`, `alt`, `super`), through the
   surface's key input as the Mac's keyboard does. Only while Settings allows typing
-  (`typingOff` otherwise).
-- By default a client sees the pane at the Mac's size. `control.take` (`ControlTake`: the client's
-  grid) resizes the pane to the client's grid until it sends `control.release`, detaches or
-  disconnects; then the pane gets the Mac's size back. One client has control at a time: taking it
-  takes it from the one that had it, and every attached client is told. `resize` changes the grid
-  while in control (`notInControl` otherwise). Several clients can attach to a pane at once, each
-  scrolling its own terminal.
+  (`typingOff` otherwise). The phone sends it as a JSON-RPC notification (no id): no key waits on
+  an answer, and none comes.
+- The device used last sizes the pane (tmux's `window-size latest`): `attach` with a grid,
+  `input`, and `resize` (`GridParams`: the client's grid, sent on a tap, a turn or the keyboard)
+  give the pane that client's grid, `sizedBy` and `sizedByMe` in `MirrorState` say whose it has,
+  and every attached client is told. A click or a key in the pane on the Mac, or the client
+  detaching or disconnecting, gives it the Mac's size back. Several clients can attach to a pane
+  at once, each scrolling its own terminal.
 - `detach` stops it. Mirror methods on a pane not attached to answer `notAttached`.
 
 The messages name panes and streams, not connections, so a daemon speaking for a Mac (PTY-77) can

@@ -21,9 +21,6 @@ private enum MirrorSamples {
                                                           params: HistoryParams(pane: "P1", scrollback: 2000)))),
             ("mirror-history-taken", .response(try .result(History(pane: "P1", position: position, snapshot: Data("\u{1b}cone\r\ntwo\r\n".utf8),
                                                                    cols: 120, rows: 40), id: 19))),
-            ("mirror-output", .notification(try RemoteNotification(method: RemoteProtocol.Event.output,
-                                                                    params: MirrorOutput(pane: "P1", stream: position.stream, seq: 5120,
-                                                                                         data: Data("\u{1b}[1;32m✓\u{1b}[0m done\r\n".utf8))))),
             ("mirror-input-text", .request(try RemoteRequest(id: 12, method: RemoteProtocol.Method.input, params: InputParams(pane: "P1", text: "ls -la\r")))),
             ("mirror-input-paste", .request(try RemoteRequest(id: 13, method: RemoteProtocol.Method.input, params: InputParams(pane: "P1", paste: "line one\nline two")))),
             ("mirror-input-key", .request(try RemoteRequest(id: 14, method: RemoteProtocol.Method.input,
@@ -46,6 +43,15 @@ private enum MirrorSamples {
 }
 
 final class MirrorProtocolTests: XCTestCase {
+    func testOutputRoundTripsAsABinaryFrame() {
+        let output = MirrorOutput(pane: "P1", stream: "6F1C0D2E-0000-4000-8000-000000000001", seq: 5_000_000_000,
+                                  data: Data("\u{1b}[1;32m✓\u{1b}[0m done\r\n".utf8))
+        XCTAssertEqual(output.frame.first, 1)
+        XCTAssertEqual(MirrorOutput(frame: output.frame), output)
+        XCTAssertNil(MirrorOutput(frame: Data([1, 2, 0x50])), "short")
+        XCTAssertNil(MirrorOutput(frame: Data([2]) + output.frame.dropFirst()), "another kind")
+    }
+
     func testEveryMirrorMessageRoundTripsAndMatchesItsFixture() throws {
         let record = ProcessInfo.processInfo.environment["PROMPTTY_RECORD_FIXTURES"] == "1"
         let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures")

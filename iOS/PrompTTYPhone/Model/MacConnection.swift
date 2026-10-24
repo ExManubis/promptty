@@ -80,6 +80,13 @@ final class MacConnection {
         client.onEvent { [weak self] event in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.handle(event) } }
         }
+        client.onOutput { [weak self] output in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if let self, output.pane == self.mirror?.pane.uuidString { self.mirror?.received(output) }
+                }
+            }
+        }
         client.onClose { [weak self] error in
             Task { @MainActor in self?.closed(error, client: client) }
         }
@@ -119,8 +126,6 @@ final class MacConnection {
         switch event.method {
         case RemoteProtocol.Event.workspace:
             if let workspace = try? event.params(as: RemoteWorkspace.self) { apply(workspace) }
-        case RemoteProtocol.Event.output:
-            if let output = try? event.params(as: MirrorOutput.self), output.pane == mirror?.pane.uuidString { mirror?.received(output) }
         case RemoteProtocol.Event.paneState:
             if let state = try? event.params(as: MirrorState.self), state.pane == mirror?.pane.uuidString { mirror?.apply(state) }
         case RemoteProtocol.Event.detached:
@@ -221,13 +226,8 @@ final class MacConnection {
         case .key(let key, let modifiers):
             params.key = RemoteKey(Self.keyName(key), mods: Array(Set(Self.mods(modifiers) + latched)))
         }
-        Task {
-            do {
-                _ = try await client.call(RemoteProtocol.Method.input, params, as: JSONValue.self)
-            } catch {
-                Self.log.error("input refused: \(MacConnection.describe(error), privacy: .public)")
-            }
-        }
+        // A notification: the next key doesn't wait on this one's answer.
+        client.notify(RemoteProtocol.Method.input, params)
     }
 
     static func keyName(_ key: MirrorKey) -> String {

@@ -70,7 +70,13 @@ public enum MirrorCall: Equatable, Sendable {
 /// is sent (on the server's queue): the output it missed since its snapshot, then the rest.
 public struct MirrorReply: Sendable {
     public var result: Result<JSONValue, RemoteError>
-    public var activate: (@Sendable () -> [RemoteNotification]?)?
+    public var activate: (@Sendable () -> [MirrorOutput]?)?
+}
+
+/// What the hub sends a client: an event, or a pane's output (a binary frame).
+public enum MirrorEvent: Sendable {
+    case event(RemoteNotification)
+    case output(MirrorOutput)
 }
 
 /// The panes mirrored to remote clients (PTY-75): each pane's output fanned out to the clients
@@ -118,13 +124,13 @@ public final class MirrorHub {
 
     /// Hands events to the server; any thread.
     public final class Outbox: Sendable {
-        private let handler = Mutex<(@Sendable (UUID, RemoteNotification) -> Void)?>(nil)
+        private let handler = Mutex<(@Sendable (UUID, MirrorEvent) -> Void)?>(nil)
 
-        public func connect(_ send: @escaping @Sendable (UUID, RemoteNotification) -> Void) {
+        public func connect(_ send: @escaping @Sendable (UUID, MirrorEvent) -> Void) {
             handler.withLock { $0 = send }
         }
 
-        func send(_ event: RemoteNotification, to client: UUID) {
+        func send(_ event: MirrorEvent, to client: UUID) {
             handler.withLock { $0 }?(client, event)
         }
     }
@@ -266,7 +272,7 @@ public final class MirrorHub {
     private func mirror(_ id: String, _ pane: MirrorPane) -> Mirrored {
         if let mirrored = panes[id], mirrored.pane === pane, mirrored.subscription != nil { return mirrored }
         let outbox = outbox
-        let feed = MirrorFeed(pane: id) { client, event in outbox.send(event, to: client) }
+        let feed = MirrorFeed(pane: id) { client, output in outbox.send(.output(output), to: client) }
         let mirrored = Mirrored(pane: pane, feed: feed)
         // Clients of a terminal the pane no longer has (it restarted) start over.
         if let old = panes[id] {
@@ -357,7 +363,7 @@ public final class MirrorHub {
 
     private func tell<P: Encodable>(_ client: UUID, _ params: P, method: String) {
         guard let event = try? RemoteNotification(method: method, params: params) else { return }
-        outbox.send(event, to: client)
+        outbox.send(.event(event), to: client)
     }
 
     private func reply(_ body: () throws -> JSONValue) -> MirrorReply {

@@ -29,7 +29,7 @@ final class MirrorFeed: Sendable {
     static let eventSize = 64 << 10
 
     let pane: String
-    private let send: @Sendable (UUID, RemoteNotification) -> Void
+    private let send: @Sendable (UUID, MirrorOutput) -> Void
     private let state = Mutex(State())
 
     private struct State {
@@ -43,8 +43,8 @@ final class MirrorFeed: Sendable {
         var end: Int { start + buffer.count }
     }
 
-    /// `send` hands an event to a client (on any thread; the server queues it).
-    init(pane: String, send: @escaping @Sendable (UUID, RemoteNotification) -> Void) {
+    /// `send` hands output to a client (on any thread; the server queues it).
+    init(pane: String, send: @escaping @Sendable (UUID, MirrorOutput) -> Void) {
         self.pane = pane
         self.send = send
     }
@@ -89,14 +89,14 @@ final class MirrorFeed: Sendable {
             }
             return sends
         }
-        for (client, output) in sends { emit(output, to: client) }
+        for (client, output) in sends { send(client, output) }
     }
 
     /// The client goes live from `seq` on (its snapshot's position, or where it resumes): the
-    /// events for the bytes kept from there, to send before any other. Nil when those bytes are
-    /// gone (the stream changed, or fell out of the buffer): it has to attach again.
-    func activate(_ client: UUID, stream: String, from seq: Int) -> [RemoteNotification]? {
-        let events: [MirrorOutput]? = state.withLock { state in
+    /// output kept from there, to send before any other. Nil when those bytes are gone (the
+    /// stream changed, or fell out of the buffer): it has to attach again.
+    func activate(_ client: UUID, stream: String, from seq: Int) -> [MirrorOutput]? {
+        state.withLock { state in
             guard state.stream == nil || state.stream == stream, seq >= state.start else { return nil }
             if state.stream == nil {
                 // Nothing read yet: the stream starts at the snapshot.
@@ -107,7 +107,6 @@ final class MirrorFeed: Sendable {
             guard seq < state.end else { return [] }
             return Self.events(pane: pane, stream: stream, buffer: state.buffer, start: state.start, from: seq)
         }
-        return events?.compactMap { try? RemoteNotification(method: RemoteProtocol.Event.output, params: $0) }
     }
 
     func deactivate(_ client: UUID) {
@@ -115,11 +114,6 @@ final class MirrorFeed: Sendable {
     }
 
     var hasLiveClients: Bool { state.withLock { !$0.live.isEmpty } }
-
-    private func emit(_ output: MirrorOutput, to client: UUID) {
-        guard let event = try? RemoteNotification(method: RemoteProtocol.Event.output, params: output) else { return }
-        send(client, event)
-    }
 
     /// The bytes from `from` to the end of the buffer, in events of at most `eventSize`.
     private static func events(pane: String, stream: String, buffer: Data, start: Int, from: Int) -> [MirrorOutput] {
