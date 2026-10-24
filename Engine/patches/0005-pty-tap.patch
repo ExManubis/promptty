@@ -1,0 +1,181 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 054b72963..1dbe908a0 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -510,6 +510,12 @@ typedef enum {
+   GHOSTTY_BLOCK_PART_ALL,
+ } ghostty_block_part_e;
+ 
++// Gets each chunk of a surface's pty output as it is read, before it is
++// parsed: on the read thread, with the terminal locked. The bytes are valid
++// only during the call; copy them, return quickly, and don't call back into
++// the surface.
++typedef void (*ghostty_surface_output_tap_cb)(void*, const uint8_t*, size_t);
++
+ typedef enum {
+   GHOSTTY_TEXT_FORMAT_PLAIN,
+   GHOSTTY_TEXT_FORMAT_VT,
+@@ -1319,6 +1325,9 @@ GHOSTTY_API bool ghostty_surface_block_text(ghostty_surface_t,
+                                             uint32_t,
+                                             ghostty_block_part_e,
+                                             ghostty_text_s*);
++GHOSTTY_API void ghostty_surface_set_output_tap(ghostty_surface_t,
++                                                ghostty_surface_output_tap_cb,
++                                                void*);
+ 
+ #ifdef __APPLE__
+ GHOSTTY_API void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index dddafbd91..0d78d9456 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -16,6 +16,7 @@ const input = @import("../input.zig");
+ const internal_os = @import("../os/main.zig");
+ const renderer = @import("../renderer.zig");
+ const terminal = @import("../terminal/main.zig");
++const termio = @import("../termio.zig");
+ const CoreApp = @import("../App.zig");
+ const CoreInspector = @import("../inspector/main.zig").Inspector;
+ const CoreSurface = @import("../Surface.zig");
+@@ -2142,6 +2143,21 @@ pub const CAPI = struct {
+         return readTextLocked(surface, sel, .plain, result);
+     }
+ 
++    /// PrompTTY: sets the surface's output tap: `callback` gets each chunk
++    /// of pty output as it is read, on the read thread (see OutputTap). A
++    /// null callback turns it off; once this returns, the old callback is
++    /// not running and won't be called again.
++    export fn ghostty_surface_set_output_tap(
++        surface: *Surface,
++        callback: ?termio.OutputTap.Callback,
++        userdata: ?*anyopaque,
++    ) void {
++        const core_surface = &surface.core_surface;
++        core_surface.renderer_state.mutex.lockUncancelable(global.io());
++        defer core_surface.renderer_state.mutex.unlock(global.io());
++        core_surface.io.output_tap = .{ .callback = callback, .userdata = userdata };
++    }
++
+     /// Tell the surface that it needs to schedule a render
+     export fn ghostty_surface_refresh(surface: *Surface) void {
+         surface.refresh();
+diff --git a/src/termio.zig b/src/termio.zig
+index b16885109..1fe1696cf 100644
+--- a/src/termio.zig
++++ b/src/termio.zig
+@@ -24,6 +24,7 @@ pub const backend = @import("termio/backend.zig");
+ pub const mailbox = @import("termio/mailbox.zig");
+ pub const Exec = @import("termio/Exec.zig");
+ pub const Options = @import("termio/Options.zig");
++pub const OutputTap = @import("termio/OutputTap.zig");
+ pub const Termio = @import("termio/Termio.zig");
+ pub const Thread = @import("termio/Thread.zig");
+ pub const Backend = backend.Backend;
+diff --git a/src/termio/OutputTap.zig b/src/termio/OutputTap.zig
+new file mode 100644
+index 000000000..c24602b35
+--- /dev/null
++++ b/src/termio/OutputTap.zig
+@@ -0,0 +1,79 @@
++//! PrompTTY: a tap on a surface's pty output, for mirroring the surface
++//! elsewhere. Termio hands it each chunk it reads from the pty, exactly as
++//! read and before it is parsed, on the read thread and with the renderer
++//! state mutex held, so a reader that takes that mutex sees the terminal
++//! either before a chunk or after it, never halfway. Whoever sets the tap
++//! must hold the same mutex; with no tap set, a chunk costs one check.
++const OutputTap = @This();
++
++const std = @import("std");
++
++/// Called with a chunk of pty output. The bytes are only valid for the
++/// duration of the call, so the callee copies what it keeps. It runs with
++/// the renderer state mutex held: it must return quickly and must not call
++/// back into the surface.
++pub const Callback = *const fn (
++    userdata: ?*anyopaque,
++    bytes: [*]const u8,
++    len: usize,
++) callconv(.c) void;
++
++callback: ?Callback = null,
++userdata: ?*anyopaque = null,
++
++/// Hands `buf` to the callback, if one is set.
++pub fn emit(self: OutputTap, buf: []const u8) void {
++    const callback = self.callback orelse return;
++    if (buf.len == 0) return;
++    callback(self.userdata, buf.ptr, buf.len);
++}
++
++const Recorder = struct {
++    bytes: std.ArrayList(u8) = .empty,
++    calls: usize = 0,
++
++    fn record(userdata: ?*anyopaque, bytes: [*]const u8, len: usize) callconv(.c) void {
++        const self: *Recorder = @ptrCast(@alignCast(userdata.?));
++        self.calls += 1;
++        self.bytes.appendSlice(std.testing.allocator, bytes[0..len]) catch unreachable;
++    }
++};
++
++test "output_tap: chunks arrive unchanged, escape sequences included" {
++    var recorder: Recorder = .{};
++    defer recorder.bytes.deinit(std.testing.allocator);
++    const tap: OutputTap = .{ .callback = Recorder.record, .userdata = &recorder };
++
++    const chunks = [_][]const u8{
++        "hello \x1b[1;31mred\x1b[0m\r\n",
++        "\x1b]133;D;0\x07\x1b]7;file://host/tmp\x1b\\",
++        "\x00\xff\xc3", // a split UTF-8 sequence and bytes that aren't text
++        "\xa9 done\r\n",
++    };
++    for (chunks) |chunk| tap.emit(chunk);
++
++    try std.testing.expectEqual(chunks.len, recorder.calls);
++    try std.testing.expectEqualStrings(
++        "hello \x1b[1;31mred\x1b[0m\r\n" ++
++            "\x1b]133;D;0\x07\x1b]7;file://host/tmp\x1b\\" ++
++            "\x00\xff\xc3" ++
++            "\xa9 done\r\n",
++        recorder.bytes.items,
++    );
++}
++
++test "output_tap: no callback for an empty chunk or with the tap off" {
++    var recorder: Recorder = .{};
++    defer recorder.bytes.deinit(std.testing.allocator);
++    var tap: OutputTap = .{ .callback = Recorder.record, .userdata = &recorder };
++
++    tap.emit("");
++    try std.testing.expectEqual(0, recorder.calls);
++    tap.emit("on");
++    try std.testing.expectEqual(1, recorder.calls);
++
++    tap = .{};
++    tap.emit("off");
++    try std.testing.expectEqual(1, recorder.calls);
++    try std.testing.expectEqualStrings("on", recorder.bytes.items);
++}
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index 0a0549c12..8d8020412 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -73,6 +73,10 @@ last_cursor_reset: ?std.Io.Timestamp = null,
+ /// to keep track of any state or if its already been freed.
+ thread_enter_state: ?*ThreadEnterState = null,
+ 
++/// PrompTTY: handed each chunk of pty output before it is parsed. Guarded
++/// by the renderer state mutex; see OutputTap.
++output_tap: termio.OutputTap = .{},
++
+ /// The state we need to keep around only until we enter the IO
+ /// thread. Then we can throw it all away.
+ const ThreadEnterState = struct {
+@@ -699,6 +703,7 @@ pub fn processOutput(self: *Termio, buf: []const u8) void {
+     // the lock to grab our read data.
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     defer self.renderer_state.mutex.unlock(global.io());
++    self.output_tap.emit(buf);
+     self.processOutputLocked(buf);
+ }
+ 

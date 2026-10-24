@@ -90,6 +90,18 @@ public final class TerminalSurfaceView: NSView {
     nonisolated(unsafe) private(set) var surface: UnsafeMutableRawPointer?
     nonisolated(unsafe) private var isFreed = false
 
+    /// The pty output, for whoever subscribes (a mirror of the pane). libghostty's tap is set only
+    /// while someone is subscribed.
+    public private(set) lazy var output = TerminalOutput { [weak self] _ in
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { self?.updateOutputTap() }
+        } else {
+            Task { @MainActor in self?.updateOutputTap() }
+        }
+    }
+    /// Whether libghostty's output tap is set on the surface.
+    var outputTapSet = false
+
     // Input state shared with the +Input extension.
     var markedText = NSMutableAttributedString()
     var keyTextAccumulator: [String]?
@@ -215,7 +227,10 @@ public final class TerminalSurfaceView: NSView {
             }
         }
         surface = created
-        if created != nil { updateColorScheme() }
+        if created != nil {
+            updateColorScheme()
+            updateOutputTap()
+        }
         if created == nil {
             // Do not retry on later window moves (and re-fire the failure callback).
             isFreed = true
@@ -233,6 +248,7 @@ public final class TerminalSurfaceView: NSView {
         // Clear state first so nothing re-entering during the free sees a live handle.
         surface = nil
         isFreed = true
+        outputTapSet = false
         ghostty_surface_free(handle)
     }
 
