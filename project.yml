@@ -70,6 +70,8 @@ targets:
         product: RemoteControl
       - package: PrompTTYCore
         product: PrompTTYChrome
+      - package: PrompTTYCore
+        product: RemoteServer
       # `promptty`, put on every pane's PATH: in Resources/bin, not beside the app's own binary,
       # which on a case-insensitive disk it would clash with.
       - target: promptty-cli

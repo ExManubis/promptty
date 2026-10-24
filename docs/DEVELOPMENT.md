@@ -30,6 +30,7 @@ and stops unless it is version 0.16.
     Sources/RemoteControl    the control socket's requests and responses, its server and client, `promptty`'s argument parsing
     Sources/promptty         the `promptty` command line, bundled in the app
     Sources/RemoteProtocol   the messages the Mac's remote API and the iPhone app send each other
+    Sources/RemoteServer     the remote API's WebSocket server and who it lets in (Mac only)
     Sources/PrompTTYChrome   SwiftUI chrome the Mac and iPhone apps share: program tiles and logos, activity, rows, banner
     Sources/PrompTTYApp      AppKit windows and menus; SwiftUI chrome, input bar and Settings
     Engine/                  libghostty as a local SwiftPM package; patches/ holds PrompTTY's engine patches
@@ -119,6 +120,27 @@ A `wait` is answered when its command ends, when the next command starts in that
 first reporting its end, or when the pane closes (status 1). Panes are found by full
 id, then label, then id suffix (`PaneTarget`). Settings › Tabs › Command line turns answering off
 (status 4).
+
+## Remote access
+
+Settings › Tabs › Remote access (off by default) starts the remote API (`Sources/RemoteServer`,
+started by `RemoteAccess`): a WebSocket server on Network.framework speaking `RemoteProtocol`, on
+port 7445 of the Mac's Tailscale address only, so nothing outside the tailnet reaches it. Off,
+nothing listens. Without Tailscale running it waits and tries again every 30 seconds; Settings
+shows the address to connect to and the devices connected, each with Disconnect.
+
+- **Who gets in** is decided as Rex decides it: Tailscale names each caller (`tailscale whois`) and
+  only the Mac's owner (`tailscale status`'s own user), from a device of their own rather than one
+  owned by an ACL tag, is let in (`TailnetIdentity`). Anyone else gets a `notAllowed` error and is
+  hung up on before anything they send is read. There is no pairing and no keys of PrompTTY's own.
+- **What it answers**: `hello` first (`RemoteSession`), then the control socket's commands, answered
+  by the same handler as `promptty`'s (so Settings › Tabs › Command line must be on too).
+- **Limits** as the control socket's: at most 64 connections, messages up to 1 MB, 10 s to say hello.
+
+A connection from the Mac to its own Tailscale address does not complete with Network.framework's
+listener (the listener sees it, the handshake never finishes; a BSD socket on the same address is
+reached), so try it from another device on the tailnet. The tests run the server on the loopback
+address with a stand-in for Tailscale.
 
 ## Restored output
 

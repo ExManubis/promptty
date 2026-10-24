@@ -99,6 +99,8 @@ public struct Settings: Equatable, Sendable {
 
     /// `promptty` in a pane may control the app (list, open, split, type, read).
     public var remoteControl = true
+    /// The remote API listens on the Mac's Tailscale address for the owner's other devices.
+    public var remoteAccess = false
 
     // Keyboard
     /// The quick terminal drops down on its global shortcut (`ShortcutAction.quickTerminal`).
@@ -148,7 +150,7 @@ extension Settings: Codable {
         case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, windowOpacity, tabLayout, sidebarWidth, tabListHidden
         case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, secureKeyboardEntry, shortcuts
         case clipboardRead, clipboardWrite, clipboardReadPrograms, clipboardWritePrograms
-        case notifyCommands, notifyAfterSeconds, restoreScrollback, markUnseenOutput, quickTerminal, remoteControl, savedCommands, paneHeaders, translucentPanes
+        case notifyCommands, notifyAfterSeconds, restoreScrollback, markUnseenOutput, quickTerminal, remoteControl, remoteAccess, savedCommands, paneHeaders, translucentPanes
     }
 
     public init(from decoder: Decoder) throws {
@@ -182,6 +184,7 @@ extension Settings: Codable {
         s.markUnseenOutput = value(.markUnseenOutput, s.markUnseenOutput)
         s.quickTerminal = value(.quickTerminal, s.quickTerminal)
         s.remoteControl = value(.remoteControl, s.remoteControl)
+        s.remoteAccess = value(.remoteAccess, s.remoteAccess)
         s.savedCommands = value(.savedCommands, s.savedCommands)
         s.paneHeaders = value(.paneHeaders, s.paneHeaders)
         s.translucentPanes = value(.translucentPanes, s.translucentPanes)
@@ -235,6 +238,7 @@ extension Settings: Codable {
         try c.encode(markUnseenOutput, forKey: .markUnseenOutput)
         try c.encode(quickTerminal, forKey: .quickTerminal)
         try c.encode(remoteControl, forKey: .remoteControl)
+        try c.encode(remoteAccess, forKey: .remoteAccess)
         try c.encode(savedCommands, forKey: .savedCommands)
         try c.encode(paneHeaders, forKey: .paneHeaders)
         try c.encode(translucentPanes, forKey: .translucentPanes)
