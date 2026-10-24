@@ -125,6 +125,10 @@ final class PhoneModel {
     var paneOpen = false
     /// A tab to open once a Mac's workspace has come (`-open`).
     var pendingOpen: String?
+    /// A pane the phone just opened on the Mac: shown once the workspace lists it.
+    var pendingOpenPane: UUID?
+    /// The sheet for opening a tab on the Mac.
+    var showingNewTab = false
     /// The sidebar lists only the tabs running agents (the eye).
     var showsActivity = false
     var switchingMac = false
@@ -219,6 +223,11 @@ final class PhoneModel {
         if let index = macs.firstIndex(where: { $0.id == macID }) {
             macs[index].waiting = allTabs.filter { $0.permission != nil }.count
         }
+        if let pane = pendingOpenPane, let tab = allTabs.first(where: { $0.panes.contains { $0.id == pane } }) {
+            pendingOpenPane = nil
+            select(tab.id)
+            focus(pane, in: tab.id)
+        }
         if let title = pendingOpen, let tab = allTabs.first(where: { $0.title == title || $0.panes.contains { $0.label == title } }) {
             pendingOpen = nil
             select(tab.id)
@@ -261,6 +270,16 @@ final class PhoneModel {
         if latched.contains("opt") { mods.append(.alt) }
         latched.subtract(["ctrl", "opt"])
         return mods
+    }
+
+    /// Shows a pane the phone opened on the Mac, once the Mac lists it.
+    func open(pane: UUID) {
+        if let tab = allTabs.first(where: { $0.panes.contains { $0.id == pane } }) {
+            select(tab.id)
+            focus(pane, in: tab.id)
+        } else {
+            pendingOpenPane = pane
+        }
     }
 
     /// A key from the key row: to the live pane.

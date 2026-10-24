@@ -165,7 +165,44 @@ final class MacConnection {
         guard mirror?.pane != pane else { return }
         mirror?.detach()
         mirror = pane.map { LiveMirror(pane: $0, connection: self) }
+        // A tab the phone opened: at the phone's size, then its command.
+        if let mirror, let opening, opening.pane == mirror.pane {
+            mirror.onFirstAttach = { [weak self, weak mirror] in
+                mirror?.takeControl()
+                if let command = opening.command { self?.run(command, in: opening.pane) }
+            }
+            self.opening = nil
+        }
         if let mirror, client != nil, let terminalConfig { mirror.start(config: terminalConfig) }
+    }
+
+    /// A tab the phone just opened, and the command it opens with.
+    private var opening: (pane: UUID, command: String?)?
+
+    /// Where a new tab can open.
+    func places() async -> RemotePlaces? {
+        guard let client else { return nil }
+        return try? await client.call(RemoteProtocol.Method.places, as: RemotePlaces.self)
+    }
+
+    /// Opens a tab on the Mac in `folder` (labelled iPhone), shown live here at the phone's size;
+    /// `command` runs in it once it is.
+    func openTab(folder: String?, command: String?) {
+        guard let client else { return }
+        var options = ["label": "iPhone"]
+        if let folder { options["cwd"] = folder }
+        Task {
+            do {
+                let response = try await client.call("new-tab", ControlParams(options: options), as: ControlResponse.self)
+                guard response.status == 0, let pane = UUID(uuidString: response.text.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+                    return Self.log.error("new-tab: \(response.text, privacy: .public)")
+                }
+                opening = (pane, command)
+                model?.open(pane: pane)
+            } catch {
+                Self.log.error("new-tab failed: \(MacConnection.describe(error), privacy: .public)")
+            }
+        }
     }
 
     /// Typed on the phone in the live pane: to the pane as keys, with the key row's latched

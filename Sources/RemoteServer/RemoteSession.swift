@@ -24,6 +24,8 @@ public struct RemoteSession: Sendable {
         case answer(AnswerParams, id: RemoteID)
         /// The Mac's terminal config answers `id`.
         case appearance(id: RemoteID)
+        /// Where a new tab can open answers `id`.
+        case places(id: RemoteID)
         /// Mirroring a pane (`MirrorHub`): attach, input, control; its reply answers `id`.
         case mirror(MirrorCall, id: RemoteID)
         /// After the reply: a peer that speaks another version is hung up on.
@@ -85,6 +87,8 @@ public struct RemoteSession: Sendable {
             return [.answer(params, id: request.id)]
         case RemoteProtocol.Method.appearance:
             return [.appearance(id: request.id)]
+        case RemoteProtocol.Method.places:
+            return [.places(id: request.id)]
         default: break
         }
         if let action = Self.mirrorAction(request) { return [action] }

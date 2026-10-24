@@ -44,6 +44,11 @@ extension WorkspaceCoordinator {
         RemoteAccess.shared.mirror = hub
     }
 
+    /// A click in a pane on the Mac: a device that had control of its size gives it back.
+    func takeBackFromRemote(_ pane: PaneID) {
+        RemoteAccess.shared.mirror?.takeBack(pane.rawValue.uuidString)
+    }
+
     /// Password prompts came or went: the panes mirrored are looked at again.
     func remoteSecureInputChanged() {
         guard let hub = RemoteAccess.shared.mirror else { return }

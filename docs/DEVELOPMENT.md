@@ -72,7 +72,10 @@ with `attach`, drawn by the phone's libghostty (`GhosttyMirror`) with the Mac's 
 (`appearance`) at the pane's grid, zoomed out to the card's width (pinch to zoom, two fingers to
 move, one to scroll its scrollback). What is typed goes to the pane as keys (`input`, the view's
 `onInput`), with the key row's Control and Option on the next key; "Take control" sizes the pane
-to the card until "Let go". Typing needs Settings › Tabs › Remote access › typing on the Mac;
+to the card until "Let go", or until the pane is clicked on the Mac. The "+" under the pane opens a
+tab on the Mac for the phone (`NewTabSheet`, `places`): a shell in a folder ⌘J knows, an ssh host,
+or a saved command, labelled iPhone, taken control of at once so it runs at the phone's size; it
+stays open on the Mac when the phone goes. Typing needs Settings › Tabs › Remote access › typing on the Mac;
 without it the pane is view only. Gone, it tries again every 5 seconds and resumes the pane where
 it got to.
 A real Mac's tabs are behind Face ID (or the passcode), at launch and each time the app comes back;

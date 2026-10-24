@@ -40,6 +40,11 @@ extension TerminalWindowController {
 
     /// A click anywhere but on a block's own header or buttons lets the selection go.
     func mouseDownInWindow(_ event: NSEvent) {
+        // A pane the phone sized takes the Mac's size again when it is clicked here.
+        if let hit = window?.contentView?.hitTest(event.locationInWindow),
+           let pane = surfaces.first(where: { hit.isDescendant(of: $0.value) })?.key {
+            coordinator.takeBackFromRemote(pane)
+        }
         guard let blocks = focusedBlocks, blocks.selection != nil,
               let hit = window?.contentView?.hitTest(event.locationInWindow),
               !hit.isDescendant(of: blocks) else { return }

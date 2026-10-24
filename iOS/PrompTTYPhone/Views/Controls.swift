@@ -47,7 +47,7 @@ private struct PaneSwitcher: View {
             }
             .padding(3)
             .glassControl(Capsule(), interactive: false)
-            Button {} label: {
+            Button { if model.isRemote { model.showingNewTab = true } } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 13, weight: .medium))
                     .frame(width: 34, height: 34)
@@ -56,7 +56,7 @@ private struct PaneSwitcher: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .glassControl(Circle())
-            .accessibilityLabel("Split")
+            .accessibilityLabel(model.isRemote ? "New tab" : "Split")
         }
     }
 }
