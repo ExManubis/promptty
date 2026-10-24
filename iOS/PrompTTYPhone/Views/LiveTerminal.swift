@@ -4,7 +4,7 @@ import UIKit
 
 /// A pane live from the Mac (`LiveMirror`): its terminal at the Mac's grid, zoomed out to fit the
 /// card's width, pinch to zoom in, two fingers to move about; one finger scrolls its scrollback.
-/// With control taken, the grid is the card's and it fits as it is.
+/// Sized for the phone (it was used here last), the grid is the card's and it fits as it is.
 struct LiveTerminal: View {
     let mirror: LiveMirror
 

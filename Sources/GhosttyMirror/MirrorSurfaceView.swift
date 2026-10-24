@@ -13,6 +13,8 @@ public final class MirrorSurfaceView: UIView, UIKeyInput {
     public var onWrite: ((Data) -> Void)?
     /// The grid now on screen (columns, rows), each time it changes. On the main thread.
     public var onResize: ((_ columns: Int, _ rows: Int) -> Void)?
+    /// The terminal was tapped.
+    public var onTap: (() -> Void)?
     /// Set, what is typed, pressed and pasted goes here as keys instead of to this terminal: a
     /// pane mirrored from the Mac is typed into there, where its terminal encodes the keys for
     /// the program. `onWrite` then gets only this terminal's replies, which the Mac's has made.
@@ -273,6 +275,7 @@ public final class MirrorSurfaceView: UIView, UIKeyInput {
 
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
         if !isFirstResponder { _ = becomeFirstResponder() }
+        onTap?()
         guard let surface else { return }
         let point = gesture.location(in: self)
         ghostty_surface_mouse_pos(surface, point.x, point.y, GHOSTTY_MODS_NONE)

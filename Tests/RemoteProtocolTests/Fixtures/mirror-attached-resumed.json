@@ -1,1 +1,1 @@
-{"id":11,"jsonrpc":"2.0","result":{"pane":"P1","position":{"seq":5120,"stream":"6F1C0D2E-0000-4000-8000-000000000001"},"state":{"cols":120,"inControl":false,"pane":"P1","password":false,"rows":40,"seq":5120,"typing":true}}}
+{"id":11,"jsonrpc":"2.0","result":{"pane":"P1","position":{"seq":5120,"stream":"6F1C0D2E-0000-4000-8000-000000000001"},"state":{"cols":120,"pane":"P1","password":false,"rows":40,"seq":5120,"sizedByMe":false,"typing":true}}}

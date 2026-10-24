@@ -640,7 +640,7 @@ enum DebugHooks {
         driver.hooks["remote"] = { [weak driver] _ in
             let access = RemoteAccess.shared
             let mirrored = (access.mirror?.attachments ?? [:]).sorted { $0.key < $1.key }
-                .map { "\($0.key.suffix(4)):\($0.value.viewers.joined(separator: "+"))\($0.value.controller.map { " control=\($0)" } ?? "")" }
+                .map { "\($0.key.suffix(4)):\($0.value.viewers.joined(separator: "+"))\($0.value.sizedBy.map { " sized=\($0)" } ?? "")" }
             let grid = driver?.focusedSurface()?.grid.map { "\($0.cols)x\($0.rows)" } ?? "-"
             return "\(access.state) clients=\(access.clients.map { "\($0.name ?? "?") \($0.user)" }) mirrored=\(mirrored) grid=\(grid)"
         }

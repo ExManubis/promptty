@@ -1,1 +1,1 @@
-{"jsonrpc":"2.0","method":"pane.state","params":{"cols":120,"inControl":false,"pane":"P1","password":true,"rows":40,"seq":7000,"typing":true}}
+{"jsonrpc":"2.0","method":"pane.state","params":{"cols":120,"pane":"P1","password":true,"rows":40,"seq":7000,"sizedByMe":false,"typing":true}}

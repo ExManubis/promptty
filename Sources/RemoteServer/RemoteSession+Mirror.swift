@@ -2,7 +2,7 @@ import Foundation
 import RemoteProtocol
 
 extension RemoteSession {
-    /// A mirror request (`attach`, `input`, `control.take`, …) as the action for the hub, or its
+    /// A mirror request (`attach`, `input`, `resize`, …) as the action for the hub, or its
     /// params' error; nil for any other method.
     static func mirrorAction(_ request: RemoteRequest) -> Action? {
         let call: MirrorCall?, takes: String
@@ -16,15 +16,9 @@ extension RemoteSession {
         case RemoteProtocol.Method.input:
             call = (try? request.params(as: InputParams.self)).map(MirrorCall.input)
             takes = "a pane and its text, paste or key"
-        case RemoteProtocol.Method.takeControl:
-            call = (try? request.params(as: ControlTake.self)).map(MirrorCall.takeControl)
-            takes = "a pane and the client's columns and rows"
         case RemoteProtocol.Method.resize:
-            call = (try? request.params(as: ControlTake.self)).map(MirrorCall.resize)
+            call = (try? request.params(as: GridParams.self)).map(MirrorCall.resize)
             takes = "a pane and the client's columns and rows"
-        case RemoteProtocol.Method.releaseControl:
-            call = (try? request.params(as: PaneParams.self)).map(MirrorCall.releaseControl)
-            takes = "a pane"
         default:
             return nil
         }

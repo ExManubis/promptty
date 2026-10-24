@@ -32,6 +32,7 @@ extension TerminalSurfaceView {
     }
 
     public override func keyDown(with event: NSEvent) {
+        onKeyDown?()
         if redirect(event) { return }
         guard let surface else { return }
         lastKeyPress = Date()

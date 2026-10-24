@@ -44,7 +44,7 @@ private final class FakePane: MirrorPane {
         return true
     }
 
-    func setControlledGrid(_ grid: (cols: Int, rows: Int)?) {
+    func setClientGrid(_ grid: (cols: Int, rows: Int)?) {
         self.grid = grid ?? macGrid
     }
 
@@ -176,7 +176,7 @@ final class MirrorHubTests: XCTestCase {
     func testAnUnknownPaneIsAnErrorAndNothingElseWorksBeforeAttaching() {
         XCTAssertEqual(error(.attach(AttachParams(pane: "nope")), from: phone), RemoteError.invalidParams)
         XCTAssertEqual(error(.input(InputParams(pane: "P", text: "x")), from: phone), RemoteError.notAttached)
-        XCTAssertEqual(error(.takeControl(ControlTake(pane: "P", cols: 40, rows: 20)), from: phone), RemoteError.notAttached)
+        XCTAssertEqual(error(.resize(GridParams(pane: "P", cols: 40, rows: 20)), from: phone), RemoteError.notAttached)
     }
 
     func testTypingNeedsTheSetting() throws {
@@ -191,40 +191,34 @@ final class MirrorHubTests: XCTestCase {
         XCTAssertEqual(pane.inputs, [InputParams(pane: "P", text: "ls\r"), InputParams(pane: "claude", key: RemoteKey("c", mods: [.ctrl]))])
     }
 
-    func testOneClientHasControlAtATimeAndLettingGoRestoresTheMacsSize() throws {
-        _ = try attach(phone)
-        _ = try attach(pad)
-        let taken = try hub.handle(.takeControl(ControlTake(pane: "P", cols: 48, rows: 22)), from: phone).result.get().decode(MirrorState.self)
-        XCTAssertEqual(taken.cols, 48)
-        XCTAssertEqual(taken.rows, 22)
-        XCTAssertTrue(taken.inControl)
-        XCTAssertEqual(taken.controller, "iPhone")
-        XCTAssertEqual(hub.attachments["P"]?.controller, "iPhone")
-        // The iPad is told who has control, and the size.
-        let padState = try XCTUnwrap(sent.events(to: pad.id, RemoteProtocol.Event.paneState).last?.params(as: MirrorState.self))
-        XCTAssertEqual(padState.controller, "iPhone")
-        XCTAssertFalse(padState.inControl)
-        XCTAssertEqual(padState.cols, 48)
-        // Only the controller resizes.
-        XCTAssertEqual(error(.resize(ControlTake(pane: "P", cols: 30, rows: 10)), from: pad), RemoteError.notInControl)
-        XCTAssertNil(error(.resize(ControlTake(pane: "P", cols: 100, rows: 18)), from: phone))
-        XCTAssertEqual(pane.grid?.cols, 100)
-        // The iPad takes it: the iPhone loses it.
-        XCTAssertNil(error(.takeControl(ControlTake(pane: "P", cols: 80, rows: 30)), from: pad))
-        let phoneState = try XCTUnwrap(sent.events(to: phone.id, RemoteProtocol.Event.paneState).last?.params(as: MirrorState.self))
-        XCTAssertEqual(phoneState.controller, "iPad")
-        XCTAssertFalse(phoneState.inControl)
-        // Releasing someone else's control does nothing; the controller's own restores the Mac's size.
-        _ = hub.handle(.releaseControl(PaneParams(pane: "P")), from: phone)
+    func testTheDeviceUsedLastSizesThePane() throws {
+        hub.typing = true
+        _ = try attach(phone, AttachParams(pane: "P", cols: 48, rows: 22))
+        // Opened on the phone: the pane has its grid.
+        XCTAssertEqual(pane.grid?.cols, 48)
+        XCTAssertEqual(hub.attachments["P"]?.sizedBy, "iPhone")
+        // The iPad opens it: it has the iPad's grid, and the iPhone is told.
+        _ = try attach(pad, AttachParams(pane: "P", cols: 80, rows: 30))
         XCTAssertEqual(pane.grid?.cols, 80)
-        _ = hub.handle(.releaseControl(PaneParams(pane: "P")), from: pad)
+        let phoneState = try XCTUnwrap(sent.events(to: phone.id, RemoteProtocol.Event.paneState).last?.params(as: MirrorState.self))
+        XCTAssertEqual(phoneState.sizedBy, "iPad")
+        XCTAssertFalse(phoneState.sizedByMe)
+        // Typing on the iPhone gives it back its grid.
+        XCTAssertNil(error(.input(InputParams(pane: "P", text: "x")), from: phone))
+        XCTAssertEqual(pane.grid?.cols, 48)
+        // The iPad turns: its new grid is kept, and the pane takes it, the iPad in use.
+        XCTAssertNil(error(.resize(GridParams(pane: "P", cols: 100, rows: 18)), from: pad))
+        XCTAssertEqual(pane.grid?.cols, 100)
+        // Used on the Mac: the Mac's size, and both are told.
+        hub.takeBack("P")
         XCTAssertEqual(pane.grid?.cols, 120)
-        XCTAssertNil(hub.attachments["P"]?.controller)
+        XCTAssertNil(hub.attachments["P"]?.sizedBy)
+        let padState = try XCTUnwrap(sent.events(to: pad.id, RemoteProtocol.Event.paneState).last?.params(as: MirrorState.self))
+        XCTAssertNil(padState.sizedBy)
     }
 
-    func testAControllerThatDisconnectsGivesTheSizeBack() throws {
-        _ = try attach(phone)
-        _ = hub.handle(.takeControl(ControlTake(pane: "P", cols: 48, rows: 22)), from: phone)
+    func testADeviceThatSizedThePaneAndDisconnectsGivesTheSizeBack() throws {
+        _ = try attach(phone, AttachParams(pane: "P", cols: 48, rows: 22))
         XCTAssertEqual(pane.grid?.cols, 48)
         hub.clientGone(phone.id)
         XCTAssertEqual(pane.grid?.cols, 120)
@@ -272,8 +266,8 @@ final class MirrorSessionTests: XCTestCase {
         _ = session.receive(try RemoteMessage.request(try RemoteRequest(id: 1, method: "hello", params: Hello(client: "phone"))).encoded())
         let attach = try RemoteRequest(id: 2, method: RemoteProtocol.Method.attach, params: AttachParams(pane: "P"))
         XCTAssertEqual(session.receive(try RemoteMessage.request(attach).encoded()), [.mirror(.attach(AttachParams(pane: "P")), id: 2)])
-        let take = try RemoteRequest(id: 3, method: RemoteProtocol.Method.takeControl, params: ControlTake(pane: "P", cols: 40, rows: 20))
-        XCTAssertEqual(session.receive(try RemoteMessage.request(take).encoded()), [.mirror(.takeControl(ControlTake(pane: "P", cols: 40, rows: 20)), id: 3)])
+        let resize = try RemoteRequest(id: 3, method: RemoteProtocol.Method.resize, params: GridParams(pane: "P", cols: 40, rows: 20))
+        XCTAssertEqual(session.receive(try RemoteMessage.request(resize).encoded()), [.mirror(.resize(GridParams(pane: "P", cols: 40, rows: 20)), id: 3)])
         let bad = RemoteRequest(id: 4, method: RemoteProtocol.Method.input, params: .object(["text": .string("x")]))
         guard case .send(.response(let response)) = session.receive(try RemoteMessage.request(bad).encoded()).first,
               case .error(let error) = response.outcome else { return XCTFail("input without a pane was taken") }
@@ -281,7 +275,7 @@ final class MirrorSessionTests: XCTestCase {
     }
 }
 
-/// Over the network: a client attaches, gets the snapshot, then the output; types; takes control.
+/// Over the network: a client attaches, gets the snapshot, then the output; types; sizes the pane.
 final class MirrorServerTests: XCTestCase {
     func testAClientMirrorsAPaneOverTheNetwork() async throws {
         let (hub, pane) = await MainActor.run { () -> (MirrorHub, FakePane) in
@@ -317,10 +311,10 @@ final class MirrorServerTests: XCTestCase {
         let inputs = await MainActor.run { pane.inputs }
         XCTAssertEqual(inputs, [InputParams(pane: "P", text: "ls\r")])
 
-        guard case .response(let took) = try await exchange(task, .request(try RemoteRequest(id: 4, method: RemoteProtocol.Method.takeControl,
-                                                                                               params: ControlTake(pane: "P", cols: 50, rows: 20)))) else { return XCTFail() }
-        XCTAssertEqual(try took.result(as: MirrorState.self).cols, 50)
-        let attachments = await MainActor.run { hub.attachments["P"]?.controller }
+        guard case .response(let sized) = try await exchange(task, .request(try RemoteRequest(id: 4, method: RemoteProtocol.Method.resize,
+                                                                                                params: GridParams(pane: "P", cols: 50, rows: 20)))) else { return XCTFail() }
+        XCTAssertEqual(try sized.result(as: MirrorState.self).cols, 50)
+        let attachments = await MainActor.run { hub.attachments["P"]?.sizedBy }
         XCTAssertEqual(attachments, "phone")
 
         // Hanging up gives the size back.

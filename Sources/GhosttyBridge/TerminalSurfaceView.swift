@@ -26,6 +26,8 @@ public final class TerminalSurfaceView: NSView {
     public var token: AnyHashable?
     /// Called when the view becomes first responder (a click or programmatic focus).
     public var onFocus: (() -> Void)?
+    /// A key typed here, before `keyRedirect` may hand it on: the pane is in use on the Mac.
+    public var onKeyDown: (() -> Void)?
     /// The selection was copied (⌘C).
     public var onCopy: (() -> Void)?
     /// The terminal has the keyboard (its window key, it first responder) or lost it.
@@ -388,8 +390,9 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    /// A grid the terminal keeps whatever the view's size, drawn from its top-left corner: a remote
-    /// client that took control of the pane (`TerminalSurfaceView+Mirror`). Nil: the view's size.
+    /// A grid the terminal keeps whatever the view's size, drawn from its top-left corner: the grid
+    /// of the remote device the pane was used on last (`TerminalSurfaceView+Mirror`). Nil: the
+    /// view's size.
     public var gridOverride: TerminalGrid? {
         didSet { if gridOverride != oldValue { sizeDidChange(force: true) } }
     }

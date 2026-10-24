@@ -17,8 +17,8 @@ public protocol MirrorPane: AnyObject {
     var password: Bool { get }
     /// Types, pastes or presses a key; false for a key it does not know.
     func input(_ params: InputParams) -> Bool
-    /// The size a controlling client asks for, or nil for the Mac's own.
-    func setControlledGrid(_ grid: (cols: Int, rows: Int)?)
+    /// The grid of the client that sizes the pane, or nil for the Mac's own size.
+    func setClientGrid(_ grid: (cols: Int, rows: Int)?)
 }
 
 public struct MirrorSnapshot: Sendable, Equatable {
@@ -51,17 +51,15 @@ public enum MirrorCall: Equatable, Sendable {
     case attach(AttachParams)
     case detach(PaneParams)
     case input(InputParams)
-    case takeControl(ControlTake)
-    case resize(ControlTake)
-    case releaseControl(PaneParams)
+    case resize(GridParams)
 
     /// The pane it names.
     public var pane: String {
         switch self {
         case .attach(let params): params.pane
-        case .detach(let params), .releaseControl(let params): params.pane
+        case .detach(let params): params.pane
         case .input(let params): params.pane
-        case .takeControl(let params), .resize(let params): params.pane
+        case .resize(let params): params.pane
         }
     }
 }
@@ -74,8 +72,9 @@ public struct MirrorReply: Sendable {
 }
 
 /// The panes mirrored to remote clients (PTY-75): each pane's output fanned out to the clients
-/// attached to it, their input, and which of them has control of its size. Lives on the main
-/// actor with the panes; output goes to the clients off it (`MirrorFeed`).
+/// attached to it, their input, and whose grid it has: the device used last, as tmux's
+/// `window-size latest` (PTY-88). Lives on the main actor with the panes; output goes to the
+/// clients off it (`MirrorFeed`).
 @MainActor
 public final class MirrorHub {
     /// Finds a pane by id, id suffix or label: its id and the pane.
@@ -88,7 +87,7 @@ public final class MirrorHub {
     public var typing: Bool {
         didSet { if typing != oldValue { for pane in panes.keys { publishState(pane) } } }
     }
-    /// The panes attached to, their viewers and controller changed: for the Mac's badges.
+    /// The panes attached to, their viewers or whose grid they have changed: for the Mac's badges.
     public var onAttachmentsChange: (() -> Void)?
     /// How long a pane's output is still kept after its last client went, for one that comes back.
     public var keepFor: Duration = .seconds(60)
@@ -101,7 +100,10 @@ public final class MirrorHub {
         let feed: MirrorFeed
         var subscription: AnyObject?
         var clients: [UUID: MirrorClient] = [:]
-        var controller: MirrorClient?
+        /// Each client's grid, as it last said.
+        var grids: [UUID: (cols: Int, rows: Int)] = [:]
+        /// The client whose grid the pane has: the one used last. Nil: the Mac's size.
+        var sizer: MirrorClient?
         /// What each client was last told (its seq left out).
         var told: [UUID: MirrorState] = [:]
         var expiry: Task<Void, Never>?
@@ -130,10 +132,10 @@ public final class MirrorHub {
         self.resolve = resolve
     }
 
-    /// Who is attached to each pane, by pane id: the viewers' names and the controller's.
-    public var attachments: [String: (viewers: [String], controller: String?)] {
+    /// Who is attached to each pane, by pane id: the viewers' names, and whose grid it has.
+    public var attachments: [String: (viewers: [String], sizedBy: String?)] {
         panes.filter { !$0.value.clients.isEmpty }.mapValues { mirrored in
-            (mirrored.clients.values.map(\.name).sorted(), mirrored.controller?.name)
+            (mirrored.clients.values.map(\.name).sorted(), mirrored.sizer?.name)
         }
     }
 
@@ -149,44 +151,25 @@ public final class MirrorHub {
             }
         case .input(let params):
             return reply {
-                let (_, mirrored) = try self.attached(params.pane, client)
+                let (id, mirrored) = try self.attached(params.pane, client)
                 guard self.typing else { throw RemoteError(code: RemoteError.typingOff, message: "typing from other devices is off on the Mac") }
                 guard let pane = mirrored.pane, pane.input(params) else {
                     throw RemoteError(code: RemoteError.invalidParams, message: "input takes text, paste or a known key")
                 }
+                self.size(id, for: client)
                 return JSONValue.object([:])
-            }
-        case .takeControl(let params):
-            return reply {
-                let (id, mirrored) = try self.attached(params.pane, client)
-                let previous = mirrored.controller
-                mirrored.controller = client
-                mirrored.pane?.setControlledGrid((params.cols, params.rows))
-                if previous?.id != client.id { self.onAttachmentsChange?() }
-                let value = try self.stateValue(id, for: client.id)
-                // The others (one of them may have had control) see who has it now.
-                self.publishState(id)
-                return value
             }
         case .resize(let params):
             return reply {
                 let (id, mirrored) = try self.attached(params.pane, client)
-                guard mirrored.controller?.id == client.id else {
-                    throw RemoteError(code: RemoteError.notInControl, message: "take control of the pane to resize it")
-                }
-                mirrored.pane?.setControlledGrid((params.cols, params.rows))
-                return try self.stateValue(id, for: client.id)
-            }
-        case .releaseControl(let params):
-            return reply {
-                let (id, mirrored) = try self.attached(params.pane, client)
-                if mirrored.controller?.id == client.id { self.release(id) }
+                mirrored.grids[client.id] = (params.cols, params.rows)
+                self.size(id, for: client, regrid: true)
                 return try self.stateValue(id, for: client.id)
             }
         }
     }
 
-    /// A client disconnected: it leaves every pane, and gives back control it had.
+    /// A client disconnected: it leaves every pane, and the Mac gets back the size it had.
     public func clientGone(_ client: UUID) {
         for (id, mirrored) in panes where mirrored.clients[client] != nil { detach(client, from: id) }
     }
@@ -198,8 +181,8 @@ public final class MirrorHub {
         tell(client, Detached(pane: pane, reason: .behind))
     }
 
-    /// The pane was clicked on the Mac: it gets the Mac's size back from the device that had
-    /// control, which is told.
+    /// The pane was clicked or typed in on the Mac: it gets the Mac's size back from the device
+    /// that sized it, which is told.
     public func takeBack(_ id: String) { release(id) }
 
     /// A pane's size or password prompt may have changed: its clients are told what did.
@@ -217,7 +200,7 @@ public final class MirrorHub {
     public func reset() {
         for mirrored in panes.values {
             mirrored.expiry?.cancel()
-            if mirrored.controller != nil { mirrored.pane?.setControlledGrid(nil) }
+            if mirrored.sizer != nil { mirrored.pane?.setClientGrid(nil) }
         }
         let had = panes.values.contains { !$0.clients.isEmpty }
         panes.removeAll()
@@ -254,9 +237,13 @@ public final class MirrorHub {
         }
         let wasNew = mirrored.clients[client.id] == nil
         mirrored.clients[client.id] = client
+        if let cols = params.cols, let rows = params.rows { mirrored.grids[client.id] = (cols, rows) }
         let state = state(id, mirrored, for: client.id, grid: grid, seq: position.seq)
         mirrored.told[client.id] = state.withoutSeq
         if wasNew { onAttachmentsChange?() }
+        // Opened on the device: it is the one in use, so the pane fits it. Its new grid follows
+        // the answer as `pane.state`, once the Mac's terminal has resized.
+        size(id, for: client)
         let attached = Attached(pane: id, position: position, snapshot: snapshot, state: state)
         guard let value = try? JSONValue(encoding: attached) else {
             return MirrorReply(result: .failure(RemoteError(code: RemoteError.internalError, message: "could not encode the snapshot")))
@@ -284,7 +271,8 @@ public final class MirrorHub {
         guard let mirrored = panes[id], mirrored.clients.removeValue(forKey: client) != nil else { return }
         mirrored.feed.deactivate(client)
         mirrored.told[client] = nil
-        if mirrored.controller?.id == client { release(id) }
+        mirrored.grids[client] = nil
+        if mirrored.sizer?.id == client { release(id) }
         onAttachmentsChange?()
         guard mirrored.clients.isEmpty else { return }
         // Kept a while for a client that reconnects, then let go.
@@ -296,10 +284,23 @@ public final class MirrorHub {
         }
     }
 
+    /// The client is in use: the pane takes its grid, if it has said it. Cheap when it has it
+    /// already (every key comes through here); `regrid` applies a grid that changed.
+    private func size(_ id: String, for client: MirrorClient, regrid: Bool = false) {
+        guard let mirrored = panes[id], let grid = mirrored.grids[client.id] else { return }
+        let changed = mirrored.sizer?.id != client.id
+        guard changed || regrid else { return }
+        mirrored.sizer = client
+        mirrored.pane?.setClientGrid(grid)
+        if changed { onAttachmentsChange?() }
+        // The others (one of them may have sized it) see whose grid it has now.
+        publishState(id)
+    }
+
     private func release(_ id: String) {
-        guard let mirrored = panes[id], mirrored.controller != nil else { return }
-        mirrored.controller = nil
-        mirrored.pane?.setControlledGrid(nil)
+        guard let mirrored = panes[id], mirrored.sizer != nil else { return }
+        mirrored.sizer = nil
+        mirrored.pane?.setClientGrid(nil)
         onAttachmentsChange?()
         publishState(id)
     }
@@ -318,7 +319,7 @@ public final class MirrorHub {
     private func state(_ id: String, _ mirrored: Mirrored, for client: UUID, grid: (cols: Int, rows: Int)? = nil, seq: Int? = nil) -> MirrorState {
         let grid = grid ?? mirrored.pane?.grid ?? (0, 0)
         return MirrorState(pane: id, cols: grid.cols, rows: grid.rows, seq: seq ?? mirrored.pane?.seq ?? 0,
-                           controller: mirrored.controller?.name, inControl: mirrored.controller?.id == client,
+                           sizedBy: mirrored.sizer?.name, sizedByMe: mirrored.sizer?.id == client,
                            password: mirrored.pane?.password ?? false, typing: typing)
     }
 

@@ -9,16 +9,16 @@ import WorkspaceModel
 struct PaneRemote: Equatable {
     /// The devices' names, as they introduced themselves.
     var viewers: [String]
-    /// The one that has control of the pane's size.
-    var controller: String?
+    /// The one whose size the pane has: it was used last.
+    var sizedBy: String?
 
     var text: String {
-        if let controller { return "\(controller) has control" }
+        if let sizedBy { return "Sized for \(sizedBy)" }
         return viewers.count == 1 ? "On \(viewers[0])" : "On \(viewers.count) devices"
     }
 
     var help: String {
-        if let controller { return "\(controller) has control: the pane has its size until it lets go or disconnects." }
+        if let sizedBy { return "Sized for \(sizedBy), where it was used last. Click or type in it to give it this window's size again." }
         return "Shown on \(viewers.joined(separator: ", ")) over Remote access."
     }
 }
@@ -44,7 +44,7 @@ extension WorkspaceCoordinator {
         RemoteAccess.shared.mirror = hub
     }
 
-    /// A click in a pane on the Mac: a device that had control of its size gives it back.
+    /// A click or a key in a pane on the Mac: a device that sized it gives the size back.
     func takeBackFromRemote(_ pane: PaneID) {
         RemoteAccess.shared.mirror?.takeBack(pane.rawValue.uuidString)
     }
@@ -72,10 +72,10 @@ extension WorkspaceCoordinator {
         }
     }
 
-    private func showRemoteAttachments(_ attachments: [String: (viewers: [String], controller: String?)]) {
+    private func showRemoteAttachments(_ attachments: [String: (viewers: [String], sizedBy: String?)]) {
         for pane in workspace.windows.flatMap(\.paneIDs) {
             let attached = attachments[pane.rawValue.uuidString]
-            activity.status(for: pane).setRemote(attached.map { PaneRemote(viewers: $0.viewers, controller: $0.controller) })
+            activity.status(for: pane).setRemote(attached.map { PaneRemote(viewers: $0.viewers, sizedBy: $0.sizedBy) })
         }
     }
 }
@@ -150,7 +150,7 @@ private final class SurfaceMirror: MirrorPane {
         return params.text != nil || params.paste != nil
     }
 
-    func setControlledGrid(_ grid: (cols: Int, rows: Int)?) {
+    func setClientGrid(_ grid: (cols: Int, rows: Int)?) {
         view?.gridOverride = grid.map { TerminalGrid(cols: $0.cols, rows: $0.rows).clamped }
     }
 }

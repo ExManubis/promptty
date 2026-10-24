@@ -195,33 +195,29 @@ private struct PaneHeaderRow: View {
                 .lineLimit(1)
                 .truncationMode(.head)
             Spacer(minLength: 0)
-            if let mirror, let state = mirror.state {
-                controlButton(mirror, state: state)
+            if let state = mirror?.state {
+                sizeNote(state)
             }
         }
         .padding(.horizontal, 14)
         .frame(height: 38)
     }
 
-    /// Takes control of the pane's size (it fits the phone) or gives it back; says who has it.
+    /// View only, or whose size the pane has while it isn't the phone's (it was used on the Mac
+    /// last; a tap or a key here fits it to the phone again).
     @ViewBuilder
-    private func controlButton(_ mirror: LiveMirror, state: MirrorState) -> some View {
+    private func sizeNote(_ state: MirrorState) -> some View {
         if !state.typing {
             // Settings › Tabs › Remote access on the Mac lets other devices type.
             Text("View only")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("live.viewOnly")
-        } else if state.inControl {
-            Button("Let go") { mirror.releaseControl() }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
-                .accessibilityIdentifier("live.release")
-        } else {
-            Button(state.controller.map { "\($0) has it" } ?? "Take control") { mirror.takeControl() }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
-                .accessibilityIdentifier("live.take")
+        } else if !state.sizedByMe {
+            Text(state.sizedBy.map { "Sized for \($0)" } ?? "Sized for the Mac")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .accessibilityIdentifier("live.sizedElsewhere")
         }
     }
 }

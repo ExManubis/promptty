@@ -166,10 +166,9 @@ final class MacConnection {
         guard mirror?.pane != pane else { return }
         mirror?.detach()
         mirror = pane.map { LiveMirror(pane: $0, connection: self) }
-        // A tab the phone opened: at the phone's size, then its command.
+        // A tab the phone opened: at the phone's size (attaching gives it), then its command.
         if let mirror, let opening, opening.pane == mirror.pane {
-            mirror.onFirstAttach = { [weak self, weak mirror] in
-                mirror?.takeControl()
+            mirror.onFirstAttach = { [weak self] in
                 if let command = opening.command { self?.run(command, in: opening.pane) }
             }
             self.opening = nil

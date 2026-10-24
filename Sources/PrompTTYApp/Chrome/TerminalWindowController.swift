@@ -206,6 +206,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
 
     private func bind(_ view: TerminalSurfaceView, to pane: PaneID) {
         view.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
+        // Typed in here: a phone that sized the pane gives it this window's size back.
+        view.onKeyDown = { [weak self] in self?.coordinator.takeBackFromRemote(pane) }
         view.onCopy = { [weak self] in self?.chrome.copyShines[pane, default: 0] += 1 }
         view.onFocusChange = { [weak self] focused in self?.coordinator.secureInput.setFocused(pane, focused) }
         // Clients mirroring the pane follow its size.
@@ -254,7 +256,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
             guard let shell, shell.bar != .hidden else { return nil }
             return shell.editor.textView
         }
-        shell.editor.textView.onFocus = { [weak self] in self?.coordinator.paneDidFocus(pane) }
+        shell.editor.textView.onFocus = { [weak self] in
+            self?.coordinator.paneDidFocus(pane)
+            self?.coordinator.takeBackFromRemote(pane)
+        }
         shell.onPhaseChange = { [weak self] phase in
             if phase == .running { self?.blocks(for: pane)?.commandStarted() } else { self?.blocks(for: pane)?.setNeedsRefresh() }
             self?.shellPhaseChanged(pane)

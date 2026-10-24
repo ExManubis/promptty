@@ -109,9 +109,10 @@ devices get in. It is off by default.
 **PrompTTY for iPhone** connects there: add your Mac by its Tailscale name in the Mac switcher and
 your tabs show as on the Mac, with each agent's state. The open pane is live: pinch to zoom, answer
 an agent's permission prompt from its banner, and, with **Let them type into panes** on,
-type into it or **Take control** to fit it to the phone. **+** opens a tab on the Mac at the
+type into it. The device you used last sizes the pane: on the phone it fits the phone, and a click
+or a key in it on the Mac gives it the Mac's size back. **+** opens a tab on the Mac at the
 phone's size: a shell in a folder you use, an ssh host, or a saved command. It keeps running when
-the phone goes. Clicking a pane on the Mac gives it the Mac's size back.
+the phone goes.
 
 ## Connect your agents
 

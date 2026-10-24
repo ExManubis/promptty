@@ -2,8 +2,10 @@ import Foundation
 
 // Mirroring a pane: a client attaches to it and gets a snapshot of the terminal as VT bytes, then
 // every byte the pane's programs write, numbered, so its own terminal shows what the Mac's does.
-// It can type into the pane and take control of its size. Bytes travel base64 in JSON (`Data`'s
-// Codable form), so every message is one JSON-RPC text frame like the rest of the protocol.
+// It can type into the pane, and the device used last sizes it: attaching, typing or sending its
+// grid fits the pane to the client, a click or a key in it on the Mac gives it the Mac's size back
+// (tmux's `window-size latest`). Bytes travel base64 in JSON (`Data`'s Codable form), so every
+// message is one JSON-RPC text frame like the rest of the protocol.
 //
 // A pane's output is one stream of bytes: `stream` names it and `seq` counts its bytes from 0. The
 // snapshot holds everything before `seq`; each `output` event carries the bytes from its `seq` on,
@@ -14,24 +16,20 @@ import Foundation
 extension RemoteProtocol.Method {
     /// Mirrors a pane (`AttachParams` → `Attached`); its `output` events follow.
     public static let attach = "attach"
-    /// Stops mirroring a pane (`PaneParams` → `{}`); control taken is let go.
+    /// Stops mirroring a pane (`PaneParams` → `{}`); a pane it sized gets the Mac's size back.
     public static let detach = "detach"
-    /// Types into an attached pane (`InputParams` → `{}`).
+    /// Types into an attached pane (`InputParams` → `{}`); the pane takes the client's grid.
     public static let input = "input"
-    /// Takes control of an attached pane's size (`ControlTake` → `MirrorState`): the pane is
-    /// resized to the client's grid until it lets go, detaches or disconnects. One client at a
-    /// time: taking control from another client takes it away from that one.
-    public static let takeControl = "control.take"
-    /// The controlling client's grid changed (`ControlTake` → `MirrorState`), the phone turned.
+    /// The client's grid, and that it is in use (`GridParams` → `MirrorState`): the pane takes it
+    /// until another device is used, the client detaches or disconnects. Sent when the pane is
+    /// tapped, the phone turns or the keyboard comes up.
     public static let resize = "resize"
-    /// Gives control back (`PaneParams` → `MirrorState`): the pane gets the Mac's size again.
-    public static let releaseControl = "control.release"
 }
 
 extension RemoteProtocol.Event {
     /// An attached pane's output (`MirrorOutput`).
     public static let output = "output"
-    /// An attached pane's size, controller or password prompt changed (`MirrorState`).
+    /// An attached pane's size, whose grid it has or its password prompt changed (`MirrorState`).
     public static let paneState = "pane.state"
     /// The Mac stopped mirroring a pane to this client (`Detached`).
     public static let detached = "detached"
@@ -42,8 +40,6 @@ extension RemoteError {
     public static let notAttached = -32005
     /// `input` while typing from other devices is off in the Mac's Settings.
     public static let typingOff = -32006
-    /// `resize` from a client that does not have control of the pane.
-    public static let notInControl = -32007
 }
 
 /// Where a client got to in a pane's output.
@@ -65,11 +61,16 @@ public struct AttachParams: Codable, Equatable, Sendable {
     public var resume: MirrorPosition?
     /// Rows of scrollback in the snapshot at most; 1000 when not given.
     public var scrollback: Int?
+    /// The client's grid, when it knows it: the pane takes it.
+    public var cols: Int?
+    public var rows: Int?
 
-    public init(pane: String, resume: MirrorPosition? = nil, scrollback: Int? = nil) {
+    public init(pane: String, resume: MirrorPosition? = nil, scrollback: Int? = nil, cols: Int? = nil, rows: Int? = nil) {
         self.pane = pane
         self.resume = resume
         self.scrollback = scrollback
+        self.cols = cols
+        self.rows = rows
     }
 }
 
@@ -106,25 +107,25 @@ public struct MirrorState: Codable, Equatable, Sendable {
     public var rows: Int
     /// The output position the grid changed at, about: the bytes from here on are for this size.
     public var seq: Int
-    /// The client that has control of the pane's size, by the name it gave in `hello`; nil while
-    /// the pane has the Mac's size.
-    public var controller: String?
-    /// This client has control.
-    public var inControl: Bool
+    /// The client whose grid the pane has, by the name it gave in `hello`; nil while the pane has
+    /// the Mac's size.
+    public var sizedBy: String?
+    /// The pane has this client's grid.
+    public var sizedByMe: Bool
     /// The program is reading a password (the terminal does not echo): a client hides what it
     /// echoes of the keys it sends.
     public var password: Bool
     /// The Mac lets this client type (Settings › Remote access).
     public var typing: Bool
 
-    public init(pane: String, cols: Int, rows: Int, seq: Int, controller: String? = nil, inControl: Bool = false,
+    public init(pane: String, cols: Int, rows: Int, seq: Int, sizedBy: String? = nil, sizedByMe: Bool = false,
                 password: Bool = false, typing: Bool = false) {
         self.pane = pane
         self.cols = cols
         self.rows = rows
         self.seq = seq
-        self.controller = controller
-        self.inControl = inControl
+        self.sizedBy = sizedBy
+        self.sizedByMe = sizedByMe
         self.password = password
         self.typing = typing
     }
@@ -167,15 +168,15 @@ public struct Detached: Codable, Equatable, Sendable {
     }
 }
 
-/// `detach`'s and `control.release`'s params.
+/// `detach`'s params.
 public struct PaneParams: Codable, Equatable, Sendable {
     public var pane: String
 
     public init(pane: String) { self.pane = pane }
 }
 
-/// `control.take`'s and `resize`'s params: the client's grid.
-public struct ControlTake: Codable, Equatable, Sendable {
+/// `resize`'s params: the client's grid.
+public struct GridParams: Codable, Equatable, Sendable {
     public var pane: String
     public var cols: Int
     public var rows: Int

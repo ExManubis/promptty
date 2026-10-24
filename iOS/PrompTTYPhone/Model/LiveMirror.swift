@@ -8,28 +8,27 @@ import UIKit
 /// A pane on the Mac, live on the phone: attached over the remote API (`attach`), its snapshot and
 /// then every byte its programs write fed to a terminal of its own (`MirrorSurfaceView`) at the
 /// Mac's grid, so it shows what the Mac's does; scrolling it moves nothing on the Mac. What is typed
-/// goes to the pane as keys (`input`). "Take control" sizes the pane to the phone until it lets go.
+/// goes to the pane as keys (`input`). The device used last sizes the pane: opening it here, typing,
+/// a tap or turning the phone fits it to the phone; using it on the Mac gives it the Mac's size.
 @MainActor
 @Observable
 final class LiveMirror {
     let pane: UUID
     /// The terminal, once the Mac's config has come.
     private(set) var view: MirrorSurfaceView?
-    /// The pane's grid, controller and whether this phone may type.
+    /// The pane's grid, whose size it has and whether this phone may type.
     private(set) var state: MirrorState?
     /// Why it shows nothing ("The pane closed").
     private(set) var failure: String?
     /// The terminal's size for the pane's grid, once its cells are known: its frame.
     private(set) var fit: CGSize?
-    /// The room the pane card has for the terminal: the grid taken with control.
+    /// The room the pane card has for the terminal: the phone's grid. A change (the phone turned,
+    /// the keyboard came up) is the phone in use, so the pane takes it.
     var available: CGSize = .zero {
-        didSet {
-            takePendingControl()
-            if state?.inControl == true, available != oldValue { resizeControlled() }
-        }
+        didSet { if available != oldValue { sendGrid() } }
     }
 
-    /// Once, after the first attach: a tab the phone opened takes control and runs its command.
+    /// Once, after the first attach: a tab the phone opened runs its command.
     var onFirstAttach: (() -> Void)?
 
     private weak var connection: MacConnection?
@@ -65,6 +64,8 @@ final class LiveMirror {
             view.accessibilityIdentifier = "live.terminal"
             view.onResize = { [weak self] columns, rows in self?.resized(columns: columns, rows: rows) }
             view.onInput = { [weak self] input in self?.connection?.typed(input, in: self) }
+            // Tapped: the phone is in use, the pane fits it again.
+            view.onTap = { [weak self] in self?.sendGrid(force: true) }
             // Its replies to the program's queries: the Mac's own terminal has made them.
             view.onWrite = { _ in }
             self.view = view
@@ -80,7 +81,9 @@ final class LiveMirror {
         if fresh { position = nil }
         attaching = true
         early = []
-        let params = AttachParams(pane: pane.uuidString, resume: position, scrollback: 2000)
+        let grid = phoneGrid()
+        let params = AttachParams(pane: pane.uuidString, resume: position, scrollback: 2000, cols: grid?.cols, rows: grid?.rows)
+        sentGrid = grid
         Task {
             do {
                 let attached = try await client.call(RemoteProtocol.Method.attach, params, as: Attached.self)
@@ -97,10 +100,11 @@ final class LiveMirror {
                 let waiting = early
                 early = []
                 for output in waiting { received(output) }
+                // The grid wasn't known yet when it attached: the pane takes it now.
+                if grid == nil { sendGrid() }
                 if let first = onFirstAttach {
                     onFirstAttach = nil
-                    pendingControl = first
-                    takePendingControl()
+                    first()
                 }
             } catch {
                 attaching = false
@@ -147,41 +151,23 @@ final class LiveMirror {
         }
     }
 
-    // MARK: Control
+    // MARK: Size
 
-    func takeControl() {
-        guard let grid = phoneGrid(), let client = connection?.client else { return }
-        let params = ControlTake(pane: pane.uuidString, cols: grid.cols, rows: grid.rows)
-        Task {
-            if let state = try? await client.call(RemoteProtocol.Method.takeControl, params, as: MirrorState.self) { apply(state) }
-        }
-    }
+    /// The grid last sent: one that hasn't changed isn't sent again unless `force`d (a tap, with
+    /// the pane at the Mac's size).
+    private var sentGrid: (cols: Int, rows: Int)?
 
-    func releaseControl() {
-        guard let client = connection?.client else { return }
-        let params = PaneParams(pane: pane.uuidString)
-        Task {
-            if let state = try? await client.call(RemoteProtocol.Method.releaseControl, params, as: MirrorState.self) { apply(state) }
-        }
-    }
-
-    private func resizeControlled() {
-        guard let grid = phoneGrid(), let state, grid.cols != state.cols || grid.rows != state.rows,
-              let client = connection?.client else { return }
-        let params = ControlTake(pane: pane.uuidString, cols: grid.cols, rows: grid.rows)
+    /// Tells the Mac the phone's grid, so the pane takes it: once attached and the terminal knows
+    /// its cells.
+    private func sendGrid(force: Bool = false) {
+        guard !attaching, state != nil, let grid = phoneGrid(), let client = connection?.client else { return }
+        let unchanged = sentGrid.map { $0.cols == grid.cols && $0.rows == grid.rows } ?? false
+        guard !unchanged || (force && state?.sizedByMe != true) else { return }
+        sentGrid = grid
+        let params = GridParams(pane: pane.uuidString, cols: grid.cols, rows: grid.rows)
         Task {
             if let state = try? await client.call(RemoteProtocol.Method.resize, params, as: MirrorState.self) { apply(state) }
         }
-    }
-
-    /// Control wanted before the terminal knew its cells: taken once it does.
-    private var pendingControl: (() -> Void)?
-
-    private func takePendingControl() {
-        guard pendingControl != nil, phoneGrid() != nil else { return }
-        let action = pendingControl
-        pendingControl = nil
-        action?()
     }
 
     /// The grid that fits the pane card at the phone's font.
@@ -204,7 +190,8 @@ final class LiveMirror {
     }
 
     private func resized(columns: Int, rows: Int) {
-        takePendingControl()
+        // The terminal knows its cells now: the phone's grid with them.
+        if sentGrid == nil { sendGrid() }
         guard let state else { return }
         if columns == state.cols, rows == state.rows { gridReady() } else if fit == nil || !gridMatches { fitToGrid() }
     }
