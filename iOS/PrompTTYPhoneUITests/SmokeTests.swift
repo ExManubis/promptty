@@ -9,7 +9,7 @@ final class SmokeTests: XCTestCase {
     @MainActor
     func testOpenATabAndAnswerThePermissionPrompt() {
         let app = XCUIApplication()
-        app.launchArguments = ["-posture", "compact"]
+        app.launchArguments = ["-demo", "YES", "-posture", "compact"]
         app.launch()
 
         let row = app.buttons["tab.Remote API"]
@@ -28,7 +28,7 @@ final class SmokeTests: XCTestCase {
     @MainActor
     func testTheActivityListsTheAgents() {
         let app = XCUIApplication()
-        app.launchArguments = ["-posture", "compact"]
+        app.launchArguments = ["-demo", "YES", "-posture", "compact"]
         app.launch()
 
         let eye = app.buttons["activity"]
@@ -43,7 +43,7 @@ final class SmokeTests: XCTestCase {
     @MainActor
     func testTheGlassControlsTakeTaps() {
         let app = XCUIApplication()
-        app.launchArguments = ["-posture", "compact", "-open", "zsh"]
+        app.launchArguments = ["-demo", "YES", "-posture", "compact", "-open", "zsh"]
         app.launch()
 
         let command = app.buttons["key.command"]
@@ -56,5 +56,28 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         search.tap()
         XCTAssertTrue(app.descendants(matching: .any)["mac-switcher"].waitForExistence(timeout: 5))
+    }
+}
+
+/// Against a Mac's Debug build listening on the loopback address, with a pane labelled `gitlog`:
+/// `PROMPTTY_REMOTE_HOST=127.0.0.1` for the Mac, and `TEST_RUNNER_PROMPTTY_LIVE_MAC=1` for
+/// `xcodebuild test`. Skipped otherwise.
+final class LiveMacTests: XCTestCase {
+    @MainActor
+    func testRunsACommandOnTheMac() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["PROMPTTY_LIVE_MAC"] == "1", "no Mac to talk to")
+        let app = XCUIApplication()
+        app.launchArguments = ["-connect", "127.0.0.1", "-requireFaceID", "NO", "-posture", "compact", "-open", "gitlog"]
+        app.launch()
+
+        let field = app.textFields["command"]
+        XCTAssertTrue(field.waitForExistence(timeout: 15))
+        let marker = "hello-from-iphone-\(Int.random(in: 1000...9999))"
+        field.tap()
+        field.typeText("echo \(marker)\n")
+        // The command's block: its line, and its output read back from the Mac (two lines with it).
+        let lines = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", marker))
+        let both = expectation(for: NSPredicate(format: "count >= 2"), evaluatedWith: lines)
+        wait(for: [both], timeout: 15)
     }
 }

@@ -8,20 +8,33 @@ enum DemoData {
     /// The demo's model; launched with `-open <tab title>` it opens that tab, and with
     /// `-activity YES` it shows the Activity (for screenshots and UI tests).
     static func model() -> PhoneModel {
-        let model = PhoneModel(macs: macs, projects: projects, theme: ThemeCatalog.parse(flexokiDark)!)
+        let model = PhoneModel(macs: [demoMac] + SavedMacs.load(), projects: projects, theme: ThemeCatalog.parse(flexokiDark)!)
         let defaults = UserDefaults.standard
-        if let title = defaults.string(forKey: "open"), let tab = model.allTabs.first(where: { $0.title == title }) {
-            model.select(tab.id)
+        // `-connect <host>`: that Mac, added if it is new (for scripted runs against a Mac's
+        // Debug build listening on the loopback address).
+        if let host = defaults.string(forKey: "connect") {
+            if let known = model.macs.first(where: { $0.host == host }) { model.selectMac(known.id) } else { model.addMac(host: host) }
+            return finish(model, defaults)
+        }
+        // The Mac shown last, unless launched with `-demo YES` (the UI tests).
+        if !defaults.bool(forKey: "demo"), let last = defaults.string(forKey: "selectedMac").flatMap(UUID.init(uuidString:)),
+           last != demoMac.id, model.macs.contains(where: { $0.id == last }) {
+            model.selectMac(last)
+        }
+        return finish(model, defaults)
+    }
+
+    private static func finish(_ model: PhoneModel, _ defaults: UserDefaults) -> PhoneModel {
+        if let title = defaults.string(forKey: "open") {
+            if let tab = model.allTabs.first(where: { $0.title == title }) { model.select(tab.id) } else { model.pendingOpen = title }
         }
         model.showsActivity = defaults.bool(forKey: "activity")
         return model
     }
 
-    static let macs = [
-        PhoneMac(name: "Studio", host: "mikkels-studio", symbol: "macstudio", online: true, waiting: 1, status: "12 ms"),
-        PhoneMac(name: "MacBook Pro", host: "mikkels-mbp", symbol: "laptopcomputer", online: true, status: "28 ms"),
-        PhoneMac(name: "MacBook Air", host: "mikkels-air", symbol: "laptopcomputer", online: false, status: "asleep · 2h"),
-    ]
+    /// The demo, first in the Mac switcher: scripted tabs, no connection.
+    static let demoMac = PhoneMac(id: UUID(uuidString: "D3E30000-0000-0000-0000-000000000001")!, name: "Demo Mac", host: "demo",
+                                  symbol: "macstudio", online: true, waiting: 1, status: "scripted tabs, no connection", isDemo: true)
 
     /// Ghostty's Flexoki Dark, the Mac's default dark theme. The Mac will send its own.
     static let flexokiDark = """

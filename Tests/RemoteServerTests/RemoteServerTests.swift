@@ -1,4 +1,5 @@
 import Foundation
+import RemoteClient
 import RemoteControl
 import RemoteProtocol
 import XCTest
@@ -206,5 +207,60 @@ final class RemoteSubscriptionTests: XCTestCase {
     private func receive(_ task: URLSessionWebSocketTask) async throws -> RemoteMessage {
         guard case .string(let text) = try await task.receive() else { throw URLError(.cannotParseResponse) }
         return try RemoteMessage.decode(Data(text.utf8))
+    }
+}
+
+/// The iPhone app's client against the real server.
+final class RemoteClientTests: XCTestCase {
+    private func server(caller: TailnetIdentity.Caller, workspace: RemoteWorkspace = RemoteWorkspace(windows: [], projects: [])) throws -> RemoteServer {
+        let server = RemoteServer(host: "127.0.0.1", port: UInt16.random(in: 40_000...60_000), owner: 7, server: "PrompTTY test", mac: "Test Mac",
+                                  identify: { _ in caller }, handler: { request, reply in reply(.ok("ran \(request.command)")) },
+                                  workspace: RemoteServer.Workspace(snapshot: { workspace }, blocks: { .success(BlocksResult(pane: $0.pane, commands: [])) }),
+                                  onClients: { _ in })
+        try server.start()
+        return server
+    }
+
+    func testConnectsCallsAndHearsEvents() async throws {
+        let server = try server(caller: TailnetIdentity.Caller(userID: 7, login: "me"))
+        defer { server.stop() }
+        try await Task.sleep(for: .milliseconds(200))
+        let client = RemoteClient(url: URL(string: "ws://127.0.0.1:\(server.port)")!, clientName: "tests")
+        defer { client.close() }
+
+        let welcome = try await client.connect()
+        XCTAssertEqual(welcome.mac, "Test Mac")
+        let sent = try await client.call("send", ControlParams(arguments: ["make"]), as: ControlResponse.self)
+        XCTAssertEqual(sent, .ok("ran send"))
+        let subscribed = try await client.call(RemoteProtocol.Method.subscribe, as: RemoteWorkspace.self)
+        XCTAssertEqual(subscribed, RemoteWorkspace(windows: [], projects: []))
+
+        let events = AsyncStream<RemoteNotification> { continuation in client.onEvent { continuation.yield($0) } }
+        let changed = RemoteWorkspace(windows: [], projects: [RemoteProject(id: "R", name: "promptty", folded: false)])
+        server.publish(changed)
+        var iterator = events.makeAsyncIterator()
+        let event = await iterator.next()
+        XCTAssertEqual(event?.method, RemoteProtocol.Event.workspace)
+        XCTAssertEqual(try event?.params(as: RemoteWorkspace.self), changed)
+
+        do {
+            _ = try await client.call("rm-rf", as: ControlResponse.self)
+            XCTFail("an unknown method was answered")
+        } catch let error as RemoteError {
+            XCTAssertEqual(error.code, RemoteError.methodNotFound)
+        }
+    }
+
+    func testIsTurnedAwayWhenNotTheOwner() async throws {
+        let server = try server(caller: TailnetIdentity.Caller(userID: 99, login: "them"))
+        defer { server.stop() }
+        try await Task.sleep(for: .milliseconds(200))
+        let client = RemoteClient(url: URL(string: "ws://127.0.0.1:\(server.port)")!, clientName: "tests")
+        do {
+            _ = try await client.connect()
+            XCTFail("a stranger was let in")
+        } catch let error as RemoteError {
+            XCTAssertEqual(error.code, RemoteError.notAllowed)
+        }
     }
 }

@@ -9,6 +9,7 @@ struct SidebarScreen: View {
     @Bindable var model: PhoneModel
     /// Beside the pane (an open iPhone Duo), the selected row stays lit and nothing slides in.
     var besidePane = false
+    @State private var showsSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,6 +19,9 @@ struct SidebarScreen: View {
                 // Activity's belonged when the eye switched lists (both are keyed by the tabs).
                 VStack(spacing: 2) {
                     MachineHeaderRow(mac: model.mac) { model.switchingMac = true }
+                    if let state = model.connectionState, state.message != nil {
+                        ConnectionRow(state: state)
+                    }
                     if model.showsActivity { activity } else { tabList }
                 }
                 .padding(.horizontal, 10)
@@ -28,6 +32,7 @@ struct SidebarScreen: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
         }
+        .sheet(isPresented: $showsSettings) { PhoneSettings(model: model) }
     }
 
     /// The Activity eye and settings in one glass capsule, the sidebar button in a glass circle.
@@ -40,7 +45,7 @@ struct SidebarScreen: View {
                                badge: agentNews) { model.showsActivity.toggle() }
                         .accessibilityIdentifier("activity")
                         .accessibilityValue(model.showsActivity ? "on" : "off")
-                    BandButton(symbol: "gearshape", label: "Settings") {}
+                    BandButton(symbol: "gearshape", label: "Settings") { showsSettings = true }
                 }
                 .padding(.horizontal, 4)
                 .glassControl(Capsule(), interactive: false)
@@ -63,7 +68,10 @@ struct SidebarScreen: View {
     @ViewBuilder
     private var tabList: some View {
         ForEach(model.projects) { project in
-            ProjectHeaderRow(project: project, toggle: { model.toggleFold(project.id) })
+            // The tabs in no project come last, under no header, as on the Mac.
+            if !project.name.isEmpty {
+                ProjectHeaderRow(project: project, toggle: { model.toggleFold(project.id) })
+            }
             if !project.folded {
                 ForEach(project.tabs) { tab in
                     TabRowView(tab: tab, selected: tab.id == model.selectedTab) { model.select(tab.id) }
@@ -198,8 +206,8 @@ struct TabRowView: View {
                         .font(.system(size: 17, weight: selected ? .medium : .regular))
                         .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.85))
                         .layoutPriority(1)
-                    if !tab.isAgent {
-                        Text(tab.lead.folder)
+                    if let folder = tab.folder ?? (tab.isAgent ? nil : tab.lead.folder) {
+                        Text(folder)
                             .font(.system(size: 17))
                             .foregroundStyle(.tertiary)
                             .truncationMode(.head)
@@ -269,6 +277,25 @@ private struct ActivityRowView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("activity.\(tab.title)")
+    }
+}
+
+/// How the connection to the Mac is doing, under its name, until it is connected.
+private struct ConnectionRow: View {
+    let state: MacConnection.State
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if state == .connecting { ProgressView().controlSize(.small) }
+            Text(state.message ?? "")
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 10 + ProgramStack.width * PhoneMetrics.tileScale + 12)
+        .padding(.bottom, 8)
+        .accessibilityIdentifier("connection")
     }
 }
 

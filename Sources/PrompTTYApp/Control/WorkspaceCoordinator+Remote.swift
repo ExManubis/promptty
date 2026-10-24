@@ -26,7 +26,12 @@ extension WorkspaceCoordinator {
     }
 
     private func remoteTab(_ tab: WorkspaceModel.Tab, in window: WindowState) -> RemoteTab {
-        RemoteTab(id: tab.id.rawValue.uuidString, title: tab.listTitle, project: window.project(of: tab)?.rawValue.uuidString,
+        // As the sidebar's row reads (`TabRow`): an agent's task alone, else a title and a folder.
+        let agent = agents.list.summary(for: tab.id)
+        let lead = agent.flatMap { tab.pane($0.entry.pane) } ?? tab.focusedPane
+        let (title, folder) = agent != nil ? (tab.listTitle, nil)
+            : PaneTitle.titleAndFolder(pane: lead, program: activity.activity(for: lead.id).program, customTitle: tab.customTitle)
+        return RemoteTab(id: tab.id.rawValue.uuidString, title: title, folder: folder, project: window.project(of: tab)?.rawValue.uuidString,
                   pinned: tab.pin != nil, focusedPane: tab.focusedPaneID.rawValue.uuidString,
                   panes: tab.orderedPanes.map { remotePane($0, in: window) })
     }

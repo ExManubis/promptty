@@ -64,17 +64,20 @@ public struct RemoteWindow: Codable, Equatable, Sendable {
 
 public struct RemoteTab: Codable, Equatable, Sendable {
     public var id: String
-    /// As the Mac's sidebar titles it.
+    /// As the Mac's sidebar titles its row ("zsh", or an agent's task).
     public var title: String
+    /// The folder its row shows dimmed after the title ("~/api"); none for an agent's row.
+    public var folder: String?
     /// Its project's id.
     public var project: String?
     public var pinned: Bool
     public var focusedPane: String
     public var panes: [RemotePane]
 
-    public init(id: String, title: String, project: String?, pinned: Bool, focusedPane: String, panes: [RemotePane]) {
+    public init(id: String, title: String, folder: String? = nil, project: String?, pinned: Bool, focusedPane: String, panes: [RemotePane]) {
         self.id = id
         self.title = title
+        self.folder = folder
         self.project = project
         self.pinned = pinned
         self.focusedPane = focusedPane
