@@ -38,6 +38,9 @@ final class LiveMirror {
     private var pending: [Data] = []
     private var gridMatches = false
     private var attaching = false
+    /// Output handled before the attach's answer (they arrive in that order, but each is its own
+    /// task on the main actor): played once the answer says where the output starts.
+    private var early: [MirrorOutput] = []
     private static let log = Logger(subsystem: "dev.promptty.PrompTTY2.phone", category: "mirror")
 
     /// The phone's terminal font, smaller than the Mac's: a pane's grid fits more of the screen.
@@ -76,11 +79,12 @@ final class LiveMirror {
         guard let client = connection?.client, !attaching else { return }
         if fresh { position = nil }
         attaching = true
+        early = []
         let params = AttachParams(pane: pane.uuidString, resume: position, scrollback: 2000)
         Task {
-            defer { attaching = false }
             do {
                 let attached = try await client.call(RemoteProtocol.Method.attach, params, as: Attached.self)
+                attaching = false
                 failure = nil
                 position = attached.position
                 if let snapshot = attached.snapshot {
@@ -88,12 +92,19 @@ final class LiveMirror {
                     gridMatches = false
                 }
                 apply(attached.state)
+                // At the grid it has already (attached again): the snapshot plays now.
+                fitToGrid()
+                let waiting = early
+                early = []
+                for output in waiting { received(output) }
                 if let first = onFirstAttach {
                     onFirstAttach = nil
                     pendingControl = first
                     takePendingControl()
                 }
             } catch {
+                attaching = false
+                early = []
                 failure = MacConnection.describe(error)
             }
         }
@@ -108,6 +119,7 @@ final class LiveMirror {
     // MARK: From the Mac
 
     func received(_ output: MirrorOutput) {
+        if attaching { return early.append(output) }
         guard let position, output.stream == position.stream else { return attach(fresh: true) }
         if output.seq > position.seq { return attach(fresh: true) }
         // Bytes it has already (a resume overlapping): only the new ones.
