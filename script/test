@@ -3,6 +3,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 script/build-engine >/dev/null  # rebuilds only when the pin or a patch changed
 swift test
+# The portable modules, which the iPhone app shares, built for iOS so a Mac-only API slipping into
+# one fails here. Package schemes, so GhosttyKit (macOS only) is never built for iOS.
+for scheme in WorkspaceModel Preferences CommandBlocks CommandEditing PaneActivity AgentHooks RemoteControl; do
+  xcodebuild -scheme "$scheme" -destination 'generic/platform=iOS Simulator' \
+    -derivedDataPath .build/DerivedData-iOS build -quiet
+done
 xcodegen generate >/dev/null
 xcodebuild -project PrompTTY.xcodeproj -scheme PrompTTYApp -configuration Debug -destination "platform=macOS,arch=arm64" \
   -derivedDataPath .build/DerivedData CURRENT_PROJECT_VERSION="$(git rev-list --count HEAD)" build -quiet

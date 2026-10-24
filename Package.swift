@@ -3,7 +3,9 @@ import PackageDescription
 
 let package = Package(
     name: "PrompTTY",
-    platforms: [.macOS(.v26)],
+    // iOS for the portable modules the iPhone app shares (docs/DEVELOPMENT.md lists them); their
+    // Mac-only parts are behind `#if os(macOS)`. GhosttyBridge and the executables are macOS only.
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "WorkspaceModel", targets: ["WorkspaceModel"]),
         .library(name: "GhosttyBridge", targets: ["GhosttyBridge"]),

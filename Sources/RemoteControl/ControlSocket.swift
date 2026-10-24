@@ -2,6 +2,8 @@ import AgentHooks
 import Darwin
 import Foundation
 
+// The server runs in the Mac app only; the client below is shared.
+#if os(macOS)
 /// The control socket (mode 0600, the user's own processes only): `promptty` connects, writes one
 /// request line, reads one response line, hangs up. Unlike the hook socket it answers. Requests
 /// are read off the main thread without blocking one; a peer that is not the user's own process
@@ -175,6 +177,7 @@ public final class ControlServer: @unchecked Sendable {
         connection.source.cancel()
     }
 }
+#endif
 
 
 /// `promptty`'s side: one request, one answer; nil when the app cannot be reached.

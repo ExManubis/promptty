@@ -1,6 +1,8 @@
 import Darwin
 import Foundation
 
+// The listener runs in the Mac app only; the socket helpers below are shared.
+#if os(macOS)
 /// Listens on the hook socket (mode 0600) for what `promptty-hook` sends: lines of JSON, each a
 /// `HookMessage`. Reads off the caller's thread and hands each message to `deliver` on
 /// `deliveryQueue` (the main queue in the app). Lines that are not messages are dropped; a peer
@@ -159,6 +161,7 @@ public final class HookListener: @unchecked Sendable {
         connection.source.cancel()
     }
 }
+#endif
 
 extension HookSocket {
     /// Whether a socket's folder is a real folder of the user's; the shared fallback in /tmp is

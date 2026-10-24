@@ -22,6 +22,8 @@ public enum ProcessRunner {
         }
     }
 
+    // Running a program is Mac only (iOS has no `Process`); `Outcome` is shared.
+    #if os(macOS)
     /// The program's standard output, or nil when it cannot start, exits with a failure, or runs
     /// longer than `timeout` seconds (it is terminated then). Output is read as it arrives, so a
     /// large one never stalls the program on a full pipe.
@@ -122,4 +124,5 @@ public enum ProcessRunner {
             return true
         }
     }
+    #endif
 }

@@ -10,7 +10,7 @@ later ones about one.
 
     ./script/bootstrap            # installs xcodegen if needed, builds the engine, resolves packages, generates the Xcode project
     ./script/run                  # builds Debug and launches the app
-    ./script/test                 # library tests, then an app build
+    ./script/test                 # library tests, an iOS Simulator build of the portable modules, then an app build
     ./script/build-engine --force # rebuilds the engine (run, test and release rebuild it when the pin or a patch changed)
     ./script/release              # a Developer ID signed, notarized disk image in dist/
 
@@ -27,10 +27,24 @@ and stops unless it is version 0.16.
     Sources/GhosttyBridge    the only code that touches libghostty
     Sources/AgentHooks       agents' hook messages, the socket the app listens on, the hook state, Claude's settings merge
     Sources/promptty-hook    the helper agents' hooks run, bundled in the app; sends one line to the socket
+    Sources/RemoteControl    the control socket's requests and responses, its server and client, `promptty`'s argument parsing
+    Sources/promptty         the `promptty` command line, bundled in the app
     Sources/PrompTTYApp      AppKit windows and menus; SwiftUI chrome, input bar and Settings
     Engine/                  libghostty as a local SwiftPM package; patches/ holds PrompTTY's engine patches
     script/                  bootstrap, run, test, build-engine, release, drive
     packaging/               the disk image's background and layout
+
+### Portable modules
+
+The iPhone app shares PrompTTY's own modules, so these build for iOS as well as macOS:
+`WorkspaceModel`, `Preferences`, `CommandBlocks`, `CommandEditing`, `PaneActivity`, `AgentHooks`
+and `RemoteControl`. Their Mac-only parts are behind `#if os(macOS)`: `ProcessRunner`'s running
+of a program (its `Outcome` is shared), the hook listener (`HookListener`) and the control server
+(`ControlServer`), and `PaneActivity`'s process inspection (`ListeningPorts`,
+`ProcessTree.snapshot`, `ProcessArguments.read` and `.workingDirectory`). `script/test` builds the
+portable modules for the iOS Simulator, so a Mac-only API slipping into one fails it.
+`GhosttyBridge`, `PrompTTYApp`, `promptty` and `promptty-hook` are macOS only; only
+`GhosttyBridge` imports GhosttyKit.
 
 ## Settings and config
 
