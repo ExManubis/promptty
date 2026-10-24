@@ -16,7 +16,9 @@ enum ShellIntegration {
 
     static var stateDirectory: URL { AppPaths.support.appendingPathComponent("shell/state", isDirectory: true) }
 
-    static func install() {
+    /// `keepingState`: shells from before the app quit may still run (prompttyd) and own their
+    /// state files.
+    static func install(keepingState: Bool = false) {
         #if DEBUG
         if ProcessInfo.processInfo.environment["PROMPTTY_DEBUG_NO_INTEGRATION"] == "1" { return }
         #endif
@@ -24,7 +26,7 @@ enum ShellIntegration {
         do {
             zshDirectory = try ZshIntegration.install(in: AppPaths.support.appendingPathComponent("shell/zsh", isDirectory: true))
             // Files of panes from earlier runs (closed by quitting) are stale.
-            try? FileManager.default.removeItem(at: stateDirectory)
+            if !keepingState { try? FileManager.default.removeItem(at: stateDirectory) }
             try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
             if let history = AppPaths.debugHistoryFile {
                 try FileManager.default.createDirectory(at: history.deletingLastPathComponent(), withIntermediateDirectories: true)

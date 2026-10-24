@@ -1,0 +1,219 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 859c76f9c..3b7e5786d 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -578,6 +578,9 @@ typedef struct {
+   // io_write_cb (with the surface's userdata), the new grid to io_resize_cb.
+   ghostty_surface_io_write_cb io_write_cb;
+   ghostty_surface_io_resize_cb io_resize_cb;
++  // PrompTTY: with io_write_cb, work out the command a surface made without
++  // it would start, for ghostty_surface_exec_plan (the embedder runs it).
++  bool io_exec_plan;
+ } ghostty_surface_config_s;
+ 
+ typedef struct {
+@@ -1349,6 +1352,8 @@ GHOSTTY_API bool ghostty_surface_block_text(ghostty_surface_t,
+ GHOSTTY_API void ghostty_surface_set_output_tap(ghostty_surface_t,
+                                                 ghostty_surface_output_tap_cb,
+                                                 void*);
++GHOSTTY_API bool ghostty_surface_exec_plan(ghostty_surface_t, ghostty_text_s*);
++GHOSTTY_API void ghostty_surface_host_exited(ghostty_surface_t, uint32_t, uint64_t);
+ GHOSTTY_API bool ghostty_surface_read_vt_snapshot(ghostty_surface_t,
+                                                   uint32_t,
+                                                   ghostty_surface_snapshot_cb,
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 9404021d6..5c64a9ef0 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -156,6 +156,10 @@ config_conditional_state: configpkg.ConditionalState,
+ /// This is used to determine if we need to confirm, hold open, etc.
+ child_exited: bool = false,
+ 
++/// PrompTTY: for a surface fed by its embedder (termio's host backend) that
++/// asked for it, the command it should run (termio.Exec.plan), as JSON.
++exec_plan: ?[]u8 = null,
++
+ /// We maintain our focus state and assume we're focused by default.
+ /// If we're not initially focused then apprts can call focusCallback
+ /// to let us know.
+@@ -659,6 +663,37 @@ pub fn init(
+     // This separate block ({}) is important because our errdefers must
+     // be scoped here to be valid.
+     if (host_io) |host| {
++        // PrompTTY: the command the exec backend would start, for an
++        // embedder that runs it on a pty of its own (ghostty_surface_exec_plan).
++        if (host.exec_plan) plan: {
++            var env = rt_surface.defaultTermioEnv() catch |err| {
++                log.warn("error getting env map for the host's command err={}", .{err});
++                break :plan;
++            };
++            _ = env.orderedRemove("GHOSTTY_LOG");
++            var buf: [18]u8 = undefined;
++            env.put(
++                "GHOSTTY_SURFACE_ID",
++                std.fmt.bufPrint(&buf, "0x{x:0>16}", .{self.id}) catch unreachable,
++            ) catch break :plan;
++            self.exec_plan = termio.Exec.plan(alloc, .{
++                .command = command,
++                .env = env,
++                .env_override = config.env,
++                .shell_integration = config.@"shell-integration",
++                .shell_integration_features = config.@"shell-integration-features",
++                .cursor_blink = config.@"cursor-style-blink",
++                .working_directory = if (config.@"working-directory") |wd| wd.value() else null,
++                .resources_dir = global.resourcesDir().host(),
++                .term = config.term,
++                .rt_pre_exec_info = .init(config),
++                .rt_post_fork_info = .init(config),
++            }) catch |err| {
++                log.warn("error planning the host's command err={}", .{err});
++                break :plan;
++            };
++        }
++
+         var io_mailbox = try termio.Mailbox.initSPSC(alloc);
+         errdefer io_mailbox.deinit(alloc);
+ 
+@@ -829,6 +864,8 @@ pub fn init(
+ }
+ 
+ pub fn deinit(self: *Surface) void {
++    if (self.exec_plan) |plan| self.alloc.free(plan);
++
+     // Stop search thread
+     if (self.search) |*s| s.deinit();
+ 
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index f84e8bf2a..af03cc0d3 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -520,6 +520,12 @@ pub const Surface = struct {
+         /// With io_write_cb: the new grid each time the surface resizes,
+         /// on the IO thread.
+         io_resize_cb: ?termio.Host.ResizeFn = null,
++
++        /// PrompTTY: with io_write_cb, work out the command a surface made
++        /// without it would start, from `command`, `working_directory`,
++        /// `env_vars` and the config (ghostty_surface_exec_plan), for an
++        /// embedder that runs it on a pty of its own.
++        io_exec_plan: bool = false,
+     };
+ 
+     pub fn init(self: *Surface, app: *App, opts: Options) !void {
+@@ -538,6 +544,7 @@ pub const Surface = struct {
+                 .userdata = opts.userdata,
+                 .write = write,
+                 .resize = opts.io_resize_cb,
++                .exec_plan = opts.io_exec_plan,
+             } else null,
+         };
+ 
+@@ -2197,6 +2204,37 @@ pub const CAPI = struct {
+         surface.core_surface.io.processOutput(ptr[0..len]);
+     }
+ 
++    /// PrompTTY: for a surface made with io_exec_plan, the command its
++    /// program should be (shell integration and login(1) applied), its
++    /// environment and its directory, as JSON:
++    /// {"args":[...],"env":{...},"cwd":...}. The embedder runs it on a pty of
++    /// its own and feeds the surface. Free with ghostty_surface_free_text.
++    export fn ghostty_surface_exec_plan(surface: *Surface, result: *Text) bool {
++        const plan = surface.core_surface.exec_plan orelse return false;
++        const bytes = global.alloc().dupeZ(u8, plan) catch return false;
++        result.* = .{
++            .tl_px_x = -1,
++            .tl_px_y = -1,
++            .offset_start = 0,
++            .offset_len = 0,
++            .text = bytes.ptr,
++            .text_len = bytes.len,
++        };
++        return true;
++    }
++
++    /// PrompTTY: the program of a surface its embedder feeds exited (the
++    /// embedder ran it): handled as the exec backend's child exit is, on the
++    /// main thread.
++    export fn ghostty_surface_host_exited(surface: *Surface, exit_code: u32, runtime_ms: u64) void {
++        surface.core_surface.handleMessage(.{ .child_exited = .{
++            .exit_code = exit_code,
++            .runtime_ms = runtime_ms,
++        } }) catch |err| {
++            log.warn("error handling the host program's exit err={}", .{err});
++        };
++    }
++
+     /// PrompTTY: the terminal's state as VT bytes that rebuild it in a fresh
+     /// terminal of the same size: at most `scrollback` rows of scrollback,
+     /// the screen, cursor, modes, alternate screen and the sequence the pty
+diff --git a/src/termio/Exec.zig b/src/termio/Exec.zig
+index 2dfb1e5f7..c9ec5b7f3 100644
+--- a/src/termio/Exec.zig
++++ b/src/termio/Exec.zig
+@@ -60,6 +60,52 @@ pub fn deinit(self: *Exec) void {
+     self.subprocess.deinit();
+ }
+ 
++/// PrompTTY: what `cfg` would start, without starting it: the arguments
++/// (shell integration and login(1) applied), the environment and the working
++/// directory, as JSON ({"args":[...],"env":{...},"cwd":...}). For a program
++/// that runs on a pty an embedder owns, feeding a surface with termio's host
++/// backend. Owned by `alloc`.
++pub fn plan(alloc: Allocator, cfg: Config) ![]u8 {
++    var subprocess = try Subprocess.init(alloc, cfg);
++    defer subprocess.deinit();
++
++    var out: std.Io.Writer.Allocating = .init(alloc);
++    errdefer out.deinit();
++    const w = &out.writer;
++    try w.writeAll("{\"args\":[");
++    for (subprocess.args, 0..) |arg, i| {
++        if (i > 0) try w.writeByte(',');
++        try writeJsonString(w, arg);
++    }
++    try w.writeAll("],\"env\":{");
++    if (subprocess.env) |*env| {
++        var it = env.iterator();
++        var first = true;
++        while (it.next()) |pair| {
++            if (!first) try w.writeByte(',');
++            first = false;
++            try writeJsonString(w, pair.key_ptr.*);
++            try w.writeByte(':');
++            try writeJsonString(w, pair.value_ptr.*);
++        }
++    }
++    try w.writeAll("},\"cwd\":");
++    if (subprocess.cwd) |cwd| try writeJsonString(w, cwd) else try w.writeAll("null");
++    try w.writeByte('}');
++    return try out.toOwnedSlice();
++}
++
++fn writeJsonString(w: *std.Io.Writer, s: []const u8) !void {
++    try w.writeByte('"');
++    for (s) |ch| switch (ch) {
++        '"' => try w.writeAll("\\\""),
++        '\\' => try w.writeAll("\\\\"),
++        0...0x1f => try w.print("\\u{x:0>4}", .{ch}),
++        else => try w.writeByte(ch),
++    };
++    try w.writeByte('"');
++}
++
+ /// Call to initialize the terminal state as necessary for this backend.
+ /// This is called before any termio begins. This should not be called
+ /// after termio begins because it may put the internal terminal state
+diff --git a/src/termio/Host.zig b/src/termio/Host.zig
+index 876a14b6c..3ca67ca80 100644
+--- a/src/termio/Host.zig
++++ b/src/termio/Host.zig
+@@ -38,6 +38,9 @@ pub const Config = struct {
+     userdata: ?*anyopaque = null,
+     write: WriteFn,
+     resize: ?ResizeFn = null,
++    /// PrompTTY: work out the command the exec backend would start
++    /// (Exec.plan), for an embedder that runs it on a pty of its own.
++    exec_plan: bool = false,
+ };
+ 
+ config: Config,

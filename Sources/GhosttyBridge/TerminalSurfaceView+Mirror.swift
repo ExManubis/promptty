@@ -58,6 +58,7 @@ extension TerminalSurfaceView {
     /// test libghostty makes for secure input, which it only makes while the pane has focus).
     /// Reads the terminal's mode from its tty, so it holds whichever pane is in front.
     public var readsPassword: Bool {
+        if hostLink != nil { return hostReadsPassword }
         guard let surface else { return false }
         let name = ghostty_surface_tty_name(surface)
         defer { ghostty_string_free(name) }

@@ -41,6 +41,18 @@ order: a patch may build on an earlier one.
   and a callback there gets the grid size: with the output tap (0005) a mirror knows exactly
   which chunks the snapshot holds. Its Zig tests replay a snapshot into a second terminal.
 
+- `0008-exec-plan`: for prompttyd, which owns the ptys (PTY-77). A host-fed surface (0006) made
+  with `io_exec_plan` works out the command the exec backend would have started, from the
+  surface's command, working directory, environment and the config (shell integration injected,
+  `login(1)` on macOS, `TERM`, `TERMINFO`, `GHOSTTY_RESOURCES_DIR`, ...), without starting it:
+  `ghostty_surface_exec_plan` gives it as JSON (`{"args":[...],"env":{...},"cwd":...}`) for the
+  embedder to run on a pty of its own. `ghostty_surface_host_exited` tells such a surface its
+  program exited, handled as the exec backend's child exit is.
+- `0009-vt-lib-snapshot`: `ghostty_terminal_vt_snapshot_alloc` in libghostty-vt, the same VT
+  snapshot as 0007's, of a headless terminal: prompttyd keeps one per pane and rebuilds the app's
+  surface from it when the app comes back. `script/build-engine` also builds libghostty-vt
+  (`Engine/GhosttyVt.xcframework`).
+
 ## Authoring a patch
 
 Edit `.build/engine/ghostty` with the earlier patches applied, capture the diff, then restore it:

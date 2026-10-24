@@ -22,9 +22,11 @@ REPO=https://github.com/ghostty-org/ghostty
 PIN=431126c215dc324a53ef6f054264e951a4b21604
 GHOSTTY=.build/engine/ghostty
 OUT=Engine/GhosttyKit.xcframework
+VT_OUT=Engine/GhosttyVt.xcframework
 RESOURCES=Engine/Sources/GhosttyKitResources/Resources
 REQUIRED_SYMBOLS=(ghostty_surface_new ghostty_surface_read_text_format ghostty_surface_blocks ghostty_surface_block_text
-  ghostty_surface_set_output_tap ghostty_surface_feed ghostty_surface_read_vt_snapshot)
+  ghostty_surface_set_output_tap ghostty_surface_feed ghostty_surface_read_vt_snapshot ghostty_surface_exec_plan
+  ghostty_surface_host_exited)
 
 fail() { echo "build-engine: $1" >&2; exit 1; }
 
@@ -44,7 +46,7 @@ done
 STAMP=$OUT/.built-from
 stamp() { { echo "$PIN"; cat Engine/patches/*.patch; } | shasum -a 256 | cut -d' ' -f1; }
 built=$(cat "$STAMP" 2>/dev/null || true)
-if ! $force && [ -d "$OUT" ] && [ "${built%% *}" = "$(stamp)" ] \
+if ! $force && [ -d "$OUT" ] && [ -d "$VT_OUT" ] && [ "${built%% *}" = "$(stamp)" ] \
   && { [ "$target" = native ] || [ "${built#* }" = ios ]; }; then
   echo "Engine already built ($OUT); --force rebuilds"
   exit 0
@@ -105,10 +107,36 @@ while IFS= read -r lib; do
   done
 done <<< "$LIBS"
 
+# libghostty-vt, for prompttyd's headless terminals (Engine/GhosttyVt.xcframework).
+VT_PREFIX=$(mktemp -d)
+(
+  cd "$GHOSTTY"
+  SDKROOT=$(xcrun --sdk macosx --show-sdk-path) "$ZIG" build \
+    -Doptimize=ReleaseFast -Dstrip=false -Demit-lib-vt=true --prefix "$VT_PREFIX"
+)
+VT_FRAMEWORK=$VT_PREFIX/lib/ghostty-vt.xcframework
+vt_symbols=$(nm -g "$VT_FRAMEWORK/macos-arm64_x86_64/libghostty-vt.a" 2>/dev/null)
+grep -q " T _ghostty_terminal_vt_snapshot_alloc\$" <<< "$vt_symbols" \
+  || fail "libghostty-vt lacks ghostty_terminal_vt_snapshot_alloc"
+
 SHARE=$GHOSTTY/zig-out/share
 [ -f "$SHARE/terminfo/78/xterm-ghostty" ] || fail "the build made no terminfo"
-rm -rf "$OUT" "$RESOURCES"
+rm -rf "$OUT" "$RESOURCES" "$VT_OUT"
 ditto "$GHOSTTY/macos/GhosttyKit.xcframework" "$OUT"
+ditto "$VT_FRAMEWORK" "$VT_OUT"
+# Xcode copies every xcframework's headers into one include folder. GhosttyKit's module map names
+# its one header plainly: as an umbrella header it would claim every header in that folder,
+# GhosttyVt's too, and `import GhosttyVt` would find nothing. GhosttyVt's goes in a folder of its
+# own beside it, where clang finds GhosttyVt/module.modulemap by the module's name.
+for headers in "$OUT"/*/Headers; do
+  printf 'module GhosttyKit {\n    header "ghostty.h"\n    export *\n}\n' > "$headers/module.modulemap"
+done
+for headers in "$VT_OUT"/*/Headers; do
+  mkdir -p "$headers/GhosttyVt"
+  printf 'module GhosttyVt {\n    header "../ghostty/vt.h"\n    export *\n}\n' > "$headers/GhosttyVt/module.modulemap"
+  rm "$headers/module.modulemap"
+done
+rm -rf "$VT_PREFIX"
 echo "$(stamp) $target" > "$STAMP"
 mkdir -p "$RESOURCES/ghostty"
 ditto "$SHARE/terminfo" "$RESOURCES/terminfo"

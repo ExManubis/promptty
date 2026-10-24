@@ -231,7 +231,7 @@ extension Tab {
             switch node {
             case .leaf(let id):
                 return .pane(workingDirectory: panes[id]?.workingDirectory ?? workingDirectory, focused: id == focusedPaneID,
-                             label: panes[id]?.label, scrollback: panes[id].flatMap(scrollback))
+                             label: panes[id]?.label, scrollback: panes[id].flatMap(scrollback), id: id)
             case .split(let axis, let ratio, let first, let second):
                 return .split(axis: axis, ratio: ratio, first: layout(first), second: layout(second))
             }
@@ -240,13 +240,16 @@ extension Tab {
     }
 
     /// Replaces the panes with fresh ones laid out as `layout`; `directory` picks each one's folder.
-    func restore(_ layout: ClosedLayout, directory: (String) -> String) {
+    /// `keepID` says whether a pane takes the id the layout has for it (a saved session's), not a
+    /// new one.
+    func restore(_ layout: ClosedLayout, keepID: (PaneID) -> Bool = { _ in false }, directory: (String) -> String) {
         var made: [PaneID: Pane] = [:]
         var focused: PaneID?
         func build(_ node: ClosedLayout) -> SplitNode {
             switch node {
-            case .pane(let dir, let isFocused, let label, let scrollback):
-                let pane = Pane(workingDirectory: directory(dir), label: label.flatMap(Pane.label))
+            case .pane(let dir, let isFocused, let label, let scrollback, let id):
+                let pane = Pane(id: id.flatMap { keepID($0) ? $0 : nil } ?? PaneID(), workingDirectory: directory(dir),
+                                label: label.flatMap(Pane.label))
                 pane.restoredScrollback = scrollback
                 made[pane.id] = pane
                 if isFocused { focused = pane.id }

@@ -5,7 +5,9 @@
 // patches in patches/ applied on top. Same products and module names as libghostty-spm, the
 // package it replaced, so `import GhosttyKit` is unchanged.
 //
-// GhosttyKit.xcframework and Sources/GhosttyKitResources/Resources are build output of
+// GhosttyVt.xcframework is libghostty-vt from the same source, for prompttyd's headless terminals.
+//
+// GhosttyKit.xcframework, GhosttyVt.xcframework and Sources/GhosttyKitResources/Resources are build output of
 // script/build-engine and not committed. Its iOS slices are there after `script/build-engine
 // --ios`, for the iPhone app's GhosttyMirror (which leaves out GhosttyKitResources: on iOS a
 // resource bundle can't hold a folder named Resources, and a mirrored surface needs none of it).
@@ -21,9 +23,11 @@ let package = Package(
     products: [
         .library(name: "GhosttyKit", targets: ["GhosttyKit"]),
         .library(name: "GhosttyKitResources", targets: ["GhosttyKitResources"]),
+        .library(name: "GhosttyVt", targets: ["GhosttyVt"]),
     ],
     targets: [
         .binaryTarget(name: "GhosttyKit", path: "GhosttyKit.xcframework"),
+        .binaryTarget(name: "GhosttyVt", path: "GhosttyVt.xcframework"),
         // `.copy`: hundreds of theme files and compiled terminfo, shipped byte for byte.
         .target(name: "GhosttyKitResources", resources: [.copy("Resources")]),
     ]

@@ -6,4 +6,5 @@ xcuserdata/
 .superpowers/
 dist/
 Engine/GhosttyKit.xcframework/
+Engine/GhosttyVt.xcframework/
 Engine/Sources/GhosttyKitResources/Resources/

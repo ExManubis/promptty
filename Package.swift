@@ -31,6 +31,12 @@ let package = Package(
         // `promptty`, the command line every pane has on its PATH; the app bundle carries its own
         // copy (project.yml).
         .executable(name: "promptty", targets: ["promptty"]),
+        // What the app and prompttyd say to each other.
+        .library(name: "SessionProtocol", targets: ["SessionProtocol"]),
+        // prompttyd, which runs the panes' programs on ptys of its own so they outlive the app
+        // (PTY-77); the app bundle carries it (project.yml).
+        .executable(name: "prompttyd", targets: ["prompttyd"]),
+        .library(name: "SessionDaemonCore", targets: ["SessionDaemonCore"]),
     ],
     dependencies: [
         // libghostty's GhosttyKit, built locally with PrompTTY's engine patches
@@ -60,6 +66,20 @@ let package = Package(
         .target(name: "RemoteServer", dependencies: ["RemoteProtocol", "RemoteControl"]),
         .testTarget(name: "RemoteServerTests", dependencies: ["RemoteServer", "RemoteClient"]),
         .target(name: "RemoteClient", dependencies: ["RemoteProtocol"]),
+        .target(name: "SessionProtocol"),
+        // forkpty and what the child does before exec, in C: the daemon has threads.
+        .target(name: "CPtySpawn"),
+        // The daemon itself; `prompttyd` is its main.
+        .target(
+            name: "SessionDaemonCore",
+            dependencies: [
+                "SessionProtocol",
+                "CPtySpawn",
+                .product(name: "GhosttyVt", package: "Engine"),
+            ],
+            linkerSettings: [.linkedLibrary("c++")]
+        ),
+        .executableTarget(name: "prompttyd", dependencies: ["SessionDaemonCore"]),
         .testTarget(name: "RemoteProtocolTests", dependencies: ["RemoteProtocol"], resources: [.copy("Fixtures")]),
         .target(
             name: "GhosttyBridge",

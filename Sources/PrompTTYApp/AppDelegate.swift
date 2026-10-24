@@ -80,13 +80,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             workspace = Workspace()
         }
         workspace.tabLayout = TabLayout(preferences.settings.tabLayout)
-        ShellIntegration.install()
+        // Before any surface: whether panes' programs run in prompttyd (PTY-77).
+        SessionDaemon.shared.start(enabled: preferences.settings.keepShellsRunning && preferences.settings.restoreSession)
+        // The state files of shells prompttyd kept running are still theirs.
+        ShellIntegration.install(keepingState: SessionDaemon.shared.isAvailable)
         // Read now, off the main thread, so ⌘J and the bar's suggestions have it when first asked.
         _ = FolderHistoryStore.shared
         EditorStyle.update(family: preferences.settings.fontFamily, size: preferences.settings.fontSize)
         EditorStyle.update(foreground: runtime.configuredForeground, palette: runtime.configuredANSIPalette)
         EditorStyle.cursor = preferences.cursorColor
         coordinator = WorkspaceCoordinator(runtime: runtime, workspace: workspace, preferences: preferences)
+        if SessionDaemon.shared.isAvailable {
+            // Programs prompttyd runs for panes no window has (closed while the app was away)
+            // end, once the windows are back.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let panes = self.coordinator.workspace.windows.flatMap(\.paneIDs).map(\.rawValue)
+                    SessionDaemon.shared.closeOrphans(keeping: Set(panes))
+                }
+            }
+        }
         let router = NotificationRouter { [weak self] pane in self?.coordinator.reveal(pane) }
         notificationRouter = router
         UNUserNotificationCenter.current().delegate = router
@@ -207,14 +221,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    /// Something would end by quitting. Programs prompttyd runs don't: they keep running.
+    private var needsConfirmQuit: Bool {
+        guard SessionDaemon.shared.isAvailable, let coordinator else { return runtime?.needsConfirmQuit == true }
+        let surfaces = coordinator.allControllers.flatMap { $0.allSurfaces() } + [quickTerminal?.surface].compactMap { $0 }
+        return surfaces.contains { !$0.outlivesApp && $0.needsConfirmQuit }
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard runtime?.needsConfirmQuit == true else { return .terminateNow }
+        guard needsConfirmQuit else {
+            SessionDaemon.shared.appTerminating()
+            return .terminateNow
+        }
         let alert = NSAlert()
         alert.messageText = "Quit PrompTTY?"
         alert.informativeText = "A process is still running in one of your tabs."
         alert.addButton(withTitle: "Quit")
         alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+        guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+        SessionDaemon.shared.appTerminating()
+        return .terminateNow
     }
 
     func applicationWillTerminate(_ notification: Notification) {

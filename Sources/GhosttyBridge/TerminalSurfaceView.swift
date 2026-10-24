@@ -11,11 +11,16 @@ public struct TerminalSurfaceConfiguration: Sendable {
     /// Typed into the terminal as it starts (a command and its Return), for shells that cannot
     /// tell when they are ready.
     public var initialInput: String?
-    public init(workingDirectory: String? = nil, inheritFrom: TerminalSurfaceView? = nil, environment: [String: String] = [:], initialInput: String? = nil) {
+    /// The program runs elsewhere (prompttyd) and feeds the surface (`hostLink`); libghostty only
+    /// works out what it would have started (`onHosted`).
+    public var hosted: Bool
+    public init(workingDirectory: String? = nil, inheritFrom: TerminalSurfaceView? = nil, environment: [String: String] = [:], initialInput: String? = nil,
+                hosted: Bool = false) {
         self.workingDirectory = workingDirectory
         self.inheritFrom = inheritFrom
         self.environment = environment
         self.initialInput = initialInput
+        self.hosted = hosted
     }
 }
 
@@ -28,6 +33,14 @@ public final class TerminalSurfaceView: NSView {
     public var onFocus: (() -> Void)?
     /// A key typed here, before `keyRedirect` may hand it on: the pane is in use on the Mac.
     public var onKeyDown: (() -> Void)?
+    /// A hosted surface exists: what its program is, for whoever runs it. Once.
+    public var onHosted: ((ExecPlan?) -> Void)?
+    /// A hosted surface is being freed (its pane closed): whoever runs its program ends it.
+    public var onHostedTeardown: (() -> Void)?
+    /// A hosted surface's program, as reported by whoever runs it: the process in front of its
+    /// pty, and whether it reads a password.
+    public var hostForegroundPID: Int?
+    public var hostReadsPassword = false
     /// The selection was copied (⌘C).
     public var onCopy: (() -> Void)?
     /// The terminal has the keyboard (its window key, it first responder) or lost it.
@@ -113,9 +126,14 @@ public final class TerminalSurfaceView: NSView {
     // Read from `deinit`, which is nonisolated, hence `nonisolated(unsafe)`.
     nonisolated(unsafe) private var windowObservers: [NSObjectProtocol] = []
 
+    /// A hosted surface's link to its program (nil: libghostty runs the program on a pty itself).
+    /// Read on libghostty's IO thread.
+    public nonisolated let hostLink: SurfaceHostLink?
+
     public init(runtime: GhosttyRuntime, configuration: TerminalSurfaceConfiguration) {
         self.runtime = runtime
         self.configuration = configuration
+        hostLink = configuration.hosted ? SurfaceHostLink() : nil
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
         layerContentsRedrawPolicy = .duringViewResize
@@ -143,6 +161,7 @@ public final class TerminalSurfaceView: NSView {
 
     deinit {
         if let surface, !isFreed {
+            hostLink?.invalidate()
             ghostty_surface_free(surface)
         }
         for o in windowObservers { NotificationCenter.default.removeObserver(o) }
@@ -217,6 +236,11 @@ public final class TerminalSurfaceView: NSView {
             cStrings += [k, v]
             return ghostty_env_var_s(key: k, value: v)
         }
+        if hostLink != nil {
+            cfg.io_write_cb = SurfaceHostLink.writeCallback
+            cfg.io_resize_cb = SurfaceHostLink.resizeCallback
+            cfg.io_exec_plan = true
+        }
         let created: UnsafeMutableRawPointer? = envVars.withUnsafeMutableBufferPointer { vars in
             cfg.env_vars = vars.baseAddress
             cfg.env_var_count = vars.count
@@ -229,9 +253,15 @@ public final class TerminalSurfaceView: NSView {
             }
         }
         surface = created
-        if created != nil {
+        if let created {
             updateColorScheme()
             updateOutputTap()
+            if let hostLink {
+                hostLink.attach(created)
+                let plan = readExecPlan()
+                onHosted?(plan)
+                onHosted = nil
+            }
         }
         if created == nil {
             // Do not retry on later window moves (and re-fire the failure callback).
@@ -247,6 +277,12 @@ public final class TerminalSurfaceView: NSView {
         denyClipboardRequest()
         // A freed surface reports nothing more: whoever tracks its focus is told it lost it.
         onFocusChange?(false)
+        // No more output goes in, and whoever runs the program ends it.
+        if let hostLink {
+            hostLink.invalidate()
+            onHostedTeardown?()
+            onHostedTeardown = nil
+        }
         // Clear state first so nothing re-entering during the free sees a live handle.
         surface = nil
         isFreed = true
@@ -262,10 +298,15 @@ public final class TerminalSurfaceView: NSView {
         ghostty_surface_request_close(surface)
     }
 
+    /// Something runs that closing the surface would end (not the shell at a prompt).
     public var needsConfirmQuit: Bool {
         guard let surface else { return false }
         return ghostty_surface_needs_confirm_quit(surface)
     }
+
+    /// The program runs elsewhere (prompttyd) and keeps running when the app quits: quitting
+    /// needs no confirmation for it, closing its pane does.
+    public var outlivesApp: Bool { hostLink != nil }
 
     public func markExited() { hasExited = true }
 
@@ -279,6 +320,7 @@ public final class TerminalSurfaceView: NSView {
 
     /// The process that owns the terminal now (the shell at a prompt, a program while it runs).
     public var foregroundPID: Int? {
+        if hostLink != nil { return hostForegroundPID }
         guard let surface else { return nil }
         let pid = ghostty_surface_foreground_pid(surface)
         return pid > 0 ? Int(pid) : nil

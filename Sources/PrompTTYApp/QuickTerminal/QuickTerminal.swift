@@ -14,7 +14,7 @@ final class QuickTerminal: NSObject, NSWindowDelegate {
 
     private let runtime: GhosttyRuntime
     private var panel: QuickTerminalPanel?
-    private var surface: TerminalSurfaceView?
+    private(set) var surface: TerminalSurfaceView?
     private var hotKey: GlobalHotKey?
     /// The app in front before the quick terminal came down, given the keys back when it goes.
     private var previousApp: NSRunningApplication?

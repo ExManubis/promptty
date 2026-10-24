@@ -162,9 +162,16 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
                 workingDirectory: pane.workingDirectory,
                 inheritFrom: pendingInherit.removeValue(forKey: pane.id),
                 environment: environment.merging(hookEnvironment) { shell, _ in shell },
-                initialInput: integrated ? nil : startup.map { $0 + "\n" }
+                initialInput: integrated ? nil : startup.map { $0 + "\n" },
+                hosted: SessionDaemon.shared.isAvailable
             )
         )
+        if view.hostLink != nil {
+            SessionDaemon.shared.host(view, for: pane.id) { [weak view] in
+                guard let view else { return }
+                Self.wakePrompt(in: view)
+            }
+        }
         view.token = pane.id
         _ = BlockOverlayView(surface: view)
         surfaces[pane.id] = view
@@ -176,6 +183,16 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Chro
         shells[pane.id] = shell
         bind(view, to: pane.id)
         return view
+    }
+
+    /// A shell prompttyd kept running while the app was away waits at its prompt without saying
+    /// so again; a Control-G (zle's send-break) has it start the line over, which tells the input
+    /// bar it is ready. Only when the shell itself is in front: not into a program it runs.
+    private static func wakePrompt(in view: TerminalSurfaceView) {
+        guard let pid = view.foregroundPID, let process = ProcessArguments.read(pid: Int32(pid)) else { return }
+        let name = ((process.arguments.first ?? process.executable) as NSString).lastPathComponent
+        guard ["zsh", "-zsh"].contains(name) else { return }
+        view.pressKey("g", control: true)
     }
 
     func shell(for pane: PaneID) -> PaneShell? { shells[pane] }

@@ -72,6 +72,8 @@ targets:
         product: PrompTTYChrome
       - package: PrompTTYCore
         product: RemoteServer
+      - package: PrompTTYCore
+        product: SessionProtocol
       # `promptty`, put on every pane's PATH: in Resources/bin, not beside the app's own binary,
       # which on a case-insensitive disk it would clash with.
       - target: promptty-cli
@@ -82,6 +84,12 @@ targets:
           subpath: bin
       # The hook helper, in Contents/MacOS beside the app (Claude Code's settings point at it).
       - target: promptty-hook
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
+      # prompttyd, which runs the panes' programs when Keep programs running is on (PTY-77).
+      - target: prompttyd
         embed: true
         codeSign: true
         copy:
@@ -121,6 +129,27 @@ targets:
     settings:
       base:
         PRODUCT_NAME: promptty-hook
+        SKIP_INSTALL: YES
+      configs:
+        Release:
+          CODE_SIGN_IDENTITY: "Developer ID Application"
+          DEVELOPMENT_TEAM: RQ2CW4W282
+          ENABLE_HARDENED_RUNTIME: YES
+          OTHER_CODE_SIGN_FLAGS: "--timestamp"
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+  # prompttyd (Sources/prompttyd): runs the panes' programs on ptys of its own, so they keep
+  # running when the app quits.
+  prompttyd:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/prompttyd
+    dependencies:
+      - package: PrompTTYCore
+        product: SessionDaemonCore
+    settings:
+      base:
+        PRODUCT_NAME: prompttyd
         SKIP_INSTALL: YES
       configs:
         Release:

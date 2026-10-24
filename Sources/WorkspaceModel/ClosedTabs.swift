@@ -4,22 +4,24 @@ import Foundation
 /// closed tab keeps it for ⇧⌘T; the session file keeps it, with each pane's scrollback file, for
 /// relaunch.
 public indirect enum ClosedLayout: Equatable, Sendable {
-    case pane(workingDirectory: String, focused: Bool, label: String? = nil, scrollback: String? = nil)
+    /// `id`: the pane's, kept in a saved session so a program prompttyd kept running finds its
+    /// pane again (PTY-77); a reopened closed tab gets new panes.
+    case pane(workingDirectory: String, focused: Bool, label: String? = nil, scrollback: String? = nil, id: PaneID? = nil)
     case split(axis: SplitAxis, ratio: Double, first: ClosedLayout, second: ClosedLayout)
 
     /// The panes' folders in reading order.
     public var directories: [String] {
         switch self {
-        case .pane(let dir, _, _, _): return [dir]
+        case .pane(let dir, _, _, _, _): return [dir]
         case .split(_, _, let a, let b): return a.directories + b.directories
         }
     }
 }
 
-/// A pane is `{"workingDirectory", "focused", "label"?, "scrollback"?}`, a split
+/// A pane is `{"workingDirectory", "focused", "label"?, "scrollback"?, "id"?}`, a split
 /// `{"axis", "ratio", "first", "second"}`.
 extension ClosedLayout: Codable {
-    private enum CodingKeys: String, CodingKey { case workingDirectory, focused, label, scrollback, axis, ratio, first, second }
+    private enum CodingKeys: String, CodingKey { case workingDirectory, focused, label, scrollback, id, axis, ratio, first, second }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -30,18 +32,20 @@ extension ClosedLayout: Codable {
             self = .pane(workingDirectory: try c.decode(String.self, forKey: .workingDirectory),
                          focused: try c.decodeIfPresent(Bool.self, forKey: .focused) ?? false,
                          label: try c.decodeIfPresent(String.self, forKey: .label),
-                         scrollback: try c.decodeIfPresent(String.self, forKey: .scrollback))
+                         scrollback: try c.decodeIfPresent(String.self, forKey: .scrollback),
+                         id: try c.decodeIfPresent(UUID.self, forKey: .id).map(PaneID.init(rawValue:)))
         }
     }
 
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .pane(let dir, let focused, let label, let scrollback):
+        case .pane(let dir, let focused, let label, let scrollback, let id):
             try c.encode(dir, forKey: .workingDirectory)
             try c.encode(focused, forKey: .focused)
             try c.encodeIfPresent(label, forKey: .label)
             try c.encodeIfPresent(scrollback, forKey: .scrollback)
+            try c.encodeIfPresent(id?.rawValue, forKey: .id)
         case .split(let axis, let ratio, let first, let second):
             try c.encode(axis, forKey: .axis)
             try c.encode(ratio, forKey: .ratio)

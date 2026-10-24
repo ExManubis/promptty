@@ -17,10 +17,13 @@ public struct TabSnapshot: Codable, Equatable, Sendable {
     /// Absent for a tab with one pane, and in session files written before splits were kept
     /// (whose tabs come back with the focused pane alone, as described by the fields above).
     public var layout: ClosedLayout?
+    /// A tab with one pane: the pane's id, so a program prompttyd kept running finds it again
+    /// (PTY-77). Absent in session files written before.
+    public var pane: PaneID?
     public init(title: String, customTitle: String?, workingDirectory: String, pin: TabPin? = nil, project: ProjectID? = nil,
-                scrollback: String? = nil, label: String? = nil, layout: ClosedLayout? = nil) {
+                scrollback: String? = nil, label: String? = nil, layout: ClosedLayout? = nil, pane: PaneID? = nil) {
         self.title = title; self.customTitle = customTitle; self.workingDirectory = workingDirectory; self.pin = pin
-        self.project = project; self.scrollback = scrollback; self.label = label; self.layout = layout
+        self.project = project; self.scrollback = scrollback; self.label = label; self.layout = layout; self.pane = pane
     }
 }
 
@@ -79,7 +82,8 @@ extension Workspace {
                 WindowSnapshot(
                     frame: w.frame,
                     tabs: w.tabs.map { TabSnapshot(title: $0.title, customTitle: $0.customTitle, workingDirectory: $0.workingDirectory, pin: $0.pin, project: w.project(of: $0), scrollback: scrollback($0.focusedPane),
-                                                label: $0.focusedPane.label, layout: $0.hasSplits ? $0.layout(scrollback: scrollback) : nil) },
+                                                label: $0.focusedPane.label, layout: $0.hasSplits ? $0.layout(scrollback: scrollback) : nil,
+                                                pane: $0.hasSplits ? nil : $0.focusedPane.id) },
                     selectedIndex: w.selectedTabID.flatMap(w.index(of:))
                 )
             }
@@ -100,6 +104,9 @@ extension Workspace {
         fallbackDirectory: String = NSHomeDirectory()
     ) -> Workspace {
         let ws = Workspace(tabLayout: snapshot.tabLayout)
+        // Panes keep their saved ids, each once.
+        var used = Set<PaneID>()
+        let keepID: (PaneID) -> Bool = { used.insert($0).inserted }
         for p in snapshot.projects where ws.project(id: p.id) == nil {
             ws.addProject(name: p.name, icon: p.icon, id: p.id, folded: p.folded)
         }
@@ -115,7 +122,12 @@ extension Workspace {
                 w.selectedTabID = nil
                 let tab = w.addTab(title: t.title, workingDirectory: exists ? wanted : fallbackDirectory, customTitle: t.customTitle, project: project)
                 if let layout = t.layout, t.pin == nil {
-                    tab.restore(layout) { directoryExists($0) ? $0 : fallbackDirectory }
+                    tab.restore(layout, keepID: keepID) { directoryExists($0) ? $0 : fallbackDirectory }
+                    tab.focusedPane.title = t.title
+                } else if let id = t.pane, t.pin == nil {
+                    // A pinned tab starts its command afresh; any other keeps its pane.
+                    tab.restore(.pane(workingDirectory: tab.workingDirectory, focused: true, label: t.label, scrollback: t.scrollback, id: id),
+                                keepID: keepID) { $0 }
                     tab.focusedPane.title = t.title
                 } else {
                     tab.focusedPane.restoredScrollback = t.scrollback

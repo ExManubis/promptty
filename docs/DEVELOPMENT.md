@@ -34,6 +34,10 @@ and stops unless it is version 0.16.
     Sources/RemoteProtocol   the messages the Mac's remote API and the iPhone app send each other
     Sources/RemoteServer     the remote API's WebSocket server and who it lets in (Mac only)
     Sources/RemoteClient     the iPhone app's side of the remote API
+    Sources/SessionProtocol  what the app and prompttyd say to each other
+    Sources/SessionDaemonCore prompttyd: the panes' programs on ptys of its own, and a headless terminal of each (libghostty-vt)
+    Sources/prompttyd        prompttyd's main, bundled in the app
+    Sources/CPtySpawn        forkpty and what the child does before exec, in C
     Sources/PrompTTYChrome   SwiftUI chrome the Mac and iPhone apps share: program tiles and logos, activity, rows, banner
     Sources/PrompTTYApp      AppKit windows and menus; SwiftUI chrome, input bar and Settings
     Engine/                  libghostty as a local SwiftPM package; patches/ holds PrompTTY's engine patches
@@ -273,6 +277,35 @@ the split tree, each pane's folder, label and file) and comes back split; a pinn
 as its pin, one pane. A restored zsh pane starts with
 `PROMPTTY_RESTORE` set to its file: the integration's `.zshenv` prints it before anything else and
 deletes it. Files no tab names any more are removed at the next write. Other shells start plain.
+
+## Programs that outlive the app (prompttyd)
+
+With **Settings › Tabs › Keep programs running when PrompTTY quits** on (and session restore on),
+the panes' programs run in `prompttyd`, as Rex's server runs them, not in the app (PTY-77). At
+launch the app connects to it on `prompttyd.sock` in the data folder, starting it from the bundle
+(`Contents/MacOS/prompttyd`, in a session of its own) when nothing answers; it exits by itself 15
+seconds after it has no program and no app. A new pane's surface is then *hosted* (libghostty's host
+backend, engine patch 0006): libghostty works out what it would have started, shell integration,
+`login(1)` and environment included (`ghostty_surface_exec_plan`, patch 0008), and `SessionDaemon`
+asks the daemon to run it on a pty of its own (`open`). The program's output feeds the surface
+(`SurfaceHostLink.feed`, off the main thread), what the surface writes (keys, paste, query
+replies) and its grid go back; the daemon tells the process in front and whether it reads a
+password (`status`), which the app otherwise reads from its own pty, and the program's exit
+(`exited`, then `ghostty_surface_host_exited`).
+
+The daemon writes every byte through a headless terminal of the pane (libghostty-vt,
+`Engine/GhosttyVt.xcframework`). When the app quits, nothing ends (AppKit's closing the windows
+then hangs nothing up: `SessionDaemon.appTerminating`); the session file keeps each pane's id
+(`TabSnapshot.pane`, `ClosedLayout`'s `id`), and at the next launch the restored pane opens the same
+id, gets a snapshot of the daemon's terminal (`ghostty_terminal_vt_snapshot_alloc`, patch 0009) at
+its grid, and goes on live. A zsh at its prompt is sent a Control-G (zle's send-break) so the input
+bar learns it is ready. Closing a pane or a window hangs up on its program (SIGHUP to its process
+group); programs no window shows ten seconds after launch are ended too, and with the setting off,
+whatever a daemon still runs is ended at launch. A pinned tab starts its command afresh.
+
+The frames (`SessionProtocol`) are a length, a kind and JSON, or a pane and raw bytes for input and
+output; an app and a daemon of different `SessionProtocol.version` don't talk, and the app runs its
+panes itself. The quick terminal always does.
 
 ## Agent hooks
 

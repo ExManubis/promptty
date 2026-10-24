@@ -161,6 +161,10 @@ Everything lives in **PrompTTY › Settings…** (⌘,) and applies immediately:
 cursor, sidebar or tab strip, session restore, clipboard access, shortcuts and agent hooks.
 PrompTTY keeps its own settings and does not read your Ghostty config.
 
+With **Settings › Tabs › Keep programs running when PrompTTY quits**, your shells and what runs
+in them keep going in the background (`prompttyd`) when you quit, and your tabs come back to them,
+as they were, at the next launch.
+
 ## Contributing
 
 Build instructions, the source layout and how the agent hooks work are in

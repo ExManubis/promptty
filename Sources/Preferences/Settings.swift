@@ -83,6 +83,9 @@ public struct Settings: Equatable, Sendable {
     public var restoreSession = true
     /// Restored tabs show what they printed before the app quit (zsh panes).
     public var restoreScrollback = true
+    /// Panes' programs run in prompttyd, not the app, so they keep running when it quits and are
+    /// there again, as they were, at the next launch (PTY-77). For panes opened after it is on.
+    public var keepShellsRunning = false
     public var confirmCloseRunning = true
 
     // Notifications
@@ -152,7 +155,7 @@ extension Settings: Codable {
         case cursorStyle, cursorBlink, cursorColor, fullRefreshRate, tintStrength, windowOpacity, tabLayout, sidebarWidth, tabListHidden
         case newTabDirectory, restoreSession, confirmCloseRunning, optionAsAlt, vimNavigation, secureKeyboardEntry, shortcuts
         case clipboardRead, clipboardWrite, clipboardReadPrograms, clipboardWritePrograms
-        case notifyCommands, notifyAfterSeconds, restoreScrollback, markUnseenOutput, quickTerminal, remoteControl, remoteAccess, remoteTyping, savedCommands, paneHeaders, translucentPanes
+        case notifyCommands, notifyAfterSeconds, restoreScrollback, keepShellsRunning, markUnseenOutput, quickTerminal, remoteControl, remoteAccess, remoteTyping, savedCommands, paneHeaders, translucentPanes
     }
 
     public init(from decoder: Decoder) throws {
@@ -180,6 +183,7 @@ extension Settings: Codable {
         s.newTabDirectory = value(.newTabDirectory, s.newTabDirectory)
         s.restoreSession = value(.restoreSession, s.restoreSession)
         s.restoreScrollback = value(.restoreScrollback, s.restoreScrollback)
+        s.keepShellsRunning = value(.keepShellsRunning, s.keepShellsRunning)
         s.confirmCloseRunning = value(.confirmCloseRunning, s.confirmCloseRunning)
         s.notifyCommands = value(.notifyCommands, s.notifyCommands)
         s.notifyAfterSeconds = value(.notifyAfterSeconds, s.notifyAfterSeconds)
@@ -235,6 +239,7 @@ extension Settings: Codable {
         try c.encode(newTabDirectory, forKey: .newTabDirectory)
         try c.encode(restoreSession, forKey: .restoreSession)
         try c.encode(restoreScrollback, forKey: .restoreScrollback)
+        try c.encode(keepShellsRunning, forKey: .keepShellsRunning)
         try c.encode(confirmCloseRunning, forKey: .confirmCloseRunning)
         try c.encode(notifyCommands, forKey: .notifyCommands)
         try c.encode(notifyAfterSeconds, forKey: .notifyAfterSeconds)

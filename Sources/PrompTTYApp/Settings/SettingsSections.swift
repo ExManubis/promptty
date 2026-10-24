@@ -143,6 +143,9 @@ struct TabsSection: View {
                 Toggle("Keep each tab's output when quitting", isOn: $model.settings.restoreScrollback)
                     .disabled(!model.settings.restoreSession)
                     .help("Reopened tabs show what they printed before, above a fresh prompt (zsh).")
+                Toggle("Keep programs running when PrompTTY quits", isOn: $model.settings.keepShellsRunning)
+                    .disabled(!model.settings.restoreSession)
+                    .help("Shells and what runs in them keep going in the background (prompttyd), and are back as they were at the next launch. For tabs opened after this is on.")
                 Toggle("Ask before closing a running process", isOn: $model.settings.confirmCloseRunning)
             }
 

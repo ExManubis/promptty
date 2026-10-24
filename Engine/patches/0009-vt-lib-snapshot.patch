@@ -1,0 +1,103 @@
+diff --git a/include/ghostty/vt/terminal.h b/include/ghostty/vt/terminal.h
+index 482b9700e..b01a091c8 100644
+--- a/include/ghostty/vt/terminal.h
++++ b/include/ghostty/vt/terminal.h
+@@ -3222,6 +3222,19 @@ GHOSTTY_API GhosttyResult ghostty_terminal_continuation_alloc(
+     uint8_t** out_ptr,
+     size_t* out_len);
+ 
++/**
++ * PrompTTY: the terminal as VT bytes that rebuild it when written to a fresh
++ * terminal of the same size: at most `scrollback` rows of scrollback, the
++ * screen, cursor, modes and the alternate screen with the primary screen
++ * behind it, then the sequence the input stopped in the middle of. Free the
++ * result with ghostty_free and the same allocator.
++ */
++GHOSTTY_API GhosttyResult ghostty_terminal_vt_snapshot_alloc(GhosttyTerminal terminal,
++                                                            uint32_t scrollback,
++                                                            const GhosttyAllocator* allocator,
++                                                            uint8_t** out_ptr,
++                                                            size_t* out_len);
++
+ /**
+  * Scroll the terminal viewport.
+  *
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index 517ccce6b..42684097e 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -333,6 +333,7 @@ comptime {
+         @export(&c.terminal_continuation_write, .{ .name = "ghostty_terminal_continuation_write" });
+         @export(&c.terminal_continuation_buf, .{ .name = "ghostty_terminal_continuation_buf" });
+         @export(&c.terminal_continuation_alloc, .{ .name = "ghostty_terminal_continuation_alloc" });
++        @export(&c.terminal_vt_snapshot_alloc, .{ .name = "ghostty_terminal_vt_snapshot_alloc" });
+         if (features.selection) {
+             @export(&c.terminal_select_word, .{ .name = "ghostty_terminal_select_word" });
+             @export(&c.terminal_select_word_between, .{ .name = "ghostty_terminal_select_word_between" });
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+index 5248c2cb6..79055566e 100644
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -196,6 +196,7 @@ pub const terminal_get_multi = terminal.get_multi;
+ pub const terminal_continuation_write = terminal.continuation_write;
+ pub const terminal_continuation_buf = terminal.continuation_buf;
+ pub const terminal_continuation_alloc = terminal.continuation_alloc;
++pub const terminal_vt_snapshot_alloc = terminal.vt_snapshot_alloc;
+ pub const terminal_select_word = selection.word;
+ pub const terminal_select_word_between = selection.word_between;
+ pub const terminal_select_line = selection.line;
+diff --git a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+index 06cab9b24..70fb44bd0 100644
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -33,6 +33,7 @@ const clipboard = @import("../clipboard.zig");
+ const kitty_clipboard = @import("../kitty/clipboard.zig");
+ const c_io = @import("io.zig");
+ const snapshot_core = @import("../snapshot/main.zig");
++const vt_snapshot = @import("../vt_snapshot.zig");
+ const terminal_mem = @import("../mem.zig");
+ const Result = @import("result.zig").Result;
+ const assert = @import("../../quirks.zig").inlineAssert;
+@@ -1051,6 +1052,42 @@ fn new_(
+     );
+ }
+ 
++/// PrompTTY: the terminal as VT bytes that rebuild it in a fresh terminal of
++/// the same size (terminal/vt_snapshot.zig, as ghostty_surface_read_vt_snapshot
++/// gives a surface's): at most `scrollback` rows of scrollback, the screen,
++/// cursor, modes and the alternate screen, then the sequence the input stopped
++/// in the middle of. Free with ghostty_free and the same allocator.
++pub fn vt_snapshot_alloc(
++    terminal_: Terminal,
++    scrollback: u32,
++    alloc_: ?*const CAllocator,
++    out_ptr_: ?*?[*]u8,
++    out_len_: ?*usize,
++) callconv(lib.calling_conv) Result {
++    const out_ptr = out_ptr_ orelse return .invalid_value;
++    const out_len = out_len_ orelse return .invalid_value;
++    out_ptr.* = null;
++    out_len.* = 0;
++    const wrapper = terminal_ orelse return .invalid_value;
++    const alloc = lib.alloc.default(alloc_);
++
++    var aw: std.Io.Writer.Allocating = .init(alloc);
++    defer aw.deinit();
++    vt_snapshot.write(alloc, wrapper.terminal, &aw.writer, .{
++        .scrollback = scrollback,
++    }) catch return .out_of_memory;
++    // The sequence the input stopped in the middle of, when it is tracked.
++    wrapper.stream.writeContinuation(&aw.writer) catch |err| switch (err) {
++        error.WriteFailed => return .out_of_memory,
++        else => {},
++    };
++
++    const bytes = aw.toOwnedSlice() catch return .out_of_memory;
++    out_ptr.* = if (bytes.len == 0) null else bytes.ptr;
++    out_len.* = bytes.len;
++    return .success;
++}
++
+ pub fn vt_write(
+     terminal_: Terminal,
+     ptr: [*]const u8,
