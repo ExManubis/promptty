@@ -5,9 +5,10 @@ import RemoteClient
 import RemoteProtocol
 import UIKit
 
-/// A pane on the Mac, live on the phone: attached over the remote API (`attach`), its snapshot and
+/// A pane on the Mac, live on the phone: attached over the remote API (`attach`), its screen and
 /// then every byte its programs write fed to a terminal of its own (`MirrorSurfaceView`) at the
-/// Mac's grid, so it shows what the Mac's does; scrolling it moves nothing on the Mac. What is typed
+/// pane's grid, so it shows what the Mac's does. As Rex does, it attaches with the screen alone, so
+/// it shows and takes keys at once, and the scrollback (`history`) is swapped in after; scrolling it moves nothing on the Mac. What is typed
 /// goes to the pane as keys (`input`). The device used last sizes the pane: opening it here, typing,
 /// a tap or turning the phone fits it to the phone; using it on the Mac gives it the Mac's size.
 @MainActor
@@ -40,6 +41,18 @@ final class LiveMirror {
     /// Output handled before the attach's answer (they arrive in that order, but each is its own
     /// task on the main actor): played once the answer says where the output starts.
     private var early: [MirrorOutput] = []
+    /// The output since the screen it attached with, `replayStart` the position of its first
+    /// byte: what follows the scrollback's snapshot is replayed from here.
+    private var replay = Data()
+    private var replayStart = 0
+    /// The scrollback, until the output has got to where it was taken.
+    private var history: History?
+    private var historyTries = 0
+
+    /// Rows of scrollback asked for once the screen shows.
+    static let scrollback = 2000
+    /// The output kept for replaying after the scrollback.
+    static let replayLimit = 4 << 20
     private static let log = Logger(subsystem: "dev.promptty.PrompTTY2.phone", category: "mirror")
 
     /// The phone's terminal font, smaller than the Mac's: a pane's grid fits more of the screen.
@@ -82,7 +95,8 @@ final class LiveMirror {
         attaching = true
         early = []
         let grid = phoneGrid()
-        let params = AttachParams(pane: pane.uuidString, resume: position, scrollback: 2000, cols: grid?.cols, rows: grid?.rows)
+        // The screen alone: it shows at once, the scrollback follows (`requestHistory`).
+        let params = AttachParams(pane: pane.uuidString, resume: position, scrollback: 0, cols: grid?.cols, rows: grid?.rows)
         sentGrid = grid
         Task {
             do {
@@ -93,6 +107,11 @@ final class LiveMirror {
                 if let snapshot = attached.snapshot {
                     pending = [snapshot]
                     gridMatches = false
+                    replay = Data()
+                    replayStart = attached.position.seq
+                    history = nil
+                    historyTries = 0
+                    requestHistory()
                 }
                 apply(attached.state)
                 // At the grid it has already (attached again): the snapshot plays now.
@@ -129,9 +148,46 @@ final class LiveMirror {
         // Bytes it has already (a resume overlapping): only the new ones.
         let skip = position.seq - output.seq
         guard skip < output.data.count else { return }
-        let data = skip > 0 ? output.data.dropFirst(skip) : output.data
+        let data = Data(skip > 0 ? output.data.dropFirst(skip) : output.data)
         self.position?.seq += data.count
-        feed(Data(data))
+        replay.append(data)
+        if replay.count > Self.replayLimit {
+            let drop = replay.count - Self.replayLimit
+            replay.removeFirst(drop)
+            replayStart += drop
+        }
+        feed(data)
+        playHistory()
+    }
+
+    // MARK: Scrollback
+
+    /// Asks for the scrollback; a retry waits a little, for the grid to settle (the pane takes the
+    /// phone's just after it attaches).
+    private func requestHistory(after delay: Duration = .zero) {
+        guard historyTries < 3, let client = connection?.client else { return }
+        historyTries += 1
+        let params = HistoryParams(pane: pane.uuidString, scrollback: Self.scrollback)
+        Task {
+            if delay > .zero { try? await Task.sleep(for: delay) }
+            guard let history = try? await client.call(RemoteProtocol.Method.history, params, as: History.self),
+                  history.position.stream == position?.stream else { return }
+            self.history = history
+            playHistory()
+        }
+    }
+
+    /// Once the output has got to where the scrollback was taken: the terminal is rebuilt from it
+    /// and the output since, in one feed, so it never draws halfway.
+    private func playHistory() {
+        guard let history, let position, history.position.stream == position.stream,
+              position.seq >= history.position.seq, gridMatches, let state else { return }
+        self.history = nil
+        guard history.position.seq >= replayStart else { return }
+        // Taken at another grid than the terminal has now: the output since wouldn't fit it.
+        guard history.cols == state.cols, history.rows == state.rows else { return requestHistory(after: .milliseconds(300)) }
+        let since = replay.suffix(from: replay.startIndex + (history.position.seq - replayStart))
+        view?.feed(history.snapshot + since)
     }
 
     func apply(_ state: MirrorState) {
@@ -202,6 +258,7 @@ final class LiveMirror {
         let queued = pending
         pending = []
         for data in queued { view?.feed(data) }
+        playHistory()
     }
 
     private func feed(_ data: Data) {

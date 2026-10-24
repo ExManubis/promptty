@@ -10,6 +10,9 @@ extension RemoteSession {
         case RemoteProtocol.Method.attach:
             call = (try? request.params(as: AttachParams.self)).map(MirrorCall.attach)
             takes = "a pane, and where to resume or how much scrollback"
+        case RemoteProtocol.Method.history:
+            call = (try? request.params(as: HistoryParams.self)).map(MirrorCall.history)
+            takes = "a pane and how many rows of scrollback"
         case RemoteProtocol.Method.detach:
             call = (try? request.params(as: PaneParams.self)).map(MirrorCall.detach)
             takes = "a pane"

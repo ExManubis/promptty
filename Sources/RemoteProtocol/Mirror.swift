@@ -7,6 +7,10 @@ import Foundation
 // (tmux's `window-size latest`). Bytes travel base64 in JSON (`Data`'s Codable form), so every
 // message is one JSON-RPC text frame like the rest of the protocol.
 //
+// As Rex does, a client can attach with the screen alone (`scrollback` 0), show it and take keys at
+// once, then ask for the scrollback (`history`): a snapshot with it at a later position, which the
+// client swaps in once its own output has got there, replaying what came after.
+//
 // A pane's output is one stream of bytes: `stream` names it and `seq` counts its bytes from 0. The
 // snapshot holds everything before `seq`; each `output` event carries the bytes from its `seq` on,
 // and the next one starts where it ended. A client that reconnects attaches with the stream and
@@ -16,6 +20,9 @@ import Foundation
 extension RemoteProtocol.Method {
     /// Mirrors a pane (`AttachParams` → `Attached`); its `output` events follow.
     public static let attach = "attach"
+    /// An attached pane's scrollback (`HistoryParams` → `History`), for a client that attached
+    /// with the screen alone.
+    public static let history = "history"
     /// Stops mirroring a pane (`PaneParams` → `{}`); a pane it sized gets the Mac's size back.
     public static let detach = "detach"
     /// Types into an attached pane (`InputParams` → `{}`); the pane takes the client's grid.
@@ -128,6 +135,36 @@ public struct MirrorState: Codable, Equatable, Sendable {
         self.sizedByMe = sizedByMe
         self.password = password
         self.typing = typing
+    }
+}
+
+/// `history`'s params.
+public struct HistoryParams: Codable, Equatable, Sendable {
+    public var pane: String
+    /// Rows of scrollback at most.
+    public var scrollback: Int
+
+    public init(pane: String, scrollback: Int) {
+        self.pane = pane
+        self.scrollback = scrollback
+    }
+}
+
+/// `history`'s result: a snapshot as `attach` gives, with the scrollback, taken at `position` at
+/// the grid `cols` × `rows`. The client replays it, then the output it has from `position` on.
+public struct History: Codable, Equatable, Sendable {
+    public var pane: String
+    public var position: MirrorPosition
+    public var snapshot: Data
+    public var cols: Int
+    public var rows: Int
+
+    public init(pane: String, position: MirrorPosition, snapshot: Data, cols: Int, rows: Int) {
+        self.pane = pane
+        self.position = position
+        self.snapshot = snapshot
+        self.cols = cols
+        self.rows = rows
     }
 }
 

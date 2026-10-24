@@ -49,6 +49,7 @@ public struct MirrorClient: Sendable, Hashable {
 /// A mirror request from a client (`RemoteSession`'s `.mirror` action).
 public enum MirrorCall: Equatable, Sendable {
     case attach(AttachParams)
+    case history(HistoryParams)
     case detach(PaneParams)
     case input(InputParams)
     case resize(GridParams)
@@ -57,6 +58,7 @@ public enum MirrorCall: Equatable, Sendable {
     public var pane: String {
         switch self {
         case .attach(let params): params.pane
+        case .history(let params): params.pane
         case .detach(let params): params.pane
         case .input(let params): params.pane
         case .resize(let params): params.pane
@@ -143,6 +145,14 @@ public final class MirrorHub {
         switch call {
         case .attach(let params):
             return attach(params, client: client)
+        case .history(let params):
+            return reply {
+                let (id, mirrored) = try self.attached(params.pane, client)
+                guard let taken = mirrored.pane?.snapshot(scrollback: min(max(params.scrollback, 0), 100_000)) else {
+                    throw RemoteError(code: RemoteError.internalError, message: "the pane has no terminal")
+                }
+                return try JSONValue(encoding: History(pane: id, position: taken.position, snapshot: taken.vt, cols: taken.cols, rows: taken.rows))
+            }
         case .detach(let params):
             return reply {
                 let (id, _) = try self.attached(params.pane, client)
