@@ -76,8 +76,9 @@ final class MacConnection {
         model?.connectionChanged(.connecting, for: mac.id)
         let client = RemoteClient(url: url, clientName: "PrompTTY for iPhone")
         self.client = client
+        // In order: a task each could run them out of order, and output must not be.
         client.onEvent { [weak self] event in
-            Task { @MainActor in self?.handle(event) }
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.handle(event) } }
         }
         client.onClose { [weak self] error in
             Task { @MainActor in self?.closed(error, client: client) }
@@ -282,9 +283,9 @@ final class MacConnection {
         switch error {
         case let remote as RemoteError where remote.code == RemoteError.notAllowed: "Not allowed: \(remote.message)"
         case let remote as RemoteError: remote.message
-        case let url as URLError where url.code == .cannotFindHost || url.code == .cannotConnectToHost:
+        case RemoteClient.Failure.unreachable?:
             "Can't reach it. Is Tailscale on, and Remote access on in PrompTTY's Settings?"
-        case let url as URLError where url.code == .timedOut: "It doesn't answer."
+        case RemoteClient.Failure.timedOut?: "It doesn't answer."
         case .some(let error): error.localizedDescription
         case nil: "Disconnected"
         }

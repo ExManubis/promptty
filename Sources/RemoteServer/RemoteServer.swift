@@ -115,7 +115,10 @@ public final class RemoteServer: @unchecked Sendable {
         let websocket = NWProtocolWebSocket.Options()
         websocket.autoReplyPing = true
         websocket.maximumMessageSize = Self.maxMessage
-        let parameters = NWParameters.tcp
+        // No Nagle: a key's echo is a few bytes, sent at once rather than held for the next.
+        let tcp = NWProtocolTCP.Options()
+        tcp.noDelay = true
+        let parameters = NWParameters(tls: nil, tcp: tcp)
         parameters.defaultProtocolStack.applicationProtocols.insert(websocket, at: 0)
         parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(host), port: nwPort)
         parameters.allowLocalEndpointReuse = true
