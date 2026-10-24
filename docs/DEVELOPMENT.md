@@ -85,6 +85,8 @@ permission prompt can be answered.
     script/run-ios                                build and launch on the "iPhone Duo" simulator
     script/run-ios "iPhone 18 Pro" -open zsh      another simulator; launch arguments after its name
     script/test-ios                               the UI smoke tests, on an iPhone simulator
+    script/run-device                             build, install and launch on the connected iPhone
+    script/run-device "Mikkel's iPhone"           that iPhone (USB, or paired over Wi-Fi)
 
 It lays itself out for how the phone is held (`Posture`): phone-width (an iPhone, or an iPhone Duo
 folded) shows the sidebar and opens a pane over it; an open iPhone Duo shows the sidebar beside the
