@@ -12,6 +12,8 @@ public struct ProcessArguments: Equatable, Sendable {
         self.arguments = arguments
     }
 
+    // Reading another process is Mac only; `parse` is shared.
+    #if os(macOS)
     /// Nil when the process is gone or not ours to read (one run by another user, as with sudo).
     public static func read(pid: Int32) -> ProcessArguments? {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
@@ -37,6 +39,7 @@ public struct ProcessArguments: Equatable, Sendable {
             return bytes.isEmpty ? nil : String(decoding: bytes, as: UTF8.self)
         }
     }
+    #endif
 
     /// `KERN_PROCARGS2`'s layout: argc, the executable path, NUL padding, then argc arguments,
     /// each ending in one NUL (the environment follows). A program that rewrote its argv (node's

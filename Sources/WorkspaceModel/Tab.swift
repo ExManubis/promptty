@@ -208,7 +208,11 @@ public final class Tab {
     }
 
     public static func abbreviate(_ path: String) -> String {
+        #if os(macOS)
         let home = FileManager.default.homeDirectoryForCurrentUser.path
+        #else
+        let home = NSHomeDirectory()
+        #endif
         if path == home { return "~" }
         if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
         return path

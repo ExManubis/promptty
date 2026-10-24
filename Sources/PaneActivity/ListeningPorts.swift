@@ -1,6 +1,8 @@
 import Darwin
 import Foundation
 
+// Process inspection is Mac only; `ProcessTree`'s walk is shared.
+#if os(macOS)
 /// The TCP ports a pane's programs listen on (a dev server's `:3000`), read from the kernel with
 /// libproc: no `lsof` per look.
 public enum ListeningPorts {
@@ -45,6 +47,7 @@ public enum ListeningPorts {
         return ports
     }
 }
+#endif
 
 /// Which processes run under which, from one read of the kernel's process table: walking every
 /// pane's tree from it costs one system call, where asking for each process's children scans the
@@ -59,6 +62,7 @@ public struct ProcessTree: Sendable {
         self.children = children
     }
 
+    #if os(macOS)
     /// Every process now; nil if the table cannot be read.
     public static func snapshot() -> ProcessTree? {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
@@ -76,6 +80,7 @@ public struct ProcessTree: Sendable {
         }
         return nil
     }
+    #endif
 
     /// Whether anything runs under `pid` (a shell at its prompt has nothing).
     public func hasChildren(_ pid: Int32) -> Bool { children[pid]?.isEmpty == false }
