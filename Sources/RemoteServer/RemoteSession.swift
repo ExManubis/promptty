@@ -15,6 +15,11 @@ public struct RemoteSession: Sendable {
         case send(RemoteMessage)
         /// A control command, for the control socket's handler; its `ControlResponse` answers `id`.
         case control(ControlRequest, id: RemoteID)
+        /// The workspace now answers `id`; from then on its changes are sent.
+        case subscribe(id: RemoteID)
+        case unsubscribe(id: RemoteID)
+        /// A pane's recent commands answer `id`.
+        case blocks(BlocksParams, id: RemoteID)
         /// After the reply: a peer that speaks another version is hung up on.
         case close
     }
@@ -57,6 +62,18 @@ public struct RemoteSession: Sendable {
         guard case .introduced = state else {
             return [fail(request, RemoteError.notIntroduced, "say hello first")]
         }
+        switch request.method {
+        case RemoteProtocol.Method.subscribe:
+            return [.subscribe(id: request.id)]
+        case RemoteProtocol.Method.unsubscribe:
+            return [.unsubscribe(id: request.id)]
+        case RemoteProtocol.Method.blocks:
+            guard let params = try? request.params(as: BlocksParams.self) else {
+                return [fail(request, RemoteError.invalidParams, "blocks takes a pane and a limit")]
+            }
+            return [.blocks(params, id: request.id)]
+        default: break
+        }
         guard RemoteProtocol.controlMethods.contains(request.method) else {
             return [fail(request, RemoteError.methodNotFound, "no method \(request.method)")]
         }
@@ -66,9 +83,14 @@ public struct RemoteSession: Sendable {
         return [.control(params.request(command: request.method), id: request.id)]
     }
 
-    /// The answer to a control command.
-    public static func reply(_ response: ControlResponse, to id: RemoteID) -> Action {
-        respond(id: id) { try .result(response, id: id) }
+    /// The answer to a request: its result.
+    public static func reply<R: Encodable>(_ result: R, to id: RemoteID) -> Action {
+        respond(id: id) { try .result(result, id: id) }
+    }
+
+    /// The answer to a request that failed.
+    public static func reply(_ error: RemoteError, to id: RemoteID) -> Action {
+        .send(.response(.error(error, id: id)))
     }
 
     private func fail(_ request: RemoteRequest, _ code: Int, _ message: String) -> Action {

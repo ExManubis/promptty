@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"command.finished","params":{"command":{"command":"make test","exitCode":0,"finished":1792850012.5,"id":"cmd:1","running":false,"started":1792850000},"pane":"P1","tab":"T1"}}

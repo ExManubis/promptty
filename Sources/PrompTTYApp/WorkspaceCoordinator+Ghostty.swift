@@ -140,6 +140,7 @@ extension WorkspaceCoordinator {
             activity.exitReported(located.2.id, code: Int(code))
             activity.clearProgress(located.2.id)
             located.3.shell(for: located.2.id)?.commandFinished(code: code, durationNs: duration)
+            remoteCommandFinished(located.2.id)
             located.3.blocks(for: located.2.id)?.setNeedsRefresh()
             return true
         case .secureInput(let request):

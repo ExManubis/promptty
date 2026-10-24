@@ -5,6 +5,18 @@ import XCTest
 
 /// Every message the protocol defines, as it goes on the wire.
 private enum Samples {
+    static let command = RemoteCommand(id: "cmd:1", command: "make test", running: false, exitCode: 0, started: 1_792_850_000, finished: 1_792_850_012.5)
+    static let workspace = RemoteWorkspace(
+        windows: [RemoteWindow(id: "W1", key: true, selectedTab: "T1", tabs: [
+            RemoteTab(id: "T1", title: "Remote API", project: "R1", pinned: false, focusedPane: "P1", panes: [
+                RemotePane(id: "P1", title: "claude", folder: "/Users/me/promptty", program: "claude", state: .permission,
+                           agent: RemoteAgent(tool: "Bash", since: 1_792_850_100), commands: [command]),
+                RemotePane(id: "P2", label: "logs", title: "zsh", folder: "/Users/me/promptty", state: .failed, exitCode: 1, unseen: true,
+                           ports: [3000], remote: "deploy@munin-01"),
+            ]),
+        ])],
+        projects: [RemoteProject(id: "R1", name: "promptty", folded: false)])
+
     static func all() throws -> [(name: String, message: RemoteMessage)] {
         [
             ("hello", .request(try RemoteRequest(id: 1, method: RemoteProtocol.Method.hello,
@@ -19,6 +31,12 @@ private enum Samples {
             ("control-wait-exit", .response(try .result(ControlResponse(code: 2, text: "exited 2"), id: 3))),
             ("parse-error", .response(.error(RemoteError(code: RemoteError.parseError, message: "not JSON"), id: nil))),
             ("event", .notification(RemoteNotification(method: "example.changed", params: .object(["count": .int(3), "ok": .bool(true)])))),
+            ("subscribe", .request(RemoteRequest(id: 4, method: RemoteProtocol.Method.subscribe))),
+            ("workspace", .notification(try RemoteNotification(method: RemoteProtocol.Event.workspace, params: workspace))),
+            ("command-finished", .notification(try RemoteNotification(method: RemoteProtocol.Event.commandFinished,
+                                                                      params: CommandFinished(pane: "P1", tab: "T1", command: command)))),
+            ("blocks", .request(try RemoteRequest(id: 5, method: RemoteProtocol.Method.blocks, params: BlocksParams(pane: "tests", limit: 5)))),
+            ("blocks-result", .response(try .result(BlocksResult(pane: "P1", commands: [command]), id: 5))),
         ]
     }
 }
