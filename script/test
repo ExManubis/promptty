@@ -5,7 +5,7 @@ script/build-engine >/dev/null  # rebuilds only when the pin or a patch changed
 swift test
 # The portable modules, which the iPhone app shares, built for iOS so a Mac-only API slipping into
 # one fails here. Package schemes, so GhosttyKit (macOS only) is never built for iOS.
-for scheme in WorkspaceModel Preferences CommandBlocks CommandEditing PaneActivity AgentHooks RemoteControl PrompTTYChrome; do
+for scheme in WorkspaceModel Preferences CommandBlocks CommandEditing PaneActivity AgentHooks RemoteControl RemoteProtocol PrompTTYChrome; do
   xcodebuild -scheme "$scheme" -destination 'generic/platform=iOS Simulator' \
     -derivedDataPath .build/DerivedData-iOS build -quiet
 done

@@ -20,6 +20,8 @@ let package = Package(
         // bundle carries its own copy (project.yml).
         .executable(name: "promptty-hook", targets: ["promptty-hook"]),
         .library(name: "RemoteControl", targets: ["RemoteControl"]),
+        // The messages the Mac's remote API and the iPhone app send each other.
+        .library(name: "RemoteProtocol", targets: ["RemoteProtocol"]),
         // `promptty`, the command line every pane has on its PATH; the app bundle carries its own
         // copy (project.yml).
         .executable(name: "promptty", targets: ["promptty"]),
@@ -47,6 +49,8 @@ let package = Package(
         .target(name: "RemoteControl", dependencies: ["AgentHooks"]),
         .executableTarget(name: "promptty", dependencies: ["RemoteControl"]),
         .testTarget(name: "RemoteControlTests", dependencies: ["RemoteControl"]),
+        .target(name: "RemoteProtocol", dependencies: ["RemoteControl"]),
+        .testTarget(name: "RemoteProtocolTests", dependencies: ["RemoteProtocol"], resources: [.copy("Fixtures")]),
         .target(
             name: "GhosttyBridge",
             dependencies: [

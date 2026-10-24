@@ -29,6 +29,7 @@ and stops unless it is version 0.16.
     Sources/promptty-hook    the helper agents' hooks run, bundled in the app; sends one line to the socket
     Sources/RemoteControl    the control socket's requests and responses, its server and client, `promptty`'s argument parsing
     Sources/promptty         the `promptty` command line, bundled in the app
+    Sources/RemoteProtocol   the messages the Mac's remote API and the iPhone app send each other
     Sources/PrompTTYChrome   SwiftUI chrome the Mac and iPhone apps share: program tiles and logos, activity, rows, banner
     Sources/PrompTTYApp      AppKit windows and menus; SwiftUI chrome, input bar and Settings
     Engine/                  libghostty as a local SwiftPM package; patches/ holds PrompTTY's engine patches
@@ -40,7 +41,7 @@ and stops unless it is version 0.16.
 
 The iPhone app shares PrompTTY's own modules, so these build for iOS as well as macOS:
 `WorkspaceModel`, `Preferences`, `CommandBlocks`, `CommandEditing`, `PaneActivity`, `AgentHooks`,
-`RemoteControl` and `PrompTTYChrome`. Their Mac-only parts are behind `#if os(macOS)`: `ProcessRunner`'s running
+`RemoteControl`, `RemoteProtocol` and `PrompTTYChrome`. Their Mac-only parts are behind `#if os(macOS)`: `ProcessRunner`'s running
 of a program (its `Outcome` is shared), the hook listener (`HookListener`) and the control server
 (`ControlServer`), and `PaneActivity`'s process inspection (`ListeningPorts`,
 `ProcessTree.snapshot`, `ProcessArguments.read` and `.workingDirectory`). `script/test` builds the
@@ -72,6 +73,27 @@ above the hinge and the controls below it. The simulator cannot unfold an iPhone
 command line, so the launch arguments can force a posture and a canvas the app lays itself out in,
 scaled to fit: `-posture flat -canvas 951x669` (open) and `-posture halfFolded -canvas 669x951`.
 `-open <tab>` opens a tab and `-activity YES` shows the Activity.
+
+## Remote protocol
+
+`Sources/RemoteProtocol` is the reference for what the Mac and the iPhone app say to each other;
+both import it, so they cannot drift apart. It is JSON-RPC 2.0, one message per WebSocket text
+frame (`RemoteMessage`: a request, its response, or a notification for an event).
+
+- The first request on a connection is `hello` (`Hello` → `Welcome`), which compares protocol
+  versions: `RemoteProtocol.version`, raised when a message changes in a way an older peer would
+  misread. A version the Mac cannot speak gets `RemoteError.unsupportedVersion`, with the versions
+  it can in the error's data.
+- The control socket's commands are methods of the same names (`ls`, `send`, `capture`, …), their
+  params `ControlParams` (`promptty`'s arguments without the command and the caller pane) and their
+  result the control socket's own `ControlResponse`. A command that runs and fails is a result with
+  the status `promptty` would exit with, not an error; errors are the protocol's own (JSON-RPC's
+  codes, and PrompTTY's from -32001 down).
+
+Every message is pinned by a fixture in `Tests/RemoteProtocolTests/Fixtures`, so a change to the
+wire format shows in review; `PROMPTTY_RECORD_FIXTURES=1 swift test --filter RemoteProtocolTests`
+writes them again. Features that add messages (subscriptions, prompt answers, mirroring) add them
+here, with fixtures.
 
 ## Settings and config
 
